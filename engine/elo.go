@@ -114,6 +114,12 @@ func (m MatchResult) EloMargin() int {
 // PlayMatch plays `games` games between a and b with alternating colours,
 // concurrently across GOMAXPROCS goroutines, and reports a's record.
 func PlayMatch(a, b Player, games, maxMoves int) MatchResult {
+	return PlayMatchLive(a, b, games, maxMoves, nil)
+}
+
+// PlayMatchLive is PlayMatch with a hook on the first game, so a UI can
+// watch one representative game of the match as it happens.
+func PlayMatchLive(a, b Player, games, maxMoves int, live LiveHook) MatchResult {
 	type outcome struct {
 		score float64
 	}
@@ -133,7 +139,11 @@ func PlayMatch(a, b Player, games, maxMoves int) MatchResult {
 			if !aIsWhite {
 				white, black = b, a
 			}
-			winner, decisive := playPlayers(white, black, maxMoves)
+			var hook LiveHook
+			if i == 0 {
+				hook = live
+			}
+			winner, decisive := playPlayersLive(white, black, maxMoves, hook)
 			perspective := board.White
 			if !aIsWhite {
 				perspective = board.Black
@@ -157,7 +167,7 @@ func PlayMatch(a, b Player, games, maxMoves int) MatchResult {
 	return res
 }
 
-func playPlayers(white, black Player, maxMoves int) (board.Color, bool) {
+func playPlayersLive(white, black Player, maxMoves int, live LiveHook) (board.Color, bool) {
 	g := game.New()
 	for plies := 0; plies < maxMoves && !g.IsOver(); plies++ {
 		p := white
@@ -169,6 +179,9 @@ func playPlayers(white, black Player, maxMoves int) (board.Color, bool) {
 			break
 		}
 		g.ApplyMove(move.From, move.To)
+		if live != nil {
+			live(g, plies+1, move.From, move.To)
+		}
 	}
 	if g.IsCheckmate(g.Turn) || g.KingCaptured {
 		return g.Turn.Other(), true

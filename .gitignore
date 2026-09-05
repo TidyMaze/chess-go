@@ -5,3 +5,7 @@ training_curve.json
 training_status.json
 game_record.json
 champion_weights.json
+arena_ratings.json
+arena_matches.json
+arena_status.json
+arena-bin

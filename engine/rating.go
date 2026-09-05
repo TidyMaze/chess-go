@@ -28,6 +28,25 @@ type pairResult struct {
 	games int
 }
 
+// PairScore is a match result in the form FitFromResults consumes, so a
+// caller running its own matches (e.g. to stream progress to a UI) can
+// still use the same rating fit.
+type PairScore struct {
+	I, J  int
+	Score float64
+	Games int
+}
+
+// FitFromResults fits ratings to already-played match results, with
+// players[anchor] pinned to 0 Elo.
+func FitFromResults(numPlayers int, scores []PairScore, anchor int) []float64 {
+	results := make([]pairResult, len(scores))
+	for i, s := range scores {
+		results[i] = pairResult{s.I, s.J, s.Score, s.Games}
+	}
+	return fitRatings(numPlayers, results, anchor)
+}
+
 // FitRatings runs a full round-robin and returns a rating per player,
 // with players[anchor] pinned to 0 Elo.
 func FitRatings(players []Player, gamesPerPair, maxMoves, anchor int) []float64 {
@@ -52,10 +71,14 @@ func FitRatings(players []Player, gamesPerPair, maxMoves, anchor int) []float64 
 	}
 	wg.Wait()
 
-	ratings := make([]float64, len(players))
+	return fitRatings(len(players), results, anchor)
+}
+
+func fitRatings(numPlayers int, results []pairResult, anchor int) []float64 {
+	ratings := make([]float64, numPlayers)
 	const lr = 8.0
 	for iter := 0; iter < 20000; iter++ {
-		grad := make([]float64, len(players))
+		grad := make([]float64, numPlayers)
 		for _, r := range results {
 			expected := 1.0 / (1.0 + math.Pow(10, (ratings[r.j]-ratings[r.i])/400))
 			// Gradient of the log-likelihood w.r.t. rating difference.

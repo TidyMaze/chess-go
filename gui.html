@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Chess self-play viewer</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+  :root { --board: min(90vw, 80vh, 720px); --sq: calc(var(--board) / 8); }
+  html, body { height: 100%; }
+  body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; background: #1e1e1e; color: #eee; margin: 0; padding: 2vh 2vw; box-sizing: border-box; }
+  h2 { font-size: clamp(1rem, 2.2vw, 1.5rem); text-align: center; margin: 0 0 1rem; }
+  #board { display: grid; grid-template-columns: repeat(8, var(--sq)); grid-template-rows: repeat(8, var(--sq)); width: var(--board); height: var(--board); border: 3px solid #444; flex: none; }
+  .sq { display: flex; align-items: center; justify-content: center; font-size: calc(var(--sq) * 0.65); user-select: none; }
+  .light { background: #eeeed2; }
+  .dark { background: #769656; }
+  .wpiece { color: #fbfbfb; text-shadow: 0 0 2px #000, 0 0 3px #000; }
+  .bpiece { color: #101010; text-shadow: 0 0 2px #fff; }
+  .highlight { outline: 4px solid #ffd54f; outline-offset: -4px; }
+  #controls { margin-top: 1rem; display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; justify-content: center; width: var(--board); }
+  button { font-size: clamp(14px, 1.6vw, 18px); padding: 0.4rem 0.8rem; cursor: pointer; }
+  #status { margin-top: 0.8rem; font-size: clamp(14px, 1.8vw, 18px); min-height: 1.4em; text-align: center; }
+  #badge { display: flex; gap: 0.5rem; margin-bottom: 0.6rem; font-size: clamp(13px, 1.5vw, 16px); }
+  #badge span { background: #333; border-radius: 4px; padding: 0.2rem 0.6rem; }
+  #slider { flex: 1 1 auto; min-width: 120px; }
+  #training { width: min(90vw, 900px); margin-top: 2.5rem; }
+  #training h2 { text-align: left; margin-bottom: 0.3rem; }
+  #genProgress { min-height: 1.4em; margin-bottom: 0.6rem; }
+  #modelBanner { min-height: 1.6em; margin-bottom: 0.8rem; padding: 0.5rem 0.9rem; border-radius: 6px; font-weight: 600; }
+  #modelBanner.promoted { background: #16341f; border: 1px solid #16a34a; color: #86efac; }
+  #modelBanner.holding { background: #2a2a2a; border: 1px solid #444; color: #999; font-weight: 400; }
+  #curveWrap { background: #2a2a2a; border-radius: 6px; padding: 1rem; }
+  #curveLegend { font-size: 0.85em; margin-top: 0.6rem; opacity: 0.85; }
+  #arena { width: min(90vw, 900px); margin-top: 2rem; }
+  #arena h2 { text-align: left; margin-bottom: 0.3rem; }
+  #arenaStatus { min-height: 1.4em; margin-bottom: 0.7rem; color: #9ca3af; }
+  table.ratings { width: 100%; border-collapse: collapse; font-size: 0.95em; }
+  table.ratings th { text-align: left; color: #9ca3af; font-weight: 600; padding: 0.3rem 0.5rem; }
+  table.ratings td { padding: 0.3rem 0.5rem; border-top: 1px solid #333; }
+  table.ratings td.elo { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+  .bar { display: inline-block; height: 0.65em; background: #f59e0b; border-radius: 2px; vertical-align: middle; }
+  tr.baseline td { color: #86efac; }
+  #matchLog { margin-top: 1rem; font-size: 0.85em; color: #bbb; max-height: 12em; overflow-y: auto; }
+  #matchLog div { padding: 0.15rem 0; border-top: 1px solid #2a2a2a; }
+</style>
+</head>
+<body>
+<h2 id="title">Self-play: WHITE vs BLACK (depth-2 engine)</h2>
+<div id="badge"></div>
+<div id="board"></div>
+<div id="controls">
+  <button id="first">|&lt;</button>
+  <button id="prev">&lt;</button>
+  <button id="play">Play</button>
+  <button id="next">&gt;</button>
+  <button id="last">&gt;|</button>
+  <input type="range" id="slider" min="0" value="0">
+  <button id="live">&#9679; Live</button>
+</div>
+<div id="status"></div>
+
+<div id="arena">
+  <h2>Go engine arena</h2>
+  <div id="arenaStatus">Waiting for the arena to start&hellip;</div>
+  <table class="ratings"><thead><tr><th>Engine</th><th>Elo</th><th style="width:45%"></th></tr></thead>
+    <tbody id="ratingsBody"></tbody></table>
+  <div id="matchLog"></div>
+</div>
+
+<div id="training">
+  <h2>Training progress</h2>
+  <div id="modelBanner" class="holding">Waiting for the first result&hellip;</div>
+  <div id="genProgress">Waiting for training to start&hellip;</div>
+  <div id="curveWrap"><canvas id="curve" height="90"></canvas></div>
+  <div id="curveLegend">Blue: challenger vs champion win rate (green = promoted, red = rejected) &mdash; noisy, relative.
+  Gray dashed: Elo vs a random-move baseline &mdash; saturates at 100% win rate almost immediately, stops being useful once flat.
+  Orange: champion's best-ever Elo vs a fixed equal-depth bot (default weights) &mdash; a ratchet, not a raw reading: a
+  promotion only sticks if it doesn't score worse here than the best champion seen so far, so this line can only go up.</div>
+</div>
+
+<script>
+const SYMBOLS = {
+  wK: "♔", wQ: "♕", wR: "♖", wB: "♗", wN: "♘", wP: "♙",
+  bK: "♚", bQ: "♛", bR: "♜", bB: "♝", bN: "♞", bP: "♟",
+};
+const files = "abcdefgh";
+
+let data = null;
+let frameIdx = 0;
+let playing = false;
+let timer = null;
+let followLive = true;
+let lastGeneration = null;
+let lastLiveKey = null;
+
+function squareEl(file, rank) {
+  return document.getElementById(`sq-${files[file]}${rank + 1}`);
+}
+
+function buildBoard() {
+  const boardEl = document.getElementById("board");
+  boardEl.innerHTML = "";
+  for (let rank = 7; rank >= 0; rank--) {
+    for (let file = 0; file < 8; file++) {
+      const div = document.createElement("div");
+      div.id = `sq-${files[file]}${rank + 1}`;
+      div.className = "sq " + ((file + rank) % 2 === 0 ? "dark" : "light");
+      boardEl.appendChild(div);
+    }
+  }
+}
+
+function renderBoard(boardMap, fromSq, toSq) {
+  for (let rank = 0; rank < 8; rank++) {
+    for (let file = 0; file < 8; file++) {
+      const name = files[file] + (rank + 1);
+      const el = squareEl(file, rank);
+      const code = boardMap[name];
+      el.textContent = code ? SYMBOLS[code] : "";
+      el.classList.remove("highlight", "wpiece", "bpiece");
+      if (code) el.classList.add(code[0] === "w" ? "wpiece" : "bpiece");
+    }
+  }
+  if (fromSq) squareEl(files.indexOf(fromSq[0]), parseInt(fromSq[1]) - 1).classList.add("highlight");
+  if (toSq) squareEl(files.indexOf(toSq[0]), parseInt(toSq[1]) - 1).classList.add("highlight");
+}
+
+function updateBadge(gen, game, gamesPerGen, turn) {
+  const el = document.getElementById("badge");
+  el.innerHTML = "";
+  const parts = [
+    gen != null ? `Gen ${gen}` : null,
+    game != null ? `Game ${game}${gamesPerGen ? "/" + gamesPerGen : ""}` : null,
+    turn != null ? `Turn ${turn}` : null,
+  ].filter(Boolean);
+  for (const p of parts) {
+    const span = document.createElement("span");
+    span.textContent = p;
+    el.appendChild(span);
+  }
+}
+
+// Live labels look like "Gen 3, game 2/5: CHALLENGER(white) vs CHAMPION(black)"
+function parseLiveLabel(label) {
+  const m = label.match(/Gen (\d+), game (\d+)\/(\d+)/);
+  return m ? { gen: m[1], game: m[2], gamesPerGen: m[3] } : { gen: null, game: null, gamesPerGen: null };
+}
+
+function render() {
+  const frame = data.frames[frameIdx];
+  renderBoard(frame.board, frame.from, frame.to);
+  document.getElementById("slider").value = frameIdx;
+  const moveText = frame.move_no === 0 ? "Starting position" : `Move ${frame.move_no}: ${frame.mover} ${frame.from}${frame.to}`;
+  const resultText = frameIdx === data.frames.length - 1 ? ` — ${data.result}` : "";
+  document.getElementById("status").textContent = moveText + resultText;
+  document.getElementById("title").textContent = data.generation != null
+    ? `Generation ${data.generation} — ${data.result}` : "Self-play (recorded game)";
+  updateBadge(data.generation, data.game, data.games_per_gen, frame.move_no);
+}
+
+function goTo(i) {
+  frameIdx = Math.max(0, Math.min(data.frames.length - 1, i));
+  render();
+}
+
+function stopPlay() {
+  playing = false;
+  clearInterval(timer);
+  document.getElementById("play").textContent = "Play";
+}
+
+function setFollowLive(on) {
+  followLive = on;
+  document.getElementById("live").style.opacity = on ? "1" : "0.5";
+  if (on) stopPlay();
+}
+
+function manualControl(fn) {
+  // No recorded game loaded yet (data is null): nothing to scrub to, and
+  // touching data.frames here would throw. Observed live: a stray earlier
+  // click left followLive permanently false with data still null, which
+  // silently broke both live-follow pollers (they both bail early when
+  // !followLive) and crashed Play's own timer every tick trying to read
+  // null.frames -- the board just stayed blank with no visible error to
+  // the user watching the page (only in the console).
+  return () => { if (!data) return; setFollowLive(false); stopPlay(); fn(); };
+}
+
+document.getElementById("first").onclick = manualControl(() => goTo(0));
+document.getElementById("prev").onclick = manualControl(() => goTo(frameIdx - 1));
+document.getElementById("next").onclick = manualControl(() => goTo(frameIdx + 1));
+document.getElementById("last").onclick = manualControl(() => goTo(data.frames.length - 1));
+document.getElementById("slider").oninput = (e) => manualControl(() => goTo(parseInt(e.target.value)))();
+document.getElementById("play").onclick = () => {
+  if (!data) return;
+  setFollowLive(false);
+  if (playing) { stopPlay(); return; }
+  playing = true;
+  document.getElementById("play").textContent = "Pause";
+  timer = setInterval(() => {
+    if (!data || frameIdx >= data.frames.length - 1) { stopPlay(); return; }
+    goTo(frameIdx + 1);
+  }, 400);
+};
+document.getElementById("live").onclick = () => setFollowLive(true);
+
+function loadGame(d) {
+  data = d;
+  document.getElementById("slider").max = data.frames.length - 1;
+  buildBoard();
+  goTo(data.frames.length - 1);
+}
+
+async function pollForNewGeneration() {
+  try {
+    const d = await fetch("game_record.json?_=" + Date.now()).then(r => r.json());
+    if (d.generation !== lastGeneration) {
+      lastGeneration = d.generation;
+      data = d;
+      document.getElementById("slider").max = data.frames.length - 1;
+      if (!followLive) return; // user is reviewing a past game; don't yank it away
+      buildBoard();
+      goTo(data.frames.length - 1);
+    }
+  } catch (e) {}
+}
+
+async function pollLiveGame() {
+  if (!followLive) return;
+  try {
+    const state = await fetch("live_game.json?_=" + Date.now()).then(r => r.json());
+    const key = `${state.label}#${state.move_no}`;
+    if (key === lastLiveKey) return;
+    lastLiveKey = key;
+    if (!document.getElementById("board").childElementCount) buildBoard();
+    renderBoard(state.board, state.from, state.to);
+    document.getElementById("slider").value = 0;
+    document.getElementById("title").textContent = state.label;
+    document.getElementById("status").textContent =
+      `LIVE — move ${state.move_no}: ${state.mover} ${state.from}${state.to}`;
+    const { gen, game, gamesPerGen } = parseLiveLabel(state.label);
+    updateBadge(gen, game, gamesPerGen, state.move_no);
+  } catch (e) {}
+}
+
+pollForNewGeneration();
+pollLiveGame();
+setInterval(pollForNewGeneration, 3000);
+setInterval(pollLiveGame, 1000);
+
+let curveChart = null;
+
+function refreshGenProgress(status) {
+  const el = document.getElementById("genProgress");
+  if (status.phase === "done") {
+    el.textContent = "Training finished.";
+    return;
+  }
+  if (status.phase === "stalled") {
+    el.textContent = `Gen ${status.generation}: stopped early -- no improvement for several generations in a row.`;
+    return;
+  }
+  const candidateText = status.population_size > 1 ? ` candidate ${status.candidate}/${status.population_size},` : "";
+  const phaseText = status.phase === "benchmarking"
+    ? "benchmarking best candidate vs the fixed bot…"
+    : `game ${status.game}/${status.games_per_gen} in progress`;
+  const outcomesText = status.outcomes.length ? ` — so far: ${status.outcomes.join(", ")}` : "";
+  el.textContent = `Gen ${status.generation},${candidateText} ${phaseText}, running score ${status.running_score}/${status.games_per_gen}${outcomesText}`;
+}
+
+function refreshModelBanner(fullHistory) {
+  const el = document.getElementById("modelBanner");
+  if (!fullHistory.length) return;
+  const last = fullHistory[fullHistory.length - 1];
+  if (last.promoted) {
+    const prevElo = fullHistory.length > 1 ? fullHistory[fullHistory.length - 2].vs_fixed_bot_elo : null;
+    el.className = "promoted";
+    el.textContent = `New best model: Gen ${last.generation}, elo ${last.vs_fixed_bot_elo >= 0 ? "+" : ""}${last.vs_fixed_bot_elo}` +
+      (prevElo != null ? ` (up from ${prevElo >= 0 ? "+" : ""}${prevElo})` : "");
+  } else {
+    el.className = "holding";
+    el.textContent = `Still champion from an earlier generation -- best-ever elo ${last.vs_fixed_bot_elo >= 0 ? "+" : ""}${last.vs_fixed_bot_elo} not beaten yet (Gen ${last.generation} rejected)`;
+  }
+}
+
+function refreshCurve(fullHistory) {
+  refreshModelBanner(fullHistory);
+  const history = fullHistory.slice(-10);
+  const gens = history.map(h => h.generation);
+  const winRates = history.map(h => Math.round(h.win_rate * 1000) / 10);
+  const promoted = history.map(h => h.promoted ? "#16a34a" : "#dc2626");
+  const randomEloPoints = history.filter(h => "vs_random_elo" in h).map(h => ({x: h.generation, y: h.vs_random_elo}));
+  const fixedBotEloPoints = history.filter(h => "vs_fixed_bot_elo" in h).map(h => ({x: h.generation, y: h.vs_fixed_bot_elo}));
+  if (!curveChart) {
+    curveChart = new Chart(document.getElementById('curve'), {
+      type: 'line',
+      data: { labels: gens, datasets: [
+        { label: 'Challenger win rate vs champion (%)', data: winRates, borderColor: '#2563eb',
+          pointBackgroundColor: promoted, pointRadius: 5, tension: 0.2, yAxisID: 'y' },
+        { label: 'Champion Elo vs random-move (saturates fast)', data: randomEloPoints, borderColor: '#6b7280',
+          pointBackgroundColor: '#6b7280', pointRadius: 3, tension: 0.2, yAxisID: 'y1', borderDash: [4, 3] },
+        { label: "Champion's best-ever Elo vs fixed bot (ratchet)", data: fixedBotEloPoints, borderColor: '#f59e0b',
+          pointBackgroundColor: '#f59e0b', pointRadius: 4, tension: 0.2, yAxisID: 'y1' },
+      ] },
+      options: { scales: {
+        y: { min: 0, max: 100, position: 'left', title: { display: true, text: 'Win rate %' } },
+        y1: { position: 'right', title: { display: true, text: 'Elo vs baseline' }, grid: { drawOnChartArea: false } },
+        x: { title: { display: true, text: 'Generation' } }
+      } }
+    });
+  } else {
+    curveChart.data.labels = gens;
+    curveChart.data.datasets[0].data = winRates;
+    curveChart.data.datasets[0].pointBackgroundColor = promoted;
+    curveChart.data.datasets[1].data = randomEloPoints;
+    curveChart.data.datasets[2].data = fixedBotEloPoints;
+    curveChart.update();
+  }
+}
+
+async function pollTrainingProgress() {
+  try {
+    const status = await fetch("training_status.json?_=" + Date.now()).then(r => r.json());
+    refreshGenProgress(status);
+  } catch (e) {}
+  try {
+    const history = await fetch("training_curve.json?_=" + Date.now()).then(r => r.json());
+    if (history.length) refreshCurve(history);
+  } catch (e) {}
+}
+
+pollTrainingProgress();
+setInterval(pollTrainingProgress, 1000);
+
+function refreshRatings(rows) {
+  const body = document.getElementById("ratingsBody");
+  const max = Math.max(1, ...rows.map(r => r.elo));
+  const sorted = [...rows].sort((a, b) => b.elo - a.elo);
+  body.innerHTML = "";
+  for (const r of sorted) {
+    const tr = document.createElement("tr");
+    if (r.name.includes("BASELINE")) tr.className = "baseline";
+    const width = Math.max(0, r.elo / max * 100);
+    tr.innerHTML = `<td>${r.name}</td><td class="elo">${r.elo >= 0 ? "+" : ""}${Math.round(r.elo)}</td>` +
+      `<td><span class="bar" style="width:${width}%"></span></td>`;
+    body.appendChild(tr);
+  }
+}
+
+function refreshMatchLog(matches) {
+  const el = document.getElementById("matchLog");
+  el.innerHTML = "";
+  for (const m of [...matches].reverse()) {
+    const d = document.createElement("div");
+    const gap = m.elo_gap >= 0 ? `+${m.elo_gap}` : `${m.elo_gap}`;
+    d.textContent = `${m.a} vs ${m.b} — ${m.wins}-${m.draws}-${m.losses} (${gap} Elo, ${m.seconds}s)`;
+    el.appendChild(d);
+  }
+}
+
+async function pollArena() {
+  try {
+    const st = await fetch("arena_status.json?_=" + Date.now()).then(r => r.json());
+    const el = document.getElementById("arenaStatus");
+    el.textContent = st.phase === "done"
+      ? `Arena complete — ${st.total_matches} matches played.`
+      : `Match ${st.match}/${st.total_matches}: ${st.label} (${st.games_per_pair} games)`;
+  } catch (e) {}
+  try {
+    const rows = await fetch("arena_ratings.json?_=" + Date.now()).then(r => r.json());
+    if (rows.length) refreshRatings(rows);
+  } catch (e) {}
+  try {
+    const matches = await fetch("arena_matches.json?_=" + Date.now()).then(r => r.json());
+    if (matches.length) refreshMatchLog(matches);
+  } catch (e) {}
+}
+
+pollArena();
+setInterval(pollArena, 1000);
+</script>
+</body>
+</html>
