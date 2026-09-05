@@ -170,12 +170,8 @@ func main() {
 	dir := flag.String("dir", ".", "directory to serve files from")
 	flag.Parse()
 
-	best = engine.Player{
-		Name: "best", Depth: *depth, UsePST: true, Quiescence: true,
-		TTBits: 20, NullMove: true, Tapered: true, Iterative: true,
-		Extensions: true, Aspiration: true, SEEPruning: true,
-		Structure: true, Futility: true, Tuned: *tuned,
-	}
+	best = engine.Strong(*depth)
+	best.Tuned = *tuned
 
 	http.HandleFunc("/api/new", handleNew)
 	http.HandleFunc("/api/move", handleMove)

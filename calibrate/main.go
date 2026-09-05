@@ -47,6 +47,10 @@ func main() {
 		Name: *label, Depth: *depth, UsePST: true, Quiescence: true,
 		TTBits: 20, NullMove: true, Tapered: true, Iterative: true,
 	}
+	if *config == "current" {
+		me = engine.Strong(*depth)
+		me.Name = *label
+	}
 	switch *config {
 	case "base": // Go port as first completed: PST, quiescence, TT, null-move, tapered, ID.
 	case "search": // + check extensions, aspiration windows, SEE pruning.

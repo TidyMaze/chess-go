@@ -670,11 +670,8 @@ func main() {
 	}
 	workers := runtime.NumCPU()
 
-	champion := engine.Player{
-		Name: "champion", UsePST: true, Quiescence: true, TTBits: 20,
-		NullMove: true, Tapered: true, Iterative: true, Extensions: true,
-		Aspiration: true, SEEPruning: true, Structure: true, Futility: true,
-	}
+	champion := engine.Strong(0)
+	champion.Name = "champion"
 
 	params := engine.HalfKPInputs*(*hidden) + *hidden + 2*(*hidden) + 1
 	arch := map[string]any{

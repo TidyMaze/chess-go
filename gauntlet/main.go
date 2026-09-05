@@ -17,9 +17,9 @@ import (
 )
 
 func full(name string, d int) engine.Player {
-	return engine.Player{Name: name, Depth: d, UsePST: true, Quiescence: true,
-		TTBits: 20, NullMove: true, Tapered: true, Iterative: true,
-		Extensions: true, Aspiration: true, SEEPruning: true, Structure: true}
+	p := engine.Strong(d)
+	p.Name = name
+	return p
 }
 
 func main() {

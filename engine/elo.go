@@ -527,3 +527,22 @@ func QuiescenceScore(p Player, g *game.Game) float64 {
 		Net: p.Net}
 	return quiesce(g, g.Turn, g.Turn, negInf, posInf, ev, 0)
 }
+
+// Strong is the engine's standard configuration, in one place.
+//
+// Every command used to build this list itself, which meant a term could
+// be confirmed in a gauntlet and then quietly absent from calibration or
+// from the training champion. The mobility and king-safety terms are here
+// because they measured +16 +/- 12 Elo together over 3000 games, which
+// clears its own margin; individually they were +9 +/- 34 and +13 +/- 34,
+// inside theirs, which is why they were not adopted before and why the
+// stacked measurement was worth running.
+func Strong(depth int) Player {
+	return Player{
+		Name: "strong", Depth: depth,
+		UsePST: true, Quiescence: true, Tapered: true, Structure: true,
+		TTBits: 20, NullMove: true, Iterative: true,
+		Extensions: true, Aspiration: true, SEEPruning: true, Futility: true,
+		Mobility: true, KingSafety: 0.01,
+	}
+}

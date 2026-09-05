@@ -37,7 +37,7 @@ type blunder struct {
 	Phase    string  `json:"phase"`
 	Move     string  `json:"move"`
 	Best     string  `json:"best"`
-	Loss     float64 `json:"loss"`  // pawns given away by this move
+	Loss     float64 `json:"loss"` // pawns given away by this move
 	Before   float64 `json:"before"`
 	After    float64 `json:"after"`
 	Hanging  bool    `json:"hanging"` // the moved piece could be taken for free
@@ -116,11 +116,8 @@ func main() {
 	out := flag.String("out", "analysis.json", "where to write the findings")
 	flag.Parse()
 
-	me := engine.Player{
-		Name: "me", Depth: *myDepth, UsePST: true, Quiescence: true, TTBits: 20,
-		NullMove: true, Tapered: true, Iterative: true, Extensions: true,
-		Aspiration: true, SEEPruning: true, Structure: true, Futility: true,
-	}
+	me := engine.Strong(*myDepth)
+	me.Name = "me"
 	weights := engine.DefaultWeights()
 
 	opp, err := engine.NewStockfish(stockfishPath, 20, *oppElo)
