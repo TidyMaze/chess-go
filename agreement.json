@@ -1,0 +1,42 @@
+{
+  "oracle_depth": 14,
+  "positions": 400,
+  "rows": [
+    {
+      "depth": 1,
+      "agreement": 48.87218045112782,
+      "seconds": 0.319759625
+    },
+    {
+      "depth": 2,
+      "agreement": 50.87719298245614,
+      "seconds": 0.668592
+    },
+    {
+      "depth": 3,
+      "agreement": 50.87719298245614,
+      "seconds": 1.532779084
+    },
+    {
+      "depth": 4,
+      "agreement": 66.41604010025063,
+      "seconds": 2.926434584
+    },
+    {
+      "depth": 5,
+      "agreement": 58.145363408521305,
+      "seconds": 7.40730225
+    },
+    {
+      "depth": 6,
+      "agreement": 62.15538847117794,
+      "seconds": 17.970290125
+    },
+    {
+      "depth": 7,
+      "agreement": 61.904761904761905,
+      "seconds": 33.715876875
+    }
+  ],
+  "when": "2026-09-05T12:59:42+02:00"
+}

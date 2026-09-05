@@ -10,6 +10,11 @@ import (
 
 func randIntn(n int) int { return rand.Intn(n) }
 
+// SeedRandom fixes the tie-break RNG so that two runs of a measurement
+// see the same positions and the same tie-breaks, making arms comparable
+// instead of each arm getting its own sample.
+func SeedRandom(seed int64) { rand.Seed(seed) }
+
 const mateScore = 1000
 
 // quiesceNodes counts quiescence nodes so nodes-per-second reflects the
