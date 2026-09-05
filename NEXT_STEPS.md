@@ -119,7 +119,37 @@ Start with fewer than ten parameters (piece values and the mobility
 weights), because the number of games needed grows with the parameter
 count, not with how much each one matters.
 
-### 3. Fix why the network failed, rather than abandoning it
+### 3. The self-play loop: what is left to fix
+
+Running now (`trainloop`). The engine plays itself, learns to predict what
+its own deeper search concludes, and each network must win a match
+against the champion (elo > margin, not elo > 0) to be adopted.
+
+Two bugs found and fixed while getting it working, both worth remembering:
+
+- The network is a **residual**: at play time its output is added to the
+  hand-written evaluation. It was being trained on the full search score,
+  so the engine counted its evaluation twice. That was -211 +/- 41.
+- It was training on **all** positions. Where a capture sequence is
+  pending, the gap between static and search score *is* the tactic, and
+  no function of piece placement can predict it. Filtering to quiet
+  positions (not in check, quiescence within 0.35 pawns of static) cut
+  held-out error from 3.30 to 1.35.
+
+Progression so far: -211, -80, -67, -50, all rejected. The remaining
+constraint is data: training error 0.55 against held-out 1.35 is a
+shortage of positions, not of capacity. The pool grows 26k quiet
+positions per generation toward a 400k window.
+
+If it is still negative at generation 15, the thing to change is the
+network input, not the amount of data. 768 binary features cannot express
+"this knight is defended", and a piece-square-only input is close to what
+the hand-written evaluation already computes, so there may be little left
+for it to add. Real NNUE uses king-relative features (HalfKP), where every
+piece feature is paired with the king's square, which is what lets it
+learn king safety at all.
+
+### 4. Fix why the offline network failed, rather than abandoning it
 
 The failures were informative and none of them was "neural evaluation
 does not work here":
@@ -140,13 +170,13 @@ positions rather than 60,000. Held-out error needs to be well under 0.5
 pawns before a network is worth putting in a game: at ~2 pawns it hangs
 pieces, which is what -300 Elo looks like.
 
-### 4. En passant
+### 5. En passant
 
 The only chess rule still missing. Worth little Elo directly, but it is a
 rule, and its absence means FEN cannot describe some positions the
 opponent can reach.
 
-### 5. Tune the tables entry by entry
+### 6. Tune the tables entry by entry
 
 The tuner currently fits 6 piece-square scalars and could fit all 768
 entries given enough positions. Do this only after item 2: fitting more
@@ -154,7 +184,12 @@ parameters against the same wrong objective will just find a worse
 engine faster. If the tables are fitted at all, verify the result in
 games before believing it, the way the mobility weights were.
 
-### 6. King safety that counts attackers
+### 7. King safety that counts attackers
+
+Implemented behind `-king-safety <weight>`, counting attackers on the
+squares around the king and scaling superlinearly with how many. A first
+scan measured +13 +/- 34 at weight 0.01 and was interrupted before the
+higher weights finished. Worth completing at 1500 games.
 
 Every fit so far has pushed the king-shelter term around without
 conviction, because counting shelter pawns is too crude to be worth
@@ -173,6 +208,27 @@ now that castling exists and kings actually reach safety.
 - **Bitboards.** A large rewrite for speed, and speed is not the
   constraint: see the whole first section.
 - **Deeper search.** Same reason.
+
+## What the engine actually gets wrong
+
+`analyze` plays Stockfish and has Stockfish score every position before
+and after each of this engine's moves. First run, two games, blunder
+threshold 0.8 pawns:
+
+- **Not one blunder was a hung piece.** The search is tactically sound.
+- Losses are positional and concentrated while most pieces are still on
+  the board: 14.7 of 18.3 pawns given away with a full board.
+- The engine visibly shuffles: e3-c1, c1-g5, g5-c1 with a bishop.
+
+The shuffling is not the random tie-break, which was the obvious suspect.
+Measured over 60 positions, only 1.4 moves tie for best out of 32.9 legal,
+so the engine genuinely prefers those moves. That makes it an evaluation
+problem, and it is the clearest description yet of which part: nothing in
+the evaluation rewards making progress, so a move that returns a piece to
+where it came from can score the same as a useful one.
+
+Run a longer analysis (20+ games) before acting on this: two games is a
+small sample for a claim about where the Elo goes.
 
 ## Loose ends, not on the critical path
 

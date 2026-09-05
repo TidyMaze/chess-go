@@ -1,9 +1,9 @@
 {
   "target": 2750,
   "target_name": "Deep Blue",
-  "current": 1909,
-  "current_low": 1781,
-  "current_high": 2037,
+  "current": 1866,
+  "current_low": 1750,
+  "current_high": 1980,
   "milestones": [
     {
       "name": "Club",
@@ -24,13 +24,13 @@
   ],
   "steps": [
     {
-      "name": "Go port baseline (PST, quiescence, TT, null-move, tapered, ID)",
+      "name": "Go port baseline (PST, quiescence, TT, null-move, tapered, iterative deepening)",
       "elo": 1879,
       "low": 1739,
       "high": 2019,
       "gain": 0,
       "pct": 0,
-      "note": "150 games vs Stockfish at 5 Elo-limited settings"
+      "note": "150 games against Stockfish at five Elo-limited settings"
     },
     {
       "name": "+ check extensions, aspiration windows, SEE pruning",
@@ -48,7 +48,16 @@
       "high": 2037,
       "gain": 54,
       "pct": 2.9,
-      "note": "head-to-head said +78 +/- 71; within calibration noise"
+      "note": "head-to-head +78 +/- 71; inside calibration noise"
+    },
+    {
+      "name": "+ futility pruning, castling, 1.28x faster search",
+      "elo": 1866,
+      "low": 1750,
+      "high": 1980,
+      "gain": -43,
+      "pct": -2.3,
+      "note": "depth 6. Castling measured +19 +/- 39, futility +55 +/- 63, speed converts to zero Elo at fixed depth"
     }
   ],
   "external": [
@@ -74,65 +83,9 @@
     }
   ],
   "tech": {
-    "nps": "1.44M",
-    "depth": 5,
-    "reference": "Deep Blue, which beat Kasparov in 1997, searched about 200M positions/sec on 480 custom chips"
+    "nps": "1.8M",
+    "depth": 6,
+    "reference": "Deep Blue, which beat Kasparov in 1997, searched about 200M positions/sec on 480 custom chips."
   },
-  "caveat": "The three builds' 95% intervals overlap almost entirely, so this measurement cannot tell them apart. Head-to-head matches between two builds are far more sensitive (identical engines, one flag different) and did show gains; those gains have not been confirmed against an outside opponent. Treat the current figure as roughly 1900, not as a precise rating.",
-  "agreement": {
-    "oracle": "Stockfish depth 14, 300 self-play positions",
-    "full": [
-      [
-        1,
-        45.0
-      ],
-      [
-        2,
-        48.7
-      ],
-      [
-        3,
-        54.7
-      ],
-      [
-        4,
-        60.4
-      ],
-      [
-        5,
-        59.7
-      ],
-      [
-        6,
-        61.4
-      ]
-    ],
-    "material": [
-      [
-        1,
-        34.9
-      ],
-      [
-        2,
-        37.6
-      ],
-      [
-        3,
-        37.2
-      ],
-      [
-        4,
-        45.6
-      ],
-      [
-        5,
-        43.6
-      ],
-      [
-        6,
-        41.6
-      ]
-    ],
-    "note": "How often the engine picks Stockfish's move. It stops improving after depth 4, so extra search is no longer buying better moves. With a material-only evaluation it falls after depth 4 instead: a deeper search optimises harder for whatever the evaluation says is good, so a weak evaluation gets worse with depth. The evaluation is the ceiling."
-  }
+  "caveat": "Repeated calibrations of near-identical builds returned 1892, 1909, 1840, 1823, 1866 and 1786. That +/- 65 spread is the measurement, not the engine, so this figure cannot resolve a 1% change (19 Elo) and none of the steps above are distinguishable from each other. Read it as roughly 1850. Changes are judged by head-to-head matches instead, where 1500 games resolve +/- 17."
 }
