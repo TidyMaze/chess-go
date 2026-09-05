@@ -191,6 +191,25 @@ better fit) measured -73 +/- 35.
 **"More search depth."** +14 +/- 27 Elo per ply past depth 5, see
 section 3.
 
+**"Learn from a stronger teacher."** Labels come from a depth-5 search by
+the engine itself, which caps the network near its own strength, so
+distilling from Stockfish at depth 10 should raise the ceiling. Measured
+over three generations with the same game budget:
+
+| teacher | net error | hand error | net vs hand | jump per move |
+|---|---|---|---|---|
+| self, depth 5 | 3.69 | 8.71 | 2.36x better | 0.638 |
+| Stockfish, depth 10 | 6.48 | 6.50 | parity | 0.910 |
+
+The stronger teacher's labels are more accurate and less learnable. They
+encode tactics a static function cannot represent, so the network fits
+them worse and comes out jumpier, and jumpiness is what decides whether a
+network can be used at all. A teacher far ahead of the student is not a
+better teacher at this capacity and data scale.
+
+Cost is not the obstacle: 330 labelled positions per second against 630,
+once the Stockfish processes are pooled rather than spawned per game.
+
 **"Speed converts to strength."** A 1.28x faster search is worth about 4
 Elo at fixed depth. Speed is still worth having because it multiplies
 data generation and match throughput, which are the real constraints, but
