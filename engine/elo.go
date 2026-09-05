@@ -46,6 +46,11 @@ type Player struct {
 	// Iterative uses the iterative-deepening search with killers,
 	// history, PVS and late move reductions.
 	Iterative bool
+	// Extensions, Aspiration and SEEPruning are individually switchable so
+	// each can be measured on its own.
+	Extensions bool
+	Aspiration bool
+	SEEPruning bool
 }
 
 func (p Player) pick(g *game.Game) (game.Move, bool) {
@@ -67,7 +72,8 @@ func (p Player) pick(g *game.Game) (game.Move, bool) {
 		}
 		return moves[randIntn(len(moves))], true
 	}
-	ev := &Eval{Weights: p.Weights, UsePST: p.UsePST, NullMove: p.NullMove, MaterialOnly: p.MaterialOnly, QuiescePly: p.QuiescePly, Tapered: p.Tapered}
+	ev := &Eval{Weights: p.Weights, UsePST: p.UsePST, NullMove: p.NullMove, MaterialOnly: p.MaterialOnly, QuiescePly: p.QuiescePly, Tapered: p.Tapered,
+		Extensions: p.Extensions, Aspiration: p.Aspiration, SEEPruning: p.SEEPruning}
 	if p.TTBits > 0 {
 		ev.Table = NewTranspositionTable(p.TTBits)
 	}

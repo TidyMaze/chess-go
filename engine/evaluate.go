@@ -113,7 +113,15 @@ type Eval struct {
 	// Tapered blends middlegame and endgame piece-square tables by how
 	// much material is left.
 	Tapered bool
+	// Extensions enables check extensions.
+	Extensions bool
+	// Aspiration enables aspiration windows in iterative deepening.
+	Aspiration bool
+	// SEEPruning skips plainly-losing captures in quiescence.
+	SEEPruning bool
 }
+
+func (e *Eval) useSEEPruning() bool { return e != nil && e.SEEPruning }
 
 func (e *Eval) quiescePly() int {
 	if e == nil || e.QuiescePly <= 0 {

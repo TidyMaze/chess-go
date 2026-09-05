@@ -38,6 +38,7 @@ type searchCtx struct {
 	history    [2][64][64]int
 	quiescence bool
 	nodes      int
+	extensions bool
 }
 
 func sqIndex(s board.Sq) int { return s.Rank*8 + s.File }
@@ -162,20 +163,30 @@ func (c *searchCtx) search(g *game.Game, color, maximizingFor board.Color, depth
 			reduction = 1
 		}
 
+		// Check extension: a forced sequence should not be cut off
+		// half-way. If the move gives check, spend an extra ply so the
+		// search sees how the check resolves instead of evaluating a
+		// position that is about to change sharply.
+		extension := 0
+		if c.extensions && ply < maxSearchPly-2 && moves.IsInCheck(&next.Board, color.Other()) {
+			extension = 1
+			reduction = 0
+		}
+
 		var value float64
 		if i == 0 {
-			value = c.search(&next, color.Other(), maximizingFor, depth-1, ply+1, alpha, beta)
+			value = c.search(&next, color.Other(), maximizingFor, depth-1+extension, ply+1, alpha, beta)
 		} else {
 			// Principal variation search: try a zero-width window first.
 			if maximizing {
-				value = c.search(&next, color.Other(), maximizingFor, depth-1-reduction, ply+1, alpha, alpha+1e-6)
+				value = c.search(&next, color.Other(), maximizingFor, depth-1-reduction+extension, ply+1, alpha, alpha+1e-6)
 				if value > alpha {
-					value = c.search(&next, color.Other(), maximizingFor, depth-1, ply+1, alpha, beta)
+					value = c.search(&next, color.Other(), maximizingFor, depth-1+extension, ply+1, alpha, beta)
 				}
 			} else {
-				value = c.search(&next, color.Other(), maximizingFor, depth-1-reduction, ply+1, beta-1e-6, beta)
+				value = c.search(&next, color.Other(), maximizingFor, depth-1-reduction+extension, ply+1, beta-1e-6, beta)
 				if value < beta {
-					value = c.search(&next, color.Other(), maximizingFor, depth-1, ply+1, alpha, beta)
+					value = c.search(&next, color.Other(), maximizingFor, depth-1+extension, ply+1, alpha, beta)
 				}
 			}
 		}
@@ -230,10 +241,22 @@ func ChooseMoveIterative(g *game.Game, color board.Color, maxDepth int, ev *Eval
 	if ev.Table == nil {
 		ev.Table = NewTranspositionTable(20)
 	}
-	ctx := &searchCtx{ev: ev, quiescence: useQuiescence}
+	ctx := &searchCtx{ev: ev, quiescence: useQuiescence, extensions: ev.Extensions}
 
 	best := legal[0]
+	prevScore := 0.0
 	for depth := 1; depth <= maxDepth; depth++ {
+		// Aspiration window: the score at depth N is usually close to the
+		// score at N-1, so search a narrow window around it. Most searches
+		// then run with far tighter bounds and prune much harder; the
+		// occasional miss costs one re-search with a full window.
+		alpha, beta := negInf, posInf
+		if ev.Aspiration && depth >= 3 {
+			const window = 0.5
+			alpha, beta = prevScore-window, prevScore+window
+		}
+
+	researchFullWindow:
 		bestScore := negInf
 		var iterBest game.Move
 		var tied []game.Move
@@ -245,7 +268,7 @@ func ChooseMoveIterative(g *game.Game, color board.Color, maxDepth int, ev *Eval
 		for _, m := range ordered {
 			next := game.Game{Board: g.Board, Turn: color}
 			next.ApplyMove(m.From, m.To)
-			score := ctx.search(&next, color.Other(), color, depth-1, 1, negInf, posInf)
+			score := ctx.search(&next, color.Other(), color, depth-1, 1, alpha, beta)
 			if score > bestScore {
 				bestScore, iterBest = score, m
 				tied = tied[:0]
@@ -254,6 +277,14 @@ func ChooseMoveIterative(g *game.Game, color board.Color, maxDepth int, ev *Eval
 				tied = append(tied, m)
 			}
 		}
+		// The true score fell outside the aspiration window, so the search
+		// result is only a bound: redo this depth with a full window.
+		if (bestScore <= alpha || bestScore >= beta) && (alpha != negInf || beta != posInf) {
+			alpha, beta = negInf, posInf
+			goto researchFullWindow
+		}
+		prevScore = bestScore
+
 		if len(tied) > 1 {
 			// Same anti-repetition tie-break as the simple search: prefer a
 			// move that does not repeat a position already seen.
