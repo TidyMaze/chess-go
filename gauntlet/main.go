@@ -29,6 +29,7 @@ func main() {
 	cdepth := flag.Int("cdepth", 0, "challenger depth; 0 means same as -depth")
 	futility := flag.Bool("futility", true, "enable futility pruning on both sides")
 	tuned := flag.Bool("tuned", true, "challenger uses the Texel-tuned evaluation")
+	netPath := flag.String("net", "", "challenger uses this trained network instead")
 	flag.Parse()
 
 	reference := full("reference (current FULL)", *depth)
@@ -44,6 +45,18 @@ func main() {
 	challenger := full("challenger", cd)
 	challenger.Futility = *futility
 	challenger.Tuned = *tuned
+	if *netPath != "" {
+		n, err := engine.LoadNet(*netPath)
+		if err != nil {
+			fmt.Println("load net:", err)
+			return
+		}
+		challenger.Net = n
+		// A residual network was fitted as a correction to the default
+		// hand-written evaluation, so the challenger must keep it.
+		challenger.Tuned = false
+		fmt.Printf("loaded %s (residual=%v)\n", *netPath, n.Residual)
+	}
 
 	t0 := time.Now()
 	res := engine.PlayMatch(challenger, reference, *games, *maxMoves)

@@ -20,3 +20,8 @@ gendata-bin
 tuning_data.jsonl
 tune-bin
 play-bin
+label-bin
+tuning_labels.jsonl
+nnuetrain-bin
+net.json
+labels_static.jsonl

@@ -119,7 +119,10 @@ func (g *Game) ApplyMove(from, to board.Sq) {
 		g.HalfmoveClock++
 	}
 
-	g.Board.Move(from, to)
+	// MakeMove rather than Move: it is the one place that knows a king
+	// stepping two files drags a rook with it and gives up the rights.
+	// Duplicating that here is how the two paths drift apart.
+	g.Board.MakeMove(from, to)
 
 	// Auto-promote to a queen. Underpromotion is legal but is the right
 	// choice so rarely that always taking a queen is the standard

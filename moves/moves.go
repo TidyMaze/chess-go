@@ -106,7 +106,7 @@ func AppendLegalTargets(dst []board.Sq, b *board.Board, sq board.Sq, color board
 	case board.Knight:
 		return stepMoves(dst, b, sq, color, knightOffsetSlice)
 	case board.King:
-		return stepMoves(dst, b, sq, color, kingOffsetSlice)
+		return castlingMoves(stepMoves(dst, b, sq, color, kingOffsetSlice), b, sq, color)
 	case board.Bishop:
 		return slideMoves(dst, b, sq, color, bishopDirSlice)
 	case board.Rook:
@@ -307,4 +307,66 @@ func PinnedSquares(b *board.Board, color board.Color) PinnedSet {
 		}
 	}
 	return pinned
+}
+
+
+// castlingMoves appends the castling destinations available to a king.
+//
+// The rule has four conditions and each one is a separate way to produce
+// an illegal move, so they are checked explicitly rather than folded
+// together: the right must still exist, the squares between king and
+// rook must be empty, and the king may not start in check, pass through
+// an attacked square, or land on one.
+//
+// The rook's path is deliberately not checked for attacks. Only the king
+// is restricted that way, so queenside castling stays legal when b1 is
+// attacked even though the rook crosses it.
+func castlingMoves(dst []board.Sq, b *board.Board, sq board.Sq, color board.Color) []board.Sq {
+	rank := 0
+	kingSide, queenSide := board.WhiteKingSide, board.WhiteQueenSide
+	if color == board.Black {
+		rank, kingSide, queenSide = 7, board.BlackKingSide, board.BlackQueenSide
+	}
+	// A king that has been moved off e1/e8 has already lost its rights,
+	// but the position may also have been set up that way.
+	if sq.Rank != rank || sq.File != 4 {
+		return dst
+	}
+	rights := b.Castle()
+	if rights&(kingSide|queenSide) == 0 {
+		return dst
+	}
+	enemy := color.Other()
+	if IsAttackedBy(b, sq, enemy) {
+		return dst // may not castle out of check
+	}
+
+	empty := func(files ...int) bool {
+		for _, f := range files {
+			if _, occupied := b.PieceAt(board.Sq{File: f, Rank: rank}); occupied {
+				return false
+			}
+		}
+		return true
+	}
+	safe := func(files ...int) bool {
+		for _, f := range files {
+			if IsAttackedBy(b, board.Sq{File: f, Rank: rank}, enemy) {
+				return false
+			}
+		}
+		return true
+	}
+	rookAt := func(file int) bool {
+		p, ok := b.PieceAt(board.Sq{File: file, Rank: rank})
+		return ok && p.Type == board.Rook && p.Color == color
+	}
+
+	if rights&kingSide != 0 && rookAt(7) && empty(5, 6) && safe(5, 6) {
+		dst = append(dst, board.Sq{File: 6, Rank: rank})
+	}
+	if rights&queenSide != 0 && rookAt(0) && empty(1, 2, 3) && safe(2, 3) {
+		dst = append(dst, board.Sq{File: 2, Rank: rank})
+	}
+	return dst
 }

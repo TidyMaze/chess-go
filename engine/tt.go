@@ -16,6 +16,10 @@ import (
 var zobristPiece [12][64]uint64
 var zobristBlackToMove uint64
 
+// zobristCastle is indexed by the four rights bits directly: 16 entries
+// is small enough that one lookup beats combining four separate keys.
+var zobristCastle [16]uint64
+
 func init() {
 	r := rand.New(rand.NewSource(0x5EED1234)) // fixed seed: reproducible runs
 	for p := 0; p < 12; p++ {
@@ -24,6 +28,9 @@ func init() {
 		}
 	}
 	zobristBlackToMove = r.Uint64()
+	for i := range zobristCastle {
+		zobristCastle[i] = r.Uint64()
+	}
 }
 
 func zobristHash(g *game.Game) uint64 {
@@ -38,6 +45,10 @@ func zobristHash(g *game.Game) uint64 {
 	if g.Turn == board.Black {
 		h ^= zobristBlackToMove
 	}
+	// Castling rights are part of the position: two boards with identical
+	// pieces but different rights have different legal moves, and without
+	// this the table would hand one's score to the other.
+	h ^= zobristCastle[g.Board.Castle()&0x0f]
 	return h
 }
 

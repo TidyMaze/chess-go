@@ -59,6 +59,8 @@ type Player struct {
 	// ones. Set alongside Weights only if you mean to override the fitted
 	// material values.
 	Tuned bool
+	// Net replaces the whole hand-written evaluation with a trained one.
+	Net *Net
 	// UCI delegates move choice to an external engine (Stockfish), giving
 	// an externally-calibrated reference point rather than only measuring
 	// against this engine's own ancestors.
@@ -95,6 +97,7 @@ func (p Player) pick(g *game.Game) (game.Move, bool) {
 	ev := &Eval{Weights: p.Weights, UsePST: p.UsePST, NullMove: p.NullMove, MaterialOnly: p.MaterialOnly, QuiescePly: p.QuiescePly, Tapered: p.Tapered,
 		Extensions: p.Extensions, Aspiration: p.Aspiration, SEEPruning: p.SEEPruning,
 		Structure: p.Structure, Futility: p.Futility}
+	ev.Net = p.Net
 	if p.Tuned {
 		if p.Weights == nil {
 			ev.Weights = TunedWeights()

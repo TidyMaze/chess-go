@@ -16,10 +16,9 @@ var fenLetters = [6]byte{
 // FEN renders the position in Forsyth-Edwards Notation, so an external
 // UCI engine can be given the same position this engine is looking at.
 //
-// Castling rights and en-passant are always reported as unavailable
-// because this engine does not implement either rule: claiming rights it
-// cannot exercise would let the opponent search lines that are not
-// actually reachable here.
+// Castling rights are real. En-passant is still reported as unavailable
+// because that rule is not implemented, so claiming it would let an
+// opponent search lines this engine cannot actually reach.
 func (g *Game) FEN() string {
 	var sb strings.Builder
 	for rank := 7; rank >= 0; rank-- {
@@ -52,8 +51,23 @@ func (g *Game) FEN() string {
 	if g.Turn == board.Black {
 		side = "b"
 	}
+	rights := ""
+	for _, r := range []struct {
+		bit  uint8
+		char string
+	}{
+		{board.WhiteKingSide, "K"}, {board.WhiteQueenSide, "Q"},
+		{board.BlackKingSide, "k"}, {board.BlackQueenSide, "q"},
+	} {
+		if g.Board.Castle()&r.bit != 0 {
+			rights += r.char
+		}
+	}
+	if rights == "" {
+		rights = "-"
+	}
 	fullMove := g.HalfmoveClock/2 + 1
-	return fmt.Sprintf("%s %s - - %d %d", sb.String(), side, g.HalfmoveClock, fullMove)
+	return fmt.Sprintf("%s %s %s - %d %d", sb.String(), side, rights, g.HalfmoveClock, fullMove)
 }
 
 // MoveFromUCI parses a UCI move string ("e2e4") into a Move. Promotion
@@ -82,10 +96,9 @@ func (m Move) UCI() string {
 	return fmt.Sprintf("%c%d%c%d", 'a'+m.From.File, m.From.Rank+1, 'a'+m.To.File, m.To.Rank+1)
 }
 
-// ParseFEN is the inverse of FEN. Only the piece placement, the side to
-// move and the halfmove clock are read; castling and en-passant fields
-// are parsed for shape and then discarded, because this engine does not
-// implement either rule and FEN writes them as unavailable.
+// ParseFEN is the inverse of FEN. Piece placement, side to move, castling
+// rights and the halfmove clock are read; the en-passant field is parsed
+// for shape and discarded, because that rule is not implemented.
 func ParseFEN(s string) (*Game, error) {
 	fields := strings.Fields(s)
 	if len(fields) < 6 {
@@ -142,6 +155,21 @@ func ParseFEN(s string) (*Game, error) {
 	default:
 		return nil, fmt.Errorf("fen: side to move %q is not w or b", fields[1])
 	}
+
+	var rights uint8
+	for _, ch := range fields[2] {
+		switch ch {
+		case 'K':
+			rights |= board.WhiteKingSide
+		case 'Q':
+			rights |= board.WhiteQueenSide
+		case 'k':
+			rights |= board.BlackKingSide
+		case 'q':
+			rights |= board.BlackQueenSide
+		}
+	}
+	b.SetCastle(rights)
 
 	g := From(b, turn)
 	if n, err := strconv.Atoi(fields[4]); err == nil {

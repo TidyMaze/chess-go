@@ -65,11 +65,50 @@ func decodePiece(c cellCode) Piece {
 
 // Board is a value type: copying it (Clone) is a plain array copy, no
 // allocation or per-piece work, unlike a map-keyed representation.
+// Castling rights, one bit each. Rights are board state, not game state:
+// they are lost by moves (and by a rook being captured), so they have to
+// be saved and restored by make/unmake alongside the pieces.
+const (
+	WhiteKingSide uint8 = 1 << iota
+	WhiteQueenSide
+	BlackKingSide
+	BlackQueenSide
+	AllCastling = WhiteKingSide | WhiteQueenSide | BlackKingSide | BlackQueenSide
+)
+
 type Board struct {
 	cells         [width * width]cellCode
 	kings         [2]Sq
 	occupied      [32]Sq
 	occupiedCount int
+	castle        uint8
+}
+
+// Castle reports the current castling rights.
+func (b *Board) Castle() uint8 { return b.castle }
+
+// SetCastle replaces the castling rights (used by the FEN parser).
+func (b *Board) SetCastle(c uint8) { b.castle = c }
+
+// castlingLost maps a square to the rights that end when a piece moves
+// from it or is captured on it. A king leaving e1 ends both white
+// rights; a rook leaving (or dying on) a1 ends only the queenside one.
+func castlingLost(s Sq) uint8 {
+	switch {
+	case s.Rank == 0 && s.File == 4:
+		return WhiteKingSide | WhiteQueenSide
+	case s.Rank == 0 && s.File == 0:
+		return WhiteQueenSide
+	case s.Rank == 0 && s.File == 7:
+		return WhiteKingSide
+	case s.Rank == 7 && s.File == 4:
+		return BlackKingSide | BlackQueenSide
+	case s.Rank == 7 && s.File == 0:
+		return BlackQueenSide
+	case s.Rank == 7 && s.File == 7:
+		return BlackKingSide
+	}
+	return 0
 }
 
 func index(s Sq) int {
@@ -90,6 +129,7 @@ func Initial() Board {
 		b.setPiece(Sq{file, 6}, Piece{Black, Pawn})
 		b.setPiece(Sq{file, 7}, Piece{Black, pt})
 	}
+	b.castle = AllCastling
 	return b
 }
 
@@ -235,6 +275,11 @@ type Undo struct {
 	kings       [2]Sq
 	occupied    [32]Sq
 	occCount    int
+	castle      uint8
+	// rookFrom/rookTo record the rook's half of a castling move so unmake
+	// can put it back. Zero value means this was not a castling move.
+	rookFrom, rookTo Sq
+	wasCastling      bool
 }
 
 // MakeMove applies a move and returns what is needed to undo it.
@@ -247,18 +292,50 @@ func (b *Board) MakeMove(from, to Sq) Undo {
 		kings:       b.kings,
 		occupied:    b.occupied,
 		occCount:    b.occupiedCount,
+		castle:      b.castle,
+	}
+	// A king stepping two files is a castling move, and the rook has to
+	// travel with it. Detected here rather than encoded in Move so that
+	// every path that moves a piece (search, game, UI) gets it.
+	if p, ok := b.PieceAt(from); ok && p.Type == King && abs(to.File-from.File) == 2 {
+		u.wasCastling = true
+		if to.File > from.File {
+			u.rookFrom = Sq{File: 7, Rank: from.Rank}
+			u.rookTo = Sq{File: 5, Rank: from.Rank}
+		} else {
+			u.rookFrom = Sq{File: 0, Rank: from.Rank}
+			u.rookTo = Sq{File: 3, Rank: from.Rank}
+		}
 	}
 	b.Move(from, to)
+	if u.wasCastling {
+		b.Move(u.rookFrom, u.rookTo)
+	}
+	b.castle &^= castlingLost(from) | castlingLost(to)
 	return u
+}
+
+func abs(x int) int {
+	if x < 0 {
+		return -x
+	}
+	return x
 }
 
 // UnmakeMove restores the position saved in u.
 func (b *Board) UnmakeMove(u Undo) {
+	if u.wasCastling {
+		// Put the rook back first: the cell writes below restore only the
+		// king's two squares.
+		b.cells[index(u.rookFrom)] = b.cells[index(u.rookTo)]
+		b.cells[index(u.rookTo)] = codeEmpty
+	}
 	b.cells[index(u.from)] = u.movedCode
 	b.cells[index(u.to)] = u.capturedRaw
 	b.kings = u.kings
 	b.occupied = u.occupied
 	b.occupiedCount = u.occCount
+	b.castle = u.castle
 }
 
 // SetPiece replaces the piece on a square (used for promotion).

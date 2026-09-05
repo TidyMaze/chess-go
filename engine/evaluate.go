@@ -130,6 +130,12 @@ type Eval struct {
 	// means use the defaults.
 	PSTScale   *[6]float64
 	StructureW *StructureWeights
+	// Net replaces the hand-written evaluation with a trained network.
+	// When set, the material, table and structure terms are not used at
+	// all: the network was fitted to the same target they were and is a
+	// strictly more expressive function, so summing the two would be
+	// double-counting.
+	Net *Net
 }
 
 func (e *Eval) pstScale() *[6]float64 {
@@ -203,6 +209,24 @@ func PositionScore(b *board.Board, color board.Color, weights Weights) float64 {
 }
 
 func PositionScoreEval(b *board.Board, color board.Color, ev *Eval) float64 {
+	if ev != nil && ev.Net != nil && !ev.Net.Residual {
+		// The network scores from White's point of view; the search wants
+		// the score from `color`'s.
+		score := ev.Net.Evaluate(b)
+		if color == board.Black {
+			score = -score
+		}
+		// The endgame king-driving term stays. It is not a positional
+		// opinion but the mechanism that converts a won endgame into an
+		// actual mate, and the network was trained on Stockfish scores of
+		// positions that were mostly not near mate.
+		if score >= 4 {
+			score += kingDrivingBonus(b, color)
+		} else if score <= -4 {
+			score -= kingDrivingBonus(b, color.Other())
+		}
+		return score
+	}
 	weights := ev.weightsOrDefault()
 	usePST := ev.usePST()
 	tapered := ev != nil && ev.Tapered
@@ -224,6 +248,17 @@ func PositionScoreEval(b *board.Board, color board.Color, ev *Eval) float64 {
 		sw := ev.structureWeights()
 		score += structureScore(b, color, ownPawns, enemyPawns, phase, sw)
 		score -= structureScore(b, color.Other(), enemyPawns, ownPawns, phase, sw)
+	}
+
+	// A residual network adds what the hand-written terms miss. Material
+	// stays where it is known to be right, which is what the first
+	// attempt lost by replacing everything at once.
+	if ev != nil && ev.Net != nil && ev.Net.Residual {
+		correction := ev.Net.Evaluate(b)
+		if color == board.Black {
+			correction = -correction
+		}
+		score += correction
 	}
 
 	if score >= 4 {

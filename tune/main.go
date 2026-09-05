@@ -39,8 +39,11 @@ type sample struct {
 }
 
 type position struct {
-	board  board.Board
-	result float64
+	board board.Board
+	// target is what the evaluation is being fitted to, already mapped
+	// into win-probability space: either the game's result, or Stockfish's
+	// evaluation of this position passed through the same sigmoid.
+	target float64
 }
 
 // params is everything being fitted, flattened so a coordinate descent
@@ -134,7 +137,7 @@ func meanSquaredError(positions []position, ev *engine.Eval, k float64) float64 
 				b := p.board
 				score := engine.PositionScoreEval(&b, board.White, ev)
 				predicted := 1 / (1 + math.Exp(-k*score))
-				d := p.result - predicted
+				d := p.target - predicted
 				total += d * d
 			}
 			sums[w] = total
@@ -162,6 +165,51 @@ func bestK(positions []position, ev *engine.Eval) (float64, float64) {
 	return best, bestErr
 }
 
+// loadLabelled reads positions carrying a Stockfish evaluation and turns
+// that evaluation into the fitting target.
+//
+// Stockfish reports from the side to move; this engine's score is from
+// White. Positions where Stockfish found a forced mate are dropped: the
+// target would saturate the sigmoid and say nothing about the positional
+// terms being fitted, which is exactly what the search is for.
+func loadLabelled(path string, limit int, k float64) []position {
+	f, err := os.Open(path)
+	if err != nil {
+		fmt.Println("open:", err)
+		os.Exit(1)
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 1<<22), 1<<22)
+	var out []position
+	for sc.Scan() {
+		if len(sc.Bytes()) == 0 {
+			continue
+		}
+		var rec struct {
+			FEN   string  `json:"fen"`
+			Score float64 `json:"score"`
+			Mate  bool    `json:"mate"`
+		}
+		if json.Unmarshal(sc.Bytes(), &rec) != nil || rec.Mate {
+			continue
+		}
+		g, err := game.ParseFEN(rec.FEN)
+		if err != nil {
+			continue
+		}
+		score := rec.Score
+		if g.Turn == board.Black {
+			score = -score
+		}
+		out = append(out, position{board: g.Board, target: 1 / (1 + math.Exp(-k*score))})
+		if limit > 0 && len(out) >= limit {
+			return out
+		}
+	}
+	return out
+}
+
 func load(path string, limit int) []position {
 	f, err := os.Open(path)
 	if err != nil {
@@ -185,7 +233,7 @@ func load(path string, limit int) []position {
 			if err != nil {
 				continue
 			}
-			out = append(out, position{board: g.Board, result: s.Result})
+			out = append(out, position{board: g.Board, target: s.Result})
 			if limit > 0 && len(out) >= limit {
 				return out
 			}
@@ -201,10 +249,23 @@ func main() {
 	holdout := flag.Float64("holdout", 0.2, "fraction held back to check for overfitting")
 	out := flag.String("out", "tuned_params.json", "where to write the fitted parameters")
 	seed := flag.Int64("seed", 7, "shuffle seed for the train/held-out split")
+	labels := flag.String("labels", "", "fit to Stockfish scores in this file instead of game results")
+	fixedK := flag.Float64("k", 0.30, "sigmoid scale used with -labels")
 	flag.Parse()
 
 	t0 := time.Now()
-	all := load(*data, *limit)
+	var all []position
+	fitK := true
+	if *labels != "" {
+		all = loadLabelled(*labels, *limit, *fixedK)
+		// K is what maps pawns onto win probability. With Stockfish scores
+		// as the target both sides of the comparison must go through the
+		// same K, otherwise the fit can lower the error by rescaling the
+		// evaluation rather than improving it.
+		fitK = false
+	} else {
+		all = load(*data, *limit)
+	}
 	if len(all) < 1000 {
 		fmt.Printf("only %d positions loaded; generate more with gendata\n", len(all))
 		return
@@ -234,7 +295,13 @@ func main() {
 	cur := *start
 
 	ev := apply(&cur)
-	k, trainErr := bestK(train, ev)
+	var k, trainErr float64
+	if fitK {
+		k, trainErr = bestK(train, ev)
+	} else {
+		k = *fixedK
+		trainErr = meanSquaredError(train, ev, k)
+	}
 	testErr := meanSquaredError(test, ev, k)
 	fmt.Printf("K = %.2f, starting error: train %.6f, held out %.6f\n\n", k, trainErr, testErr)
 	startTrain, startTest := trainErr, testErr

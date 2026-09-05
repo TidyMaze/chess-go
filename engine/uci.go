@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -161,4 +162,112 @@ func looksLikeUCIMove(s string) bool {
 func (e *UCIEngine) Close() {
 	e.send("quit")
 	_ = e.cmd.Wait()
+}
+
+// Evaluate asks the external engine what it thinks a position is worth,
+// in pawns from the side-to-move's point of view, and reports whether it
+// saw a forced mate.
+//
+// This is the teacher signal for distillation. Tuning against self-play
+// results failed to produce Elo (-16 +/- 48 over 200 games), and the
+// fitted values said why: between engines around 1900, the outcome of a
+// game is a very noisy statement about a position, so terms that matter
+// get scaled toward zero. A strong engine's evaluation of the same
+// position is a far sharper label and costs one search per position
+// instead of one whole game.
+func (e *UCIEngine) Evaluate(g *game.Game, depth int) (pawns float64, mate bool, ok bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	e.send("position fen " + g.FEN())
+	e.send(fmt.Sprintf("go depth %d", depth))
+
+	// Keep the score from the last "info" line before bestmove: that is
+	// the deepest completed iteration.
+	var lastCP int
+	var sawCP, sawMate bool
+	for {
+		line, err := e.stdout.ReadString('\n')
+		if err != nil {
+			return 0, false, false
+		}
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "bestmove") {
+			break
+		}
+		i := strings.Index(line, " score ")
+		if i < 0 {
+			continue
+		}
+		fields := strings.Fields(line[i+7:])
+		if len(fields) < 2 {
+			continue
+		}
+		switch fields[0] {
+		case "cp":
+			if n, err := strconv.Atoi(fields[1]); err == nil {
+				lastCP, sawCP, sawMate = n, true, false
+			}
+		case "mate":
+			sawMate, sawCP = true, false
+		}
+	}
+	if sawMate {
+		return 0, true, true
+	}
+	if !sawCP {
+		return 0, false, false
+	}
+	return float64(lastCP) / 100, false, true
+}
+
+// StaticEval asks the external engine for its evaluation of a position
+// with no search at all, in pawns from White's point of view.
+//
+// This is the right target for training a static evaluation. Fitting one
+// to a depth-12 search score scored -338 Elo: a searched score contains
+// tactics, and asking a function of piece placement to predict tactics
+// leaves a residual it cannot learn (RMS 2.39 pawns, enough to swamp the
+// evaluation it was correcting). A static score is a fair question to
+// ask a static function, and it is far cheaper, needing no search.
+func (e *UCIEngine) StaticEval(g *game.Game) (pawns float64, ok bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	e.send("position fen " + g.FEN())
+	e.send("eval")
+	// "eval" has no terminator of its own, so a following isready gives
+	// one: readyok cannot arrive before eval's output is written.
+	e.send("isready")
+
+	for {
+		line, err := e.stdout.ReadString('\n')
+		if err != nil {
+			return 0, false
+		}
+		line = strings.TrimSpace(line)
+		if line == "readyok" {
+			return 0, false
+		}
+		if !strings.HasPrefix(line, "Final evaluation") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 3 {
+			continue
+		}
+		v, err := strconv.ParseFloat(fields[2], 64)
+		if err != nil {
+			// "none (in check)" and similar.
+			continue
+		}
+		// Drain to readyok so the next command starts from a clean state.
+		for {
+			l, err := e.stdout.ReadString('\n')
+			if err != nil || strings.TrimSpace(l) == "readyok" {
+				break
+			}
+		}
+		return v, true
+	}
 }
