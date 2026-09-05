@@ -78,6 +78,12 @@ func pawnMoves(dst []board.Sq, b *board.Board, sq board.Sq, color board.Color) [
 		}
 		if piece, occupied := b.CellPiece(target); occupied && piece.Color != color {
 			moves = append(moves, target)
+			continue
+		}
+		// En passant: the target square is empty, but a pawn that has
+		// just stepped two squares can be taken as if it had stepped one.
+		if ep, ok := b.EPSquare(); ok && ep == target {
+			moves = append(moves, target)
 		}
 	}
 	return moves
@@ -308,7 +314,6 @@ func PinnedSquares(b *board.Board, color board.Color) PinnedSet {
 	}
 	return pinned
 }
-
 
 // castlingMoves appends the castling destinations available to a king.
 //

@@ -87,6 +87,31 @@ type Board struct {
 	occupied      [32]uint8
 	occupiedCount int
 	castle        uint8
+	// epSquare is the square a pawn may be captured on by en passant,
+	// as a 0-63 index, or noEP. It is board state for the same reason
+	// castling rights are: it is created and destroyed by moves, so
+	// make/unmake has to save and restore it.
+	epSquare uint8
+}
+
+// noEP marks "no en passant capture is available".
+const noEP uint8 = 64
+
+// EPSquare returns the en passant target square and whether there is one.
+func (b *Board) EPSquare() (Sq, bool) {
+	if b.epSquare == noEP {
+		return Sq{}, false
+	}
+	return squareFromIndex(b.epSquare), true
+}
+
+// SetEPSquare sets the en passant target (used by the FEN parser).
+func (b *Board) SetEPSquare(s Sq, ok bool) {
+	if !ok {
+		b.epSquare = noEP
+		return
+	}
+	b.epSquare = squareIndex(s)
 }
 
 // Castle reports the current castling rights.
@@ -139,6 +164,7 @@ func Initial() Board {
 		b.setPiece(Sq{file, 7}, Piece{Black, pt})
 	}
 	b.castle = AllCastling
+	b.epSquare = noEP
 	return b
 }
 
@@ -146,6 +172,7 @@ func Initial() Board {
 // positions, mirroring the Python project's `Board({...})` constructor.
 func NewEmpty() Board {
 	var b Board
+	b.epSquare = noEP
 	for rank := 0; rank < 8; rank++ {
 		for file := 0; file < 8; file++ {
 			b.cells[index(Sq{file, rank})] = codeEmpty
@@ -290,6 +317,12 @@ type Undo struct {
 	// can put it back. Zero value means this was not a castling move.
 	rookFrom, rookTo Sq
 	wasCastling      bool
+	// epSquare before the move, and the pawn an en passant capture
+	// removed, which sits on neither the from nor the to square and so is
+	// not restored by the ordinary cell writes.
+	epSquare     uint8
+	epCaptured   Sq
+	wasEPCapture bool
 }
 
 // MakeMove applies a move and returns what is needed to undo it.
@@ -303,6 +336,7 @@ func (b *Board) MakeMove(from, to Sq) Undo {
 		occupied:    b.occupied,
 		occCount:    b.occupiedCount,
 		castle:      b.castle,
+		epSquare:    b.epSquare,
 	}
 	// A king stepping two files is a castling move, and the rook has to
 	// travel with it. Detected here rather than encoded in Move so that
@@ -317,11 +351,31 @@ func (b *Board) MakeMove(from, to Sq) Undo {
 			u.rookTo = Sq{File: 3, Rank: from.Rank}
 		}
 	}
+	// En passant: a pawn moving diagonally onto the empty target square
+	// captures the pawn that passed it, which stands beside the mover
+	// rather than on the destination.
+	if p, ok := b.PieceAt(from); ok && p.Type == Pawn && b.epSquare != noEP &&
+		squareIndex(to) == b.epSquare && from.File != to.File {
+		if _, occupied := b.PieceAt(to); !occupied {
+			victim := Sq{File: to.File, Rank: from.Rank}
+			u.wasEPCapture = true
+			u.epCaptured = victim
+			b.Remove(victim)
+		}
+	}
+
 	b.Move(from, to)
 	if u.wasCastling {
 		b.Move(u.rookFrom, u.rookTo)
 	}
 	b.castle &^= castlingLost(from) | castlingLost(to)
+
+	// A pawn that has just stepped two squares can be captured en passant
+	// on the square it skipped, but only on the very next move.
+	b.epSquare = noEP
+	if p, ok := b.PieceAt(to); ok && p.Type == Pawn && abs(to.Rank-from.Rank) == 2 {
+		b.epSquare = squareIndex(Sq{File: from.File, Rank: (from.Rank + to.Rank) / 2})
+	}
 	return u
 }
 
@@ -346,6 +400,15 @@ func (b *Board) UnmakeMove(u Undo) {
 	b.occupied = u.occupied
 	b.occupiedCount = u.occCount
 	b.castle = u.castle
+	b.epSquare = u.epSquare
+	if u.wasEPCapture {
+		// The captured pawn stood on neither square the writes above
+		// touched, so its cell has to be restored explicitly. The
+		// occupied list is restored wholesale from the undo record and
+		// already contains it.
+		mover := decodePiece(u.movedCode)
+		b.cells[index(u.epCaptured)] = encodePiece(Piece{Color: mover.Color.Other(), Type: Pawn})
+	}
 }
 
 // SetPiece replaces the piece on a square (used for promotion).
@@ -376,4 +439,24 @@ func (b *Board) AppendAllPieces(dst []ColoredPiece) []ColoredPiece {
 		}
 	}
 	return result
+}
+
+// Remove clears a square and drops it from the occupied list.
+//
+// Needed for en passant, where the captured pawn stands on neither the
+// square the capturing pawn left nor the one it lands on, so none of the
+// ordinary move bookkeeping touches it.
+func (b *Board) Remove(s Sq) {
+	if b.cells[index(s)] < codePieceMin {
+		return
+	}
+	b.cells[index(s)] = codeEmpty
+	idx := squareIndex(s)
+	for i := 0; i < b.occupiedCount; i++ {
+		if b.occupied[i] == idx {
+			b.occupied[i] = b.occupied[b.occupiedCount-1]
+			b.occupiedCount--
+			return
+		}
+	}
 }

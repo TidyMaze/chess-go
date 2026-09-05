@@ -18,12 +18,14 @@ import (
 
 func TestHalfKPIndicesAreInRangeAndDistinct(t *testing.T) {
 	seen := map[int]string{}
-	for _, kingSq := range []board.Sq{{0, 0}, {4, 0}, {7, 7}, {3, 4}} {
+	// One king square per bucket, so distinct features stay distinct.
+	for _, kingSq := range []board.Sq{{0, 0}, {1, 0}, {2, 0}, {3, 0}, {0, 7}, {1, 7}, {2, 7}, {3, 7}} {
 		for _, pt := range []board.PieceType{board.Pawn, board.Knight, board.Bishop, board.Rook, board.Queen} {
 			for _, owner := range []board.Color{board.White, board.Black} {
 				for f := 0; f < 8; f++ {
 					for r := 0; r < 8; r++ {
 						sq := board.Sq{File: f, Rank: r}
+						_ = sq
 						idx, ok := halfKPIndex(kingSq, pt, owner, sq, board.White)
 						if !ok {
 							t.Fatalf("piece %v was rejected", pt)
@@ -54,10 +56,34 @@ func TestHalfKPExcludesKings(t *testing.T) {
 // feature set is just a piece-square table and cannot express king
 // safety, which is what the previous 768-input network could not do.
 func TestHalfKPIsConditionedOnTheKing(t *testing.T) {
+	// Across buckets: a king on e1 and one on a1 are different situations.
 	a, _ := halfKPIndex(board.Sq{4, 0}, board.Knight, board.White, board.Sq{5, 2}, board.White)
-	b, _ := halfKPIndex(board.Sq{6, 0}, board.Knight, board.White, board.Sq{5, 2}, board.White)
+	b, _ := halfKPIndex(board.Sq{0, 0}, board.Knight, board.White, board.Sq{5, 2}, board.White)
 	if a == b {
-		t.Error("moving the king did not change the feature index")
+		t.Error("kings in different buckets produced the same feature index")
+	}
+	// Within a bucket they deliberately share, which is the point: it is
+	// what multiplies the data behind each weight.
+	c, _ := halfKPIndex(board.Sq{4, 0}, board.Knight, board.White, board.Sq{5, 2}, board.White)
+	d, _ := halfKPIndex(board.Sq{4, 1}, board.Knight, board.White, board.Sq{5, 2}, board.White)
+	if c != d {
+		t.Error("kings in the same bucket should share a feature index")
+	}
+}
+
+// Files are mirrored: a king on b1 and one on g1 are the same situation
+// reflected, so they share a bucket.
+func TestKingBucketsMirrorFiles(t *testing.T) {
+	if kingBucket(board.Sq{1, 0}) != kingBucket(board.Sq{6, 0}) {
+		t.Error("b1 and g1 should share a king bucket")
+	}
+	for f := 0; f < 8; f++ {
+		for r := 0; r < 8; r++ {
+			b := kingBucket(board.Sq{f, r})
+			if b < 0 || b >= halfKPKingBuckets {
+				t.Fatalf("king bucket %d out of range for file %d rank %d", b, f, r)
+			}
+		}
 	}
 }
 

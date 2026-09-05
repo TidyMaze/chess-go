@@ -88,10 +88,19 @@ func (g *Game) AppendLegalMovesInCheck(dst []Move, color board.Color) ([]Move, b
 	// One target buffer reused across every piece, rather than a fresh
 	// slice per piece.
 	var targetBuf [28]board.Sq
+	epSquare, hasEP := g.Board.EPSquare()
 	for _, ps := range pieces {
 		needsCheckTest := inCheck || ps.Type == board.King || pinned.Has(ps.Sq)
 		for _, target := range moves.AppendLegalTargets(targetBuf[:0], &g.Board, ps.Sq, color, ps.Type) {
-			if needsCheckTest {
+			// An en passant capture always needs the full test. It removes
+			// a pawn from a square that is neither the origin nor the
+			// destination, so it can expose the king along a rank that the
+			// pin detection, which only looks at the moving piece, cannot
+			// see. This is the "en passant pin" and it is exactly what
+			// perft position 3 exists to catch.
+			epCapture := hasEP && ps.Type == board.Pawn &&
+				target == epSquare && ps.Sq.File != target.File
+			if needsCheckTest || epCapture {
 				// Make and unmake on the real board rather than cloning
 				// it. Cloning copied the whole Board for every candidate
 				// move of every piece that could be pinned or in check,

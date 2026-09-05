@@ -28,6 +28,13 @@ func TestHalfKPEvaluatesInPawnsNotProbability(t *testing.T) {
 	if err != nil {
 		t.Skip("no trained network available")
 	}
+	// A network saved under a different feature set cannot be read by the
+	// current one, and Evaluate correctly returns zero for it. Skip
+	// rather than fail: that is a stale file, not a broken evaluation.
+	if n.H == 0 || len(n.W1) != HalfKPInputs*n.H {
+		t.Skipf("network on disk has %d first-layer weights, current feature set needs %d",
+			len(n.W1), HalfKPInputs*n.H)
+	}
 	load := func(fen string) *game.Game {
 		g, err := game.ParseFEN(fen)
 		if err != nil {

@@ -20,6 +20,9 @@ var zobristBlackToMove uint64
 // is small enough that one lookup beats combining four separate keys.
 var zobristCastle [16]uint64
 
+// zobristEP is indexed by file: the rank is implied by whose turn it is.
+var zobristEP [8]uint64
+
 func init() {
 	r := rand.New(rand.NewSource(0x5EED1234)) // fixed seed: reproducible runs
 	for p := 0; p < 12; p++ {
@@ -30,6 +33,9 @@ func init() {
 	zobristBlackToMove = r.Uint64()
 	for i := range zobristCastle {
 		zobristCastle[i] = r.Uint64()
+	}
+	for i := range zobristEP {
+		zobristEP[i] = r.Uint64()
 	}
 }
 
@@ -54,6 +60,11 @@ func zobristBoard(b *board.Board, turn board.Color) uint64 {
 	// pieces but different rights have different legal moves, and without
 	// this the table would hand one's score to the other.
 	h ^= zobristCastle[b.Castle()&0x0f]
+	// En passant availability changes the legal moves, so two otherwise
+	// identical positions are different positions.
+	if sq, ok := b.EPSquare(); ok {
+		h ^= zobristEP[sq.File]
+	}
 	return h
 }
 

@@ -16,9 +16,9 @@ var fenLetters = [6]byte{
 // FEN renders the position in Forsyth-Edwards Notation, so an external
 // UCI engine can be given the same position this engine is looking at.
 //
-// Castling rights are real. En-passant is still reported as unavailable
-// because that rule is not implemented, so claiming it would let an
-// opponent search lines this engine cannot actually reach.
+// Castling rights and en passant are both real, so the FEN describes
+// exactly the position this engine is looking at and an external engine
+// asked about it sees the same one.
 func (g *Game) FEN() string {
 	var sb strings.Builder
 	for rank := 7; rank >= 0; rank-- {
@@ -66,8 +66,12 @@ func (g *Game) FEN() string {
 	if rights == "" {
 		rights = "-"
 	}
+	ep := "-"
+	if sq, ok := g.Board.EPSquare(); ok {
+		ep = string(rune('a'+sq.File)) + string(rune('1'+sq.Rank))
+	}
 	fullMove := g.HalfmoveClock/2 + 1
-	return fmt.Sprintf("%s %s %s - %d %d", sb.String(), side, rights, g.HalfmoveClock, fullMove)
+	return fmt.Sprintf("%s %s %s %s %d %d", sb.String(), side, rights, ep, g.HalfmoveClock, fullMove)
 }
 
 // MoveFromUCI parses a UCI move string ("e2e4") into a Move. Promotion
@@ -96,9 +100,8 @@ func (m Move) UCI() string {
 	return fmt.Sprintf("%c%d%c%d", 'a'+m.From.File, m.From.Rank+1, 'a'+m.To.File, m.To.Rank+1)
 }
 
-// ParseFEN is the inverse of FEN. Piece placement, side to move, castling
-// rights and the halfmove clock are read; the en-passant field is parsed
-// for shape and discarded, because that rule is not implemented.
+// ParseFEN is the inverse of FEN: piece placement, side to move, castling
+// rights, the en passant target and the halfmove clock.
 func ParseFEN(s string) (*Game, error) {
 	fields := strings.Fields(s)
 	if len(fields) < 6 {
@@ -170,6 +173,15 @@ func ParseFEN(s string) (*Game, error) {
 		}
 	}
 	b.SetCastle(rights)
+
+	if f := fields[3]; f != "-" && len(f) >= 2 {
+		file, rank := int(f[0]-'a'), int(f[1]-'1')
+		if file >= 0 && file < 8 && rank >= 0 && rank < 8 {
+			b.SetEPSquare(board.Sq{File: file, Rank: rank}, true)
+		}
+	} else {
+		b.SetEPSquare(board.Sq{}, false)
+	}
 
 	g := From(b, turn)
 	if n, err := strconv.Atoi(fields[4]); err == nil {
