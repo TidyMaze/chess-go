@@ -135,7 +135,7 @@
      one thing instead of six. -->
 <div id="nnuePanel">
   <h2>NNUE training (live)</h2>
-  <div id="nnueNote" class="note">HalfKP features (40,960 king-conditioned inputs per side), blended target of search score and game result, shallow high-volume self-play. Each network must win a match against the champion to be adopted.</div>
+  <div id="nnueNote" class="note">HalfKP features (40,960 king-conditioned inputs per side), blended target of search score and game result, shallow high-volume self-play. The green line is the network's error on games it has never seen; the red dashed line is the hand-written evaluation's error on those same positions. The network has to get below the red line before it can be expected to win a game. Each network must then win a match against the champion to be adopted.</div>
   <div id="nnueArch"></div>
   <div id="nnueBars"></div>
   <div id="genProgressOuter"><div id="genProgressFill"></div><div id="genProgressLabel"></div></div>
@@ -144,7 +144,7 @@
     <div id="nnueLiveLabel" class="note"></div>
   </div>
   <div id="nnueWrap"><canvas id="nnueChart"></canvas></div>
-  <table class="steps"><thead><tr><th>Gen</th><th class="num">Pool</th><th class="num">Held-out</th><th class="num">Constant guess</th><th class="num">Explains</th><th class="num">Elo</th><th>Kept?</th></tr></thead>
+  <table class="steps"><thead><tr><th>Gen</th><th class="num">Pool</th><th class="num">Net held-out</th><th class="num">Hand eval</th><th class="num">Explains</th><th class="num">Elo</th><th>Kept?</th></tr></thead>
     <tbody id="nnueBody"></tbody></table>
 </div>
 
@@ -1030,8 +1030,8 @@ async function pollNNUE() {
       tr.innerHTML =
         `<td>${h.generation}</td>` +
         `<td class="num">${h.positions.toLocaleString()}</td>` +
-        `<td class="num">${h.test_loss.toFixed(5)}</td>` +
-        `<td class="num">${h.baseline.toFixed(5)}</td>` +
+        `<td class="num">${h.test_loss.toFixed(3)}</td>` +
+        `<td class="num ${h.hand_mse && h.test_loss < h.hand_mse ? "kept" : ""}">${h.hand_mse ? h.hand_mse.toFixed(3) : "&mdash;"}</td>` +
         `<td class="num">${explains.toFixed(0)}%</td>` +
         `<td class="num">${h.tested ? (h.elo >= 0 ? "+" : "") + h.elo + " &plusmn; " + h.elo_margin : "&mdash;"}</td>` +
         `<td class="${h.accepted ? "kept" : "rejected"}">${h.tested ? (h.accepted ? "kept" : "rejected") : "not tested"}</td>`;
@@ -1041,9 +1041,13 @@ async function pollNNUE() {
     const data = {
       labels: hist.map(h => h.generation),
       datasets: [
-        {label: "explains % of held-out variance",
-         data: hist.map(h => 100 * (1 - h.test_loss / h.baseline)),
+        {label: "network held-out error (pawns squared)",
+         data: hist.map(h => h.test_loss),
          borderColor: "#4ade80", backgroundColor: "#4ade80", yAxisID: "y", tension: 0.2},
+        {label: "hand evaluation on the same positions",
+         data: hist.map(h => h.hand_mse || null), spanGaps: true,
+         borderColor: "#f87171", backgroundColor: "#f87171", borderDash: [5, 4],
+         yAxisID: "y", tension: 0.2},
         {label: "Elo vs champion", data: hist.map(h => h.tested ? h.elo : null), spanGaps: true,
          borderColor: "#fbbf24", backgroundColor: "#fbbf24", yAxisID: "y1", tension: 0.2},
       ],
@@ -1055,7 +1059,7 @@ async function pollNNUE() {
         responsive: true, maintainAspectRatio: false, animation: false, animation: false,
         plugins: {legend: {labels: {color: "#ddd", boxWidth: 12}}},
         scales: {
-          y: {position: "left", title: {display: true, text: "explains % (held out, split by game)", color: "#4ade80"},
+          y: {position: "left", title: {display: true, text: "held-out error, pawns squared (lower is better)", color: "#4ade80"},
               ticks: {color: "#bbb"}, grid: {color: "#333"}},
           y1: {position: "right", title: {display: true, text: "Elo vs champion", color: "#fbbf24"},
                ticks: {color: "#bbb"}, grid: {drawOnChartArea: false}},

@@ -47,7 +47,8 @@ import (
 type sample struct {
 	own    []int32 // active HalfKP features, White perspective
 	opp    []int32 // active HalfKP features, Black perspective
-	target float64 // blended win probability, White's point of view
+	target float64 // blended score in pawns, White's point of view
+	static float64 // what the hand-written evaluation says about it
 	game   int32
 }
 
@@ -81,13 +82,28 @@ func newNet(h int, rng *rand.Rand) *net {
 		b1: make([]float32, h),
 		w2: make([]float32, 2*h),
 	}
-	// Small weights: about 30 features are active at once, so the
-	// accumulator is a sum of 30 of these, and the activation clips at 1.
+	// About 30 features are active at once, so the accumulator is a sum
+	// of 30 of these plus the bias, and the activation clips to [0,1].
 	for i := range n.w1 {
-		n.w1[i] = float32(rng.NormFloat64() * 0.005)
+		n.w1[i] = float32(rng.NormFloat64() * 0.02)
 	}
+	// The bias starts at 0.5, in the middle of the live range.
+	//
+	// Starting it at zero puts the accumulator around zero, which is the
+	// bottom edge of the clip, so roughly half the units activate at
+	// exactly 0 and receive exactly no gradient. They stay dead. With the
+	// sigmoid in the loss the gradient is about twenty times smaller than
+	// with a direct regression, too small to push them back into the live
+	// range, and the network learned almost nothing: 11% of held-out
+	// variance against 82% for the direct version.
+	for i := range n.b1 {
+		n.b1[i] = 0.5
+	}
+	// The output is a sum of 2h clipped activations, each in [0,1], times
+	// these weights. To reach the +/-12 pawns the targets span, they have
+	// to start large enough that the range is reachable at all.
 	for i := range n.w2 {
-		n.w2[i] = float32(rng.NormFloat64() * 0.05)
+		n.w2[i] = float32(rng.NormFloat64() * 0.4)
 	}
 	return n
 }
@@ -121,7 +137,23 @@ func (n *net) forward(s *sample, acc, act []float32) float32 {
 	return out
 }
 
-func (n *net) loss(data []sample) float64 {
+// loss is plain squared error against a target expressed in pawns.
+//
+// Three formulations were measured. Regressing directly on a probability
+// target learned well (82% of held-out variance) but produced a network
+// whose output is a probability, so a lost position evaluated as a small
+// positive number and the pawn error in decided positions was enormous,
+// because inverting a sigmoid amplifies: a 0.11 error at p=0.95 is four
+// pawns. Putting the sigmoid in the loss instead, as Stockfish does, is
+// correct in principle but its gradient is about twenty times smaller
+// (k*p*(1-p) peaks at 0.075) and this optimiser could not follow it:
+// 11% of variance at lr 0.015, and raising the rate destabilised Hogwild
+// rather than helping.
+//
+// So the target is converted into pawns instead and regressed directly.
+// The optimiser is the one that demonstrably works, and the output is in
+// the units the search actually consumes.
+func (n *net) loss(data []sample, k float64) float64 {
 	acc, act := make([]float32, 2*n.h), make([]float32, 2*n.h)
 	total := 0.0
 	for i := range data {
@@ -144,7 +176,7 @@ func (n *net) loss(data []sample) float64 {
 //
 // Single-threaded training was the bottleneck in the previous loop: data
 // generation used every core and then training used one.
-func (n *net) trainEpoch(data []sample, order []int32, lr, decay float32, workers int) {
+func (n *net) trainEpoch(data []sample, order []int32, lr, decay float32, k float64, workers int) {
 	var wg sync.WaitGroup
 	chunk := (len(order) + workers - 1) / workers
 	h := n.h
@@ -200,7 +232,10 @@ func (n *net) trainEpoch(data []sample, order []int32, lr, decay float32, worker
 	wg.Wait()
 }
 
-func (n *net) export() *engine.HalfKPNet {
+// export. The network's output is already an evaluation in pawns,
+// because the sigmoid is applied in the loss rather than in the network,
+// so no conversion is needed here.
+func (n *net) export(k float64) *engine.HalfKPNet {
 	return &engine.HalfKPNet{
 		H:  n.h,
 		W1: append([]float32(nil), n.w1...),
@@ -216,6 +251,28 @@ func (n *net) export() *engine.HalfKPNet {
 // sigmoid maps a score in pawns to a win probability. K is the same
 // constant the evaluation tuner fits.
 func sigmoid(pawns, k float64) float64 { return 1 / (1 + math.Exp(-k*pawns)) }
+
+// resultPawns expresses a game outcome on the same scale as a score.
+//
+// Stockfish blends the search score with the game result in probability
+// space. Here the blend happens in pawns, so the outcome needs a pawn
+// value: four pawns is roughly what a won game is worth as a statement
+// about a quiet position, and it keeps the result term from dominating
+// positions the search has already judged sharply.
+func resultPawns(result float64) float64 { return (result - 0.5) * 8 }
+
+// blendedTarget is lambda parts search score to one part game outcome,
+// both in pawns and clamped to the range the network can represent.
+func blendedTarget(score, result, lambda float64) float64 {
+	t := lambda*score + (1-lambda)*resultPawns(result)
+	if t > 12 {
+		return 12
+	}
+	if t < -12 {
+		return -12
+	}
+	return t
+}
 
 type genStats struct {
 	games     int64
@@ -268,6 +325,7 @@ func generate(champion engine.Player, games, playDepth, labelDepth, maxPlies int
 			type pending struct {
 				own, opp []int32
 				score    float64
+				static   float64
 			}
 			var kept []pending
 			result := 0.5
@@ -320,14 +378,14 @@ func generate(champion engine.Player, games, playDepth, labelDepth, maxPlies int
 				var ownBuf, oppBuf []int32
 				ownBuf = engine.AppendHalfKPFeatures(ownBuf, &g.Board, board.White)
 				oppBuf = engine.AppendHalfKPFeatures(oppBuf, &g.Board, board.Black)
-				kept = append(kept, pending{ownBuf, oppBuf, score})
+				kept = append(kept, pending{ownBuf, oppBuf, score, static})
 			}
 
 			local := make([]sample, 0, len(kept))
 			for _, p := range kept {
 				local = append(local, sample{
-					own: p.own, opp: p.opp, game: int32(gi),
-					target: lambda*sigmoid(p.score, k) + (1-lambda)*result,
+					own: p.own, opp: p.opp, game: int32(gi), static: p.static,
+					target: blendedTarget(p.score, result, lambda),
 				})
 			}
 			mu.Lock()
@@ -349,6 +407,7 @@ type genRecord struct {
 	TrainLoss  float64 `json:"train_loss"`
 	TestLoss   float64 `json:"test_loss"`
 	Baseline   float64 `json:"baseline"`
+	HandMSE    float64 `json:"hand_mse"`
 	Elo        int     `json:"elo"`
 	EloMargin  int     `json:"elo_margin"`
 	Accepted   bool    `json:"accepted"`
@@ -486,13 +545,13 @@ func main() {
 			continue
 		}
 
-		var lastTrain, lastTest float64
+		var lastTrain, lastTest, handMSE float64
 		for e := 1; e <= *epochs; e++ {
 			rng.Shuffle(len(trainIdx), func(i, j int) {
 				trainIdx[i], trainIdx[j] = trainIdx[j], trainIdx[i]
 			})
-			n.trainEpoch(pool, trainIdx, float32(*lr), float32(*decay), workers)
-			lastTest = n.loss(testSet)
+			n.trainEpoch(pool, trainIdx, float32(*lr), float32(*decay), *k, workers)
+			lastTest = n.loss(testSet, *k)
 			writeJSON("nnue_status.json", map[string]any{
 				"phase": "training", "generation": gen, "generations": *generations,
 				"epoch": e, "epochs": *epochs, "test_loss": lastTest,
@@ -509,7 +568,7 @@ func main() {
 		for _, i := range trainIdx[:sampleN] {
 			sub = append(sub, pool[i])
 		}
-		lastTrain = n.loss(sub)
+		lastTrain = n.loss(sub, *k)
 
 		// What a constant prediction would score. A held-out loss near
 		// this means nothing has been learned, which the loss alone does
@@ -526,10 +585,23 @@ func main() {
 		}
 		baseline /= float64(len(testSet))
 
-		fmt.Printf("  train %.5f  held out %.5f  (constant guess %.5f, explains %.0f%%)\n",
-			lastTrain, lastTest, baseline, 100*(1-lastTest/baseline))
+		// The comparison that decides everything: how well does the
+		// hand-written evaluation, which the network has to beat, predict
+		// the same targets? A network that is worse than it here cannot
+		// possibly be better than it in a game, and knowing that costs
+		// nothing while a match costs minutes.
+		handErr := 0.0
+		for i := range testSet {
+			d := testSet[i].static - testSet[i].target
+			handErr += d * d
+		}
+		handErr /= float64(len(testSet))
+		fmt.Printf("  train %.4f  held out %.4f  (constant %.4f, explains %.0f%%)  hand eval %.4f%s\n",
+			lastTrain, lastTest, baseline, 100*(1-lastTest/baseline), handErr,
+			map[bool]string{true: "  <- network is better", false: ""}[lastTest < handErr])
+		handMSE = handErr
 
-		exported := n.export()
+		exported := n.export(*k)
 		_ = exported.Save("halfkp_latest.json")
 
 		elo, margin, accepted := 0, 0, false
@@ -559,7 +631,7 @@ func main() {
 
 		history = append(history, genRecord{
 			Generation: gen, Positions: len(pool),
-			TrainLoss: lastTrain, TestLoss: lastTest, Baseline: baseline,
+			TrainLoss: lastTrain, TestLoss: lastTest, Baseline: baseline, HandMSE: handMSE,
 			Elo: elo, EloMargin: margin, Accepted: accepted, Tested: tested,
 			CumElo: cumElo, Seconds: int(time.Since(t0).Seconds()),
 		})

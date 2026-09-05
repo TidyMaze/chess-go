@@ -2,6 +2,7 @@ package engine
 
 import (
 	"encoding/json"
+	"math"
 	"os"
 
 	"chess/board"
@@ -100,6 +101,39 @@ type HalfKPNet struct {
 	B2 float32   `json:"b2"`
 	// Scale converts the output into pawns.
 	Scale float32 `json:"scale"`
+	// Sigmoid marks a network whose output is a win probability rather
+	// than a score, because it was trained against a probability target.
+	// Evaluate then inverts the sigmoid to get pawns back.
+	//
+	// Without this the engine reads a probability as a score, and the
+	// consequence is not a scaling error but a sign error: probabilities
+	// are never negative, so every lost position evaluates as slightly
+	// good. Measured on a network explaining 82% of held-out variance,
+	// "Black is a rook up" came out at +0.245.
+	Sigmoid bool    `json:"sigmoid"`
+	K       float64 `json:"k"`
+}
+
+// probabilityToPawns is the inverse of the sigmoid used in training.
+//
+// Clamped away from 0 and 1 because the inverse diverges there, and
+// capped at 12 pawns because beyond that the position is decided and the
+// search only needs to know the sign.
+func probabilityToPawns(p, k float64) float64 {
+	const eps = 1e-4
+	if p < eps {
+		p = eps
+	} else if p > 1-eps {
+		p = 1 - eps
+	}
+	v := math.Log(p/(1-p)) / k
+	if v > 12 {
+		return 12
+	}
+	if v < -12 {
+		return -12
+	}
+	return v
 }
 
 // Evaluate returns the score in pawns from White's point of view.
@@ -141,6 +175,13 @@ func (n *HalfKPNet) Evaluate(b *board.Board) float64 {
 			a = 1
 		}
 		out += n.W2[i] * a
+	}
+	if n.Sigmoid {
+		k := n.K
+		if k == 0 {
+			k = 0.30
+		}
+		return probabilityToPawns(float64(out), k)
 	}
 	return float64(out * n.Scale)
 }

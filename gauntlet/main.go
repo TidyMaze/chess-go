@@ -30,6 +30,7 @@ func main() {
 	futility := flag.Bool("futility", true, "enable futility pruning on both sides")
 	tuned := flag.Bool("tuned", true, "challenger uses the Texel-tuned evaluation")
 	netPath := flag.String("net", "", "challenger uses this trained network instead")
+	halfkpPath := flag.String("halfkp", "", "challenger uses this HalfKP network")
 	refNoCastle := flag.Bool("ref-no-castle", false, "reference refuses to castle")
 	refNoRep := flag.Bool("ref-no-repetition", false, "reference has no repetition detection")
 	noLMR := flag.Bool("no-lmr", false, "challenger disables late move reductions")
@@ -61,6 +62,16 @@ func main() {
 	challenger.QuiescePly = *qply
 	challenger.Mobility = *mobility
 	challenger.KingSafety = *kingSafety
+	if *halfkpPath != "" {
+		n, err := engine.LoadHalfKPNet(*halfkpPath)
+		if err != nil {
+			fmt.Println("load halfkp:", err)
+			return
+		}
+		challenger.HalfKP = n
+		challenger.Tuned = false
+		fmt.Printf("loaded %s (hidden %d, sigmoid=%v)\n", *halfkpPath, n.H, n.Sigmoid)
+	}
 	if *netPath != "" {
 		n, err := engine.LoadNet(*netPath)
 		if err != nil {
