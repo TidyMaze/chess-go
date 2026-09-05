@@ -56,6 +56,11 @@
   #tech { margin-top: 0.5rem; font-size: 0.9em; color: #bbb; }
   #trainPanel { max-width: 950px; margin: 0 auto 2.4rem; }
   #nnuePanel { max-width: 950px; margin: 0 auto 2.4rem; }
+  #nnueArch { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+              gap: 0.4rem 1rem; background: #202020; border: 1px solid #333; border-radius: 6px;
+              padding: 0.7rem 0.9rem; margin: 0.6rem 0; font-size: 0.85em; text-align: left; }
+  #nnueArch div { color: #bbb; }
+  #nnueArch b { color: #e5e5e5; font-weight: 600; }
   #genProgressOuter { position: relative; height: 1.5rem; background: #2a2a2a; border-radius: 4px;
                       overflow: hidden; margin: 0.7rem 0; }
   #genProgressFill { height: 100%; width: 0; background: #3f6212; transition: width 0.4s; }
@@ -131,6 +136,7 @@
 <div id="nnuePanel">
   <h2>NNUE training (live)</h2>
   <div id="nnueNote" class="note">HalfKP features (40,960 king-conditioned inputs per side), blended target of search score and game result, shallow high-volume self-play. Each network must win a match against the champion to be adopted.</div>
+  <div id="nnueArch"></div>
   <div id="nnueBars"></div>
   <div id="genProgressOuter"><div id="genProgressFill"></div><div id="genProgressLabel"></div></div>
   <div id="nnueLive">
@@ -975,6 +981,22 @@ async function pollNNUE() {
       const el = document.createElement("span");
       el.textContent = c;
       bars.appendChild(el);
+    }
+
+    if (st.arch) {
+      const a = st.arch;
+      const rows = [
+        ["Features", a.features],
+        ["Topology", a.layers],
+        ["Activation", a.activation],
+        ["Parameters", a.params.toLocaleString()],
+        ["Training target", a.target],
+        ["Self-play / label depth", `${a.play_depth} / ${a.label_depth}`],
+        ["Tested every", `${a.eval_every} generations, ${a.eval_games} games`],
+        ["Next test", `generation ${st.next_eval}`],
+      ];
+      document.getElementById("nnueArch").innerHTML =
+        rows.map(([k, v]) => `<div>${k}: <b>${v}</b></div>`).join("");
     }
 
     // Progress inside the generation, not just between generations.

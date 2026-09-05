@@ -393,8 +393,22 @@ func main() {
 		Aspiration: true, SEEPruning: true, Structure: true, Futility: true,
 	}
 
-	fmt.Printf("HalfKP %d inputs x %d hidden per side, %d workers\n",
-		engine.HalfKPInputs, *hidden, workers)
+	params := engine.HalfKPInputs*(*hidden) + *hidden + 2*(*hidden) + 1
+	arch := map[string]any{
+		"features":    "HalfKP (king square x piece x square)",
+		"inputs":      engine.HalfKPInputs,
+		"hidden":      *hidden,
+		"layers":      fmt.Sprintf("%d -> %d (shared, both perspectives) -> %d -> 1", engine.HalfKPInputs, *hidden, 2**hidden),
+		"activation":  "clipped ReLU [0,1]",
+		"params":      params,
+		"target":      fmt.Sprintf("%.2f x sigmoid(search score) + %.2f x game result", *lambda, 1-*lambda),
+		"label_depth": *labelDepth,
+		"play_depth":  *playDepth,
+		"eval_every":  *evalEvery,
+		"eval_games":  *evalGames,
+	}
+	fmt.Printf("HalfKP %d inputs x %d hidden per side, %d parameters, %d workers\n",
+		engine.HalfKPInputs, *hidden, params, workers)
 
 	var history []genRecord
 	var pool []sample
@@ -416,6 +430,7 @@ func main() {
 						"games": atomic.LoadInt64(&stats.games), "games_total": *gamesPerGen,
 						"positions": atomic.LoadInt64(&stats.positions),
 						"pool":      len(pool), "cum_elo": cumElo,
+						"arch": arch, "next_eval": nextEval(gen, *evalEvery),
 					})
 				}
 			}
@@ -482,6 +497,7 @@ func main() {
 				"phase": "training", "generation": gen, "generations": *generations,
 				"epoch": e, "epochs": *epochs, "test_loss": lastTest,
 				"pool": len(pool), "cum_elo": cumElo,
+				"arch": arch, "next_eval": nextEval(gen, *evalEvery),
 			})
 		}
 		// Training loss over a sample, since the pool can be millions.
@@ -522,6 +538,7 @@ func main() {
 			writeJSON("nnue_status.json", map[string]any{
 				"phase": "evaluating", "generation": gen, "generations": *generations,
 				"pool": len(pool), "cum_elo": cumElo, "eval_games": *evalGames,
+				"arch": arch, "next_eval": gen,
 			})
 			challenger := champion
 			challenger.HalfKP = exported
@@ -578,4 +595,10 @@ func boardSnapshot(b *board.Board) map[string]string {
 		out[squareName(p.Sq)] = prefix + pieceCodes[p.Type]
 	}
 	return out
+}
+
+// nextEval is the generation at which the current network will next be
+// played against the champion.
+func nextEval(gen, every int) int {
+	return ((gen / every) + 1) * every
 }
