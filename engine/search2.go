@@ -164,7 +164,7 @@ func (c *searchCtx) search(g *game.Game, color, maximizingFor board.Color, depth
 	origAlpha, origBeta := alpha, beta
 
 	var moveBuf [64]game.Move
-	legal := g.AppendLegalMoves(moveBuf[:0], color)
+	legal, inCheck := g.AppendLegalMovesInCheck(moveBuf[:0], color)
 	if len(legal) == 0 {
 		return terminalScore(g, color, maximizingFor, depth)
 	}
@@ -176,7 +176,6 @@ func (c *searchCtx) search(g *game.Game, color, maximizingFor board.Color, depth
 	}
 
 	maximizing := color == maximizingFor
-	inCheck := moves.IsInCheck(&g.Board, color)
 
 	// Futility pruning (Heinz, 1998). Near the leaves, a position already
 	// far outside the window is very unlikely to be dragged back inside by

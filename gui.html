@@ -56,6 +56,16 @@
   #tech { margin-top: 0.5rem; font-size: 0.9em; color: #bbb; }
   #trainPanel { max-width: 950px; margin: 0 auto 2.4rem; }
   #nnuePanel { max-width: 950px; margin: 0 auto 2.4rem; }
+  #genProgressOuter { position: relative; height: 1.5rem; background: #2a2a2a; border-radius: 4px;
+                      overflow: hidden; margin: 0.7rem 0; }
+  #genProgressFill { height: 100%; width: 0; background: #3f6212; transition: width 0.4s; }
+  #genProgressLabel { position: absolute; inset: 0; display: flex; align-items: center;
+                      justify-content: center; font-size: 0.82em; font-weight: 600; }
+  #nnueLive { display: flex; gap: 1rem; align-items: center; justify-content: center;
+              flex-wrap: wrap; margin: 0.8rem 0; }
+  #nnueBoard { display: grid; grid-template-columns: repeat(8, 26px);
+               grid-template-rows: repeat(8, 26px); border: 1px solid #555; }
+  #nnueBoard .sq { font-size: 18px; }
   /* width:100% because the page centres its text, which otherwise shrinks
      each fold to the width of its own summary. */
   .fold { width: 100%; max-width: 950px; margin: 0 auto 0.6rem; border: 1px solid #333;
@@ -122,6 +132,11 @@
   <h2>NNUE training (live)</h2>
   <div id="nnueNote" class="note">HalfKP features (40,960 king-conditioned inputs per side), blended target of search score and game result, shallow high-volume self-play. Each network must win a match against the champion to be adopted.</div>
   <div id="nnueBars"></div>
+  <div id="genProgressOuter"><div id="genProgressFill"></div><div id="genProgressLabel"></div></div>
+  <div id="nnueLive">
+    <div id="nnueBoard"></div>
+    <div id="nnueLiveLabel" class="note"></div>
+  </div>
   <div id="nnueWrap"><canvas id="nnueChart"></canvas></div>
   <table class="steps"><thead><tr><th>Gen</th><th class="num">Pool</th><th class="num">Held-out</th><th class="num">Constant guess</th><th class="num">Explains</th><th class="num">Elo</th><th>Kept?</th></tr></thead>
     <tbody id="nnueBody"></tbody></table>
@@ -449,19 +464,23 @@ function refreshCurve(fullHistory) {
         { label: "Champion's best-ever Elo vs fixed bot (ratchet)", data: fixedBotEloPoints, borderColor: '#f59e0b',
           pointBackgroundColor: '#f59e0b', pointRadius: 4, tension: 0.2, yAxisID: 'y1' },
       ] },
-      options: { scales: {
+      options: { animation: false, scales: {
         y: { min: 0, max: 100, position: 'left', title: { display: true, text: 'Win rate %' } },
         y1: { position: 'right', title: { display: true, text: 'Elo vs baseline' }, grid: { drawOnChartArea: false } },
         x: { title: { display: true, text: 'Generation' } }
       } }
     });
   } else {
-    curveChart.data.labels = gens;
-    curveChart.data.datasets[0].data = winRates;
-    curveChart.data.datasets[0].pointBackgroundColor = promoted;
-    curveChart.data.datasets[1].data = randomEloPoints;
-    curveChart.data.datasets[2].data = fixedBotEloPoints;
-    curveChart.update();
+    const sig = JSON.stringify([gens, winRates, randomEloPoints, fixedBotEloPoints]);
+    if (chartSignatures.curve !== sig) {
+      chartSignatures.curve = sig;
+      curveChart.data.labels = gens;
+      curveChart.data.datasets[0].data = winRates;
+      curveChart.data.datasets[0].pointBackgroundColor = promoted;
+      curveChart.data.datasets[1].data = randomEloPoints;
+      curveChart.data.datasets[2].data = fixedBotEloPoints;
+      curveChart.update("none");
+    }
   }
 }
 
@@ -585,11 +604,11 @@ function drawAgreement(a) {
        borderColor: "#f87171", backgroundColor: "#f87171", tension: 0.25},
     ],
   };
-  if (agreeChart) { agreeChart.data = data; agreeChart.update(); return; }
+  if (agreeChart) { updateChart("agree", agreeChart, data); return; }
   agreeChart = new Chart(document.getElementById("agreeChart"), {
     type: "line", data,
     options: {
-      responsive: true, maintainAspectRatio: false,
+      responsive: true, maintainAspectRatio: false, animation: false,
       plugins: {legend: {labels: {color: "#ddd"}}},
       scales: {
         y: {title: {display: true, text: "agrees with Stockfish (%)", color: "#bbb"},
@@ -811,11 +830,11 @@ async function pollTraining() {
          borderColor: "#60a5fa", backgroundColor: "#60a5fa", yAxisID: "y1", tension: 0.2},
       ],
     };
-    if (trainChart) { trainChart.data = data; trainChart.update(); return; }
+    if (trainChart) { updateChart("train", trainChart, data); return; }
     trainChart = new Chart(document.getElementById("trainChart"), {
       type: "line", data,
       options: {
-        responsive: true, maintainAspectRatio: false,
+        responsive: true, maintainAspectRatio: false, animation: false, animation: false,
         plugins: {legend: {labels: {color: "#ddd"}}},
         scales: {
           y: {position: "left", title: {display: true, text: "cumulative Elo", color: "#4ade80"},
@@ -867,11 +886,11 @@ async function pollSPSA() {
         tension: 0.2, pointRadius: 0,
       })),
     };
-    if (spsaChart) { spsaChart.data = data; spsaChart.update(); return; }
+    if (spsaChart) { updateChart("spsa", spsaChart, data); return; }
     spsaChart = new Chart(document.getElementById("spsaChart"), {
       type: "line", data,
       options: {
-        responsive: true, maintainAspectRatio: false,
+        responsive: true, maintainAspectRatio: false, animation: false, animation: false,
         plugins: {legend: {labels: {color: "#ddd", boxWidth: 12}}},
         scales: {
           y: {title: {display: true, text: "weight, relative to its starting value", color: "#bbb"},
@@ -884,8 +903,60 @@ async function pollSPSA() {
   } catch (e) {}
 }
 
+// Charts re-render on a timer, and Chart.js animates every update even
+// when the numbers are identical, which reads as the page twitching every
+// two seconds. So: animation off, and the data is only pushed when its
+// signature has actually changed.
+const chartSignatures = {};
+function updateChart(key, chart, data) {
+  const sig = JSON.stringify(data.datasets.map(d => d.data)) + "|" + JSON.stringify(data.labels);
+  if (chartSignatures[key] === sig) return;
+  chartSignatures[key] = sig;
+  chart.data = data;
+  chart.update("none");
+}
+
 // ---- live NNUE training -------------------------------------------------
 let nnueChart = null;
+let nnueBoardBuilt = false;
+
+function buildNNUEBoard() {
+  const el = document.getElementById("nnueBoard");
+  el.innerHTML = "";
+  for (let rank = 7; rank >= 0; rank--) {
+    for (let file = 0; file < 8; file++) {
+      const d = document.createElement("div");
+      d.id = `nq-${files[file]}${rank + 1}`;
+      d.className = "sq " + ((file + rank) % 2 === 0 ? "dark" : "light");
+      el.appendChild(d);
+    }
+  }
+  nnueBoardBuilt = true;
+}
+
+// The self-play game in progress. A generation takes minutes, and
+// without this the panel looks frozen between generations even though it
+// is working the whole time.
+async function pollNNUELive() {
+  try {
+    const st = await fetch("live_game.json?_=" + Date.now()).then(r => r.json());
+    if (!nnueBoardBuilt) buildNNUEBoard();
+    for (let rank = 0; rank < 8; rank++) {
+      for (let file = 0; file < 8; file++) {
+        const name = files[file] + (rank + 1);
+        const el = document.getElementById(`nq-${name}`);
+        if (!el) continue;
+        const code = st.board[name];
+        el.textContent = code ? SYMBOLS[code] : "";
+        el.className = "sq " + ((file + rank) % 2 === 0 ? "dark" : "light");
+        if (code) el.classList.add(code[0] === "w" ? "wpiece" : "bpiece");
+        if (name === st.from || name === st.to) el.classList.add("highlight");
+      }
+    }
+    document.getElementById("nnueLiveLabel").textContent =
+      `${st.label}: move ${st.move_no}, ${st.mover} played ${st.from}${st.to}`;
+  } catch (e) {}
+}
 
 async function pollNNUE() {
   try {
@@ -905,6 +976,24 @@ async function pollNNUE() {
       el.textContent = c;
       bars.appendChild(el);
     }
+
+    // Progress inside the generation, not just between generations.
+    let pct = 0, label = st.phase || "";
+    if (st.phase === "self-play" && st.games_total) {
+      pct = 100 * st.games / st.games_total;
+      label = `self-play: game ${st.games} of ${st.games_total} (${st.positions || 0} positions)`;
+    } else if (st.phase === "training" && st.epochs) {
+      pct = 100 * st.epoch / st.epochs;
+      label = `training: epoch ${st.epoch} of ${st.epochs}`;
+    } else if (st.phase === "evaluating") {
+      pct = 100;
+      label = `playing ${st.eval_games} games against the champion`;
+    } else if (st.phase === "done") {
+      pct = 100;
+      label = "finished";
+    }
+    document.getElementById("genProgressFill").style.width = pct + "%";
+    document.getElementById("genProgressLabel").textContent = label;
   } catch (e) {}
 
   try {
@@ -937,11 +1026,11 @@ async function pollNNUE() {
          borderColor: "#fbbf24", backgroundColor: "#fbbf24", yAxisID: "y1", tension: 0.2},
       ],
     };
-    if (nnueChart) { nnueChart.data = data; nnueChart.update(); return; }
+    if (nnueChart) { updateChart("nnue", nnueChart, data); return; }
     nnueChart = new Chart(document.getElementById("nnueChart"), {
       type: "line", data,
       options: {
-        responsive: true, maintainAspectRatio: false,
+        responsive: true, maintainAspectRatio: false, animation: false, animation: false,
         plugins: {legend: {labels: {color: "#ddd", boxWidth: 12}}},
         scales: {
           y: {position: "left", title: {display: true, text: "explains % (held out, split by game)", color: "#4ade80"},
@@ -958,6 +1047,8 @@ async function pollNNUE() {
 
 pollNNUE();
 setInterval(pollNNUE, 2000);
+pollNNUELive();
+setInterval(pollNNUELive, 900);
 
 pollSPSA();
 setInterval(pollSPSA, 3000);

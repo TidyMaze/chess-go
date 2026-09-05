@@ -67,6 +67,18 @@ func (g *Game) AllLegalMoves(color board.Color) []Move {
 // AppendLegalMoves is the non-allocating form: the search reuses one
 // buffer per node instead of allocating a fresh move slice each time.
 func (g *Game) AppendLegalMoves(dst []Move, color board.Color) []Move {
+	out, _ := g.AppendLegalMovesInCheck(dst, color)
+	return out
+}
+
+// AppendLegalMovesInCheck also returns whether the side to move is in
+// check, which it has to compute anyway.
+//
+// The search needs that fact too, for null-move pruning, futility and
+// late move reductions, and was calling IsInCheck a second time for it at
+// every node. IsInCheck was 12% of search time, so half of that was being
+// spent computing something the caller already had.
+func (g *Game) AppendLegalMovesInCheck(dst []Move, color board.Color) ([]Move, bool) {
 	inCheck := moves.IsInCheck(&g.Board, color)
 	pinned := moves.PinnedSquares(&g.Board, color)
 	var pieceBuf [16]board.PieceAtSquare
@@ -94,7 +106,7 @@ func (g *Game) AppendLegalMoves(dst []Move, color board.Color) []Move {
 			result = append(result, Move{ps.Sq, target})
 		}
 	}
-	return result
+	return result, inCheck
 }
 
 func (g *Game) IsCheckmate(color board.Color) bool {
