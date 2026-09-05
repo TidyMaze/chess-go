@@ -72,7 +72,18 @@ type Player struct {
 	UCIDepth int
 }
 
+// withTable is the transposition table this player reuses for the whole
+// game. A fresh table was being allocated for every single move: at
+// 2^20 entries that is a 24 MB allocation per move, and the profile at
+// depth 7 showed roughly 16% of CPU in madvise and allocator traffic
+// because of it. Reusing it is also stronger, not just faster, since
+// entries from earlier moves in the same game are still valid and save
+// the search rediscovering them.
 func (p Player) pick(g *game.Game) (game.Move, bool) {
+	return p.pickWith(g, nil)
+}
+
+func (p Player) pickWith(g *game.Game, reuse *TranspositionTable) (game.Move, bool) {
 	if p.UCI != nil {
 		depth := p.UCIDepth
 		if depth <= 0 {
@@ -112,7 +123,10 @@ func (p Player) pick(g *game.Game) (game.Move, bool) {
 		sw := TunedStructure()
 		ev.PSTScale, ev.StructureW = &scale, &sw
 	}
-	if p.TTBits > 0 {
+	switch {
+	case reuse != nil:
+		ev.Table = reuse
+	case p.TTBits > 0:
 		ev.Table = NewTranspositionTable(p.TTBits)
 	}
 	if p.Iterative {
@@ -240,12 +254,22 @@ func PlayMatchSerial(a, b Player, games, maxMoves int) MatchResult {
 
 func playPlayersLive(white, black Player, maxMoves int, live LiveHook) (board.Color, bool) {
 	g := game.New()
+	// One table per player per game, not one per move. They must not be
+	// shared between the two players: a stored score is from one side's
+	// point of view, and the entries also encode each engine's own
+	// evaluation, which is exactly what an A/B is varying.
+	tables := map[board.Color]*TranspositionTable{}
+	for c, p := range map[board.Color]Player{board.White: white, board.Black: black} {
+		if p.TTBits > 0 {
+			tables[c] = NewTranspositionTable(p.TTBits)
+		}
+	}
 	for plies := 0; plies < maxMoves && !g.IsOver(); plies++ {
 		p := white
 		if g.Turn == board.Black {
 			p = black
 		}
-		move, ok := p.pick(g)
+		move, ok := p.pickWith(g, tables[g.Turn])
 		if !ok {
 			break
 		}

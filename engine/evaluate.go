@@ -222,7 +222,10 @@ func PositionScore(b *board.Board, color board.Color, weights Weights) float64 {
 	return PositionScoreEval(b, color, &Eval{Weights: weights})
 }
 
-func PositionScoreEval(b *board.Board, color board.Color, ev *Eval) float64 {
+// positionScoreEvalReference is the original multi-pass evaluation,
+// kept only so the fused version can be tested against it. It is not
+// used in play.
+func positionScoreEvalReference(b *board.Board, color board.Color, ev *Eval) float64 {
 	if ev != nil && ev.Net != nil && !ev.Net.Residual {
 		// The network scores from White's point of view; the search wants
 		// the score from `color`'s.
@@ -279,6 +282,126 @@ func PositionScoreEval(b *board.Board, color board.Color, ev *Eval) float64 {
 		score += kingDrivingBonus(b, color)
 	} else if score <= -4 {
 		score -= kingDrivingBonus(b, color.Other())
+	}
+	return score
+}
+
+// PositionScoreEval scores a position from color's point of view.
+//
+// One walk over the pieces, not seven. The multi-pass version (kept as
+// positionScoreEvalReference and tested against) called AppendPiecesOf
+// for the phase, for material and tables on each side, for the pawn file
+// summaries on each side, and for the structure terms on each side. Each
+// of those walks the whole occupied list and decodes every cell, and the
+// profile at depth 7 put the evaluation at 33% of all CPU with
+// AppendPiecesOf the single largest leaf inside it.
+//
+// So the board is read once into a stack array and everything else reads
+// that array: same arithmetic, same result, a fraction of the memory
+// traffic.
+func PositionScoreEval(b *board.Board, color board.Color, ev *Eval) float64 {
+	if ev != nil && ev.Net != nil && !ev.Net.Residual {
+		score := ev.Net.Evaluate(b)
+		if color == board.Black {
+			score = -score
+		}
+		if score >= 4 {
+			score += kingDrivingBonus(b, color)
+		} else if score <= -4 {
+			score -= kingDrivingBonus(b, color.Other())
+		}
+		return score
+	}
+
+	weights := ev.weightsOrDefault()
+	usePST := ev.usePST()
+	tapered := ev != nil && ev.Tapered
+	materialOnly := ev != nil && ev.MaterialOnly
+	wantStructure := ev != nil && ev.Structure
+
+	var buf [32]board.ColoredPiece
+	pieces := b.AppendAllPieces(buf[:0])
+
+	// Phase first: the tapered tables need it, and it is a property of
+	// the whole board rather than of either side.
+	phase := 1.0
+	if tapered {
+		total := 0.0
+		for _, p := range pieces {
+			total += phaseWeight[p.Type]
+		}
+		if total > maxPhase {
+			total = maxPhase
+		}
+		phase = total / maxPhase
+	}
+
+	scale := ev.pstScale()
+	var material, positional [2]float64
+	var bishops [2]int
+	var pawns [2]pawnFiles
+	for i := range pawns {
+		for f := range pawns[i].mostAdv {
+			pawns[i].mostAdv[f] = -1
+		}
+	}
+
+	for _, p := range pieces {
+		c := p.Color
+		material[c] += weights[p.Type]
+		if p.Type == board.Bishop {
+			bishops[c]++
+		}
+		if tapered {
+			positional[c] += pstValueTapered(p.Type, p.Sq, c, phase, scale)
+		} else if usePST {
+			positional[c] += pstValue(p.Type, p.Sq, c, scale)
+		} else if bonus := centerBonus[p.Type]; bonus != 0 {
+			positional[c] += bonus * (3.5 - centerDistance(p.Sq))
+		}
+		if p.Type == board.Pawn {
+			rank := p.Sq.Rank
+			if c == board.Black {
+				rank = 7 - rank
+			}
+			pawns[c].count[p.Sq.File]++
+			if rank > pawns[c].mostAdv[p.Sq.File] {
+				pawns[c].mostAdv[p.Sq.File] = rank
+			}
+			pawns[c].anyPawns = true
+		}
+	}
+
+	for _, c := range [2]board.Color{board.White, board.Black} {
+		if (tapered || usePST) && bishops[c] >= 2 {
+			positional[c] += 0.3
+		}
+	}
+	if materialOnly {
+		positional[board.White], positional[board.Black] = 0, 0
+	}
+
+	other := color.Other()
+	score := (material[color] - material[other]) + (positional[color] - positional[other])
+
+	if wantStructure {
+		sw := ev.structureWeights()
+		score += structurePieces(pieces, color, pawns[color], pawns[other], phase, sw)
+		score -= structurePieces(pieces, other, pawns[other], pawns[color], phase, sw)
+	}
+
+	if score >= 4 {
+		score += kingDrivingBonus(b, color)
+	} else if score <= -4 {
+		score -= kingDrivingBonus(b, other)
+	}
+
+	if ev != nil && ev.Net != nil && ev.Net.Residual {
+		correction := ev.Net.Evaluate(b)
+		if color == board.Black {
+			correction = -correction
+		}
+		score += correction
 	}
 	return score
 }

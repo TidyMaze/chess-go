@@ -155,3 +155,52 @@ func hasNeighbourPawn(file int, own pawnFiles) bool {
 	}
 	return false
 }
+
+// structurePieces is structureScore over an already-collected piece
+// list, so the evaluation does not walk the board again per side.
+func structurePieces(pieces []board.ColoredPiece, color board.Color, own, enemy pawnFiles, phase float64, w StructureWeights) float64 {
+	score := 0.0
+	for _, ps := range pieces {
+		if ps.Color != color {
+			continue
+		}
+		file := ps.Sq.File
+		switch ps.Type {
+		case board.Pawn:
+			rank := ps.Sq.Rank
+			if color == board.Black {
+				rank = 7 - rank
+			}
+			if isPassed(file, rank, enemy) {
+				score += (w.PassedBase + w.PassedPerRank*float64(rank)) * (2 - phase)
+			}
+			if !hasNeighbourPawn(file, own) {
+				score -= w.Isolated
+			}
+			if own.count[file] > 1 {
+				score -= w.Doubled / float64(own.count[file])
+			}
+		case board.Rook:
+			if own.count[file] == 0 {
+				if enemy.count[file] == 0 {
+					score += w.RookOpen
+				} else {
+					score += w.RookSemiOpen
+				}
+			}
+		case board.King:
+			shield := 0
+			for df := -1; df <= 1; df++ {
+				f := file + df
+				if f < 0 || f > 7 {
+					continue
+				}
+				if own.count[f] > 0 {
+					shield++
+				}
+			}
+			score += float64(shield) * w.KingShield * phase
+		}
+	}
+	return score
+}

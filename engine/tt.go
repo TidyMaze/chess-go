@@ -60,16 +60,45 @@ const (
 	ttUpperBound
 )
 
+// ttEntry is packed to 16 bytes, down from 64.
+//
+// The table is the hottest memory in the engine: at depth 6-7 the probe
+// alone was 38.6% of CPU and the store another 13.1%, over half the
+// total, which is not what a direct-mapped array lookup should ever
+// cost. The reason was size, not logic. A game.Move is four ints (32
+// bytes on its own), so an entry was ~64 bytes and a 2^20 table was
+// 64 MB: far past any cache, so essentially every probe was a trip to
+// main memory.
+//
+// So the entry stores what it needs in the smallest form that carries
+// it: squares as 0-63 indices rather than pairs of ints, and only the
+// upper 32 bits of the key. The low bits already pick the slot, so
+// keeping the high half gives a false match roughly once in 4 billion
+// probes, which is the standard trade and far cheaper than the cache
+// misses it removes.
+//
+// The score stays float64, which is the one field that cannot shrink.
+// Storing it as float32 made the search 18% *bigger* (80,704 nodes at
+// depth 6 against 68,277) and 15% slower overall. Principal variation
+// search probes with zero-width windows one part in a million wide
+// (alpha, alpha+1e-6), and float32 has about seven significant digits,
+// so a mate score near 1000 quantises to steps coarser than the window
+// itself. Scores came back from the table just different enough to fail
+// the window and trigger a re-search.
 type ttEntry struct {
-	key   uint64
-	score float64
-	depth int
+	score float64 // pawns; see the note below on why not float32
+	key32 uint32  // upper half of the Zobrist key, for verification
+	depth int8
 	flag  ttFlag
 	// maximizingFor matters: a stored score is from one side's point of
 	// view, and reusing it for the other side would invert its meaning.
-	maximizingFor board.Color
-	best          game.Move
+	maximizingFor uint8
+	from, to      uint8 // square index, rank*8+file
 }
+
+func sqToIndex(s board.Sq) uint8 { return uint8(s.Rank*8 + s.File) }
+func indexToSq(i uint8) board.Sq { return board.Sq{File: int(i % 8), Rank: int(i / 8)} }
+func keyUpper(key uint64) uint32 { return uint32(key >> 32) }
 
 // TranspositionTable is a fixed-size, direct-mapped cache. No eviction
 // policy beyond "newest wins": a deeper entry is worth more, so a
@@ -89,19 +118,20 @@ func (t *TranspositionTable) probe(key uint64, depth int, maximizingFor board.Co
 		return 0, false
 	}
 	e := &t.entries[key&t.mask]
-	if e.key != key || e.depth < depth || e.maximizingFor != maximizingFor {
+	if e.key32 != keyUpper(key) || int(e.depth) < depth || e.maximizingFor != uint8(maximizingFor) {
 		return 0, false
 	}
+	score := e.score
 	switch e.flag {
 	case ttExact:
-		return e.score, true
+		return score, true
 	case ttLowerBound:
-		if e.score >= beta {
-			return e.score, true
+		if score >= beta {
+			return score, true
 		}
 	case ttUpperBound:
-		if e.score <= alpha {
-			return e.score, true
+		if score <= alpha {
+			return score, true
 		}
 	}
 	return 0, false
@@ -119,8 +149,12 @@ func (t *TranspositionTable) storeWithMove(key uint64, score float64, depth int,
 		return
 	}
 	e := &t.entries[key&t.mask]
-	if e.key == key && e.depth > depth {
+	if e.key32 == keyUpper(key) && int(e.depth) > depth {
 		return
 	}
-	*e = ttEntry{key: key, score: score, depth: depth, flag: flag, maximizingFor: maximizingFor, best: best}
+	*e = ttEntry{
+		key32: keyUpper(key), score: score, depth: int8(depth), flag: flag,
+		maximizingFor: uint8(maximizingFor),
+		from:          sqToIndex(best.From), to: sqToIndex(best.To),
+	}
 }

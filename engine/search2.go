@@ -121,8 +121,8 @@ func (c *searchCtx) search(g *game.Game, color, maximizingFor board.Color, depth
 		if score, ok := tt.probe(key, depth, maximizingFor, alpha, beta); ok {
 			return score
 		}
-		if e := &tt.entries[key&tt.mask]; e.key == key {
-			ttMove = e.best
+		if e := &tt.entries[key&tt.mask]; e.key32 == keyUpper(key) {
+			ttMove = game.Move{From: indexToSq(e.from), To: indexToSq(e.to)}
 		}
 	}
 	origAlpha, origBeta := alpha, beta

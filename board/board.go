@@ -263,7 +263,6 @@ func (b *Board) AppendPiecesOf(dst []PieceAtSquare, c Color) []PieceAtSquare {
 	return result
 }
 
-
 // Undo captures everything Move changes, so a move can be taken back
 // without copying the board. The search visits hundreds of thousands of
 // nodes per move and copied a whole Board into a new Game at each one;
@@ -340,3 +339,30 @@ func (b *Board) UnmakeMove(u Undo) {
 
 // SetPiece replaces the piece on a square (used for promotion).
 func (b *Board) SetPiece(s Sq, p Piece) { b.setPiece(s, p) }
+
+// ColoredPiece is a piece with its colour, for callers that want every
+// piece on the board in one pass rather than one pass per side.
+type ColoredPiece struct {
+	Sq    Sq
+	Type  PieceType
+	Color Color
+}
+
+// AppendAllPieces walks the occupied list once and returns both sides.
+//
+// AppendPiecesOf filters by colour, so anything wanting both sides pays
+// for two walks. The evaluation wanted seven (phase, material and tables
+// per side, pawn files per side, structure per side), which made a single
+// evaluation walk the piece list seven times over.
+func (b *Board) AppendAllPieces(dst []ColoredPiece) []ColoredPiece {
+	result := dst
+	for i := 0; i < b.occupiedCount; i++ {
+		s := b.occupied[i]
+		cl := b.cells[index(s)]
+		if cl >= codePieceMin {
+			p := decodePiece(cl)
+			result = append(result, ColoredPiece{s, p.Type, p.Color})
+		}
+	}
+	return result
+}
