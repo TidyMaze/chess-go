@@ -30,3 +30,7 @@ analyze-bin
 analysis.json
 spsa-bin
 spsa.json
+nnue-bin
+nnue.json
+nnue_status.json
+halfkp_*.json

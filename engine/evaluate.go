@@ -157,6 +157,9 @@ type Eval struct {
 	// one Game, and it is applied to the root move list because that is
 	// where the played move is chosen.
 	NoCastle bool
+	// HalfKP is a king-conditioned network. When set it replaces the
+	// hand-written evaluation entirely, which is how NNUE is used.
+	HalfKP *HalfKPNet
 	// Net replaces the hand-written evaluation with a trained network.
 	// When set, the material, table and structure terms are not used at
 	// all: the network was fitted to the same target they were and is a
@@ -239,6 +242,22 @@ func PositionScore(b *board.Board, color board.Color, weights Weights) float64 {
 // kept only so the fused version can be tested against it. It is not
 // used in play.
 func positionScoreEvalReference(b *board.Board, color board.Color, ev *Eval) float64 {
+	if ev != nil && ev.HalfKP != nil {
+		score := ev.HalfKP.Evaluate(b)
+		if color == board.Black {
+			score = -score
+		}
+		// The endgame king-driving term stays: it is the mechanism that
+		// converts a won endgame into a mate, not a positional opinion,
+		// and the network is trained on positions that are mostly not
+		// near mate.
+		if score >= 4 {
+			score += kingDrivingBonus(b, color)
+		} else if score <= -4 {
+			score -= kingDrivingBonus(b, color.Other())
+		}
+		return score
+	}
 	if ev != nil && ev.Net != nil && !ev.Net.Residual {
 		// The network scores from White's point of view; the search wants
 		// the score from `color`'s.
@@ -313,6 +332,22 @@ func positionScoreEvalReference(b *board.Board, color board.Color, ev *Eval) flo
 // that array: same arithmetic, same result, a fraction of the memory
 // traffic.
 func PositionScoreEval(b *board.Board, color board.Color, ev *Eval) float64 {
+	if ev != nil && ev.HalfKP != nil {
+		score := ev.HalfKP.Evaluate(b)
+		if color == board.Black {
+			score = -score
+		}
+		// The endgame king-driving term stays: it is the mechanism that
+		// converts a won endgame into a mate, not a positional opinion,
+		// and the network is trained on positions that are mostly not
+		// near mate.
+		if score >= 4 {
+			score += kingDrivingBonus(b, color)
+		} else if score <= -4 {
+			score -= kingDrivingBonus(b, color.Other())
+		}
+		return score
+	}
 	if ev != nil && ev.Net != nil && !ev.Net.Residual {
 		score := ev.Net.Evaluate(b)
 		if color == board.Black {

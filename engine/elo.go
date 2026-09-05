@@ -62,6 +62,8 @@ type Player struct {
 	Tuned bool
 	// Net replaces the whole hand-written evaluation with a trained one.
 	Net *Net
+	// HalfKP is the king-conditioned network, used the way NNUE is.
+	HalfKP *HalfKPNet
 	// NoCastle declines castling. Measurement only, see Eval.NoCastle.
 	NoCastle bool
 	// NoLMR disables late move reductions.
@@ -124,6 +126,7 @@ func (p Player) pickWith(g *game.Game, reuse *TranspositionTable) (game.Move, bo
 		Extensions: p.Extensions, Aspiration: p.Aspiration, SEEPruning: p.SEEPruning,
 		Structure: p.Structure, Futility: p.Futility}
 	ev.Net = p.Net
+	ev.HalfKP = p.HalfKP
 	ev.NoCastle = p.NoCastle
 	ev.NoLMR = p.NoLMR
 	ev.NoRepetition = p.NoRepetition
@@ -430,12 +433,27 @@ func PlayMatchAgainstUCI(me Player, newOpponent func() (Player, func(), error), 
 // evaluation is being fitted to its own search rather than to another
 // engine's opinion.
 func PlayerScore(p Player, g *game.Game) (float64, bool) {
+	return PlayerScoreWith(p, g, nil)
+}
+
+// PlayerScoreWith is PlayerScore with a caller-supplied transposition
+// table.
+//
+// PlayerScore allocates one, and at TTBits 20 that is 24 MB per call. The
+// training data generator calls it once per labelled position, thousands
+// of times per game, so it was allocating and zeroing tens of gigabytes
+// to label a single generation. Passing one table per worker removes it
+// entirely, and reuse across positions also makes each search cheaper.
+func PlayerScoreWith(p Player, g *game.Game, reuse *TranspositionTable) (float64, bool) {
 	ev := &Eval{Weights: p.Weights, UsePST: p.UsePST, NullMove: p.NullMove,
 		MaterialOnly: p.MaterialOnly, QuiescePly: p.QuiescePly, Tapered: p.Tapered,
 		Extensions: p.Extensions, Aspiration: p.Aspiration, SEEPruning: p.SEEPruning,
 		Structure: p.Structure, Futility: p.Futility, Mobility: p.Mobility,
-		KingSafety: p.KingSafety, Net: p.Net}
-	if p.TTBits > 0 {
+		KingSafety: p.KingSafety, Net: p.Net, HalfKP: p.HalfKP}
+	switch {
+	case reuse != nil:
+		ev.Table = reuse
+	case p.TTBits > 0:
 		ev.Table = NewTranspositionTable(p.TTBits)
 	}
 	depth := p.Depth
@@ -461,7 +479,7 @@ func PlayerScore(p Player, g *game.Game) (float64, bool) {
 func PlayerStaticEval(p Player, b *board.Board) float64 {
 	ev := &Eval{Weights: p.Weights, UsePST: p.UsePST, MaterialOnly: p.MaterialOnly,
 		Tapered: p.Tapered, Structure: p.Structure, Mobility: p.Mobility,
-		KingSafety: p.KingSafety, Net: p.Net}
+		KingSafety: p.KingSafety, Net: p.Net, HalfKP: p.HalfKP}
 	if p.Tuned {
 		if p.Weights == nil {
 			ev.Weights = TunedWeights()

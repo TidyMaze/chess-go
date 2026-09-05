@@ -55,6 +55,10 @@
   #external { margin-top: 0.8rem; font-size: 0.9em; color: #bbb; }
   #tech { margin-top: 0.5rem; font-size: 0.9em; color: #bbb; }
   #trainPanel { max-width: 950px; margin: 0 auto 2.4rem; }
+  #nnuePanel { max-width: 950px; margin: 0 auto 2.4rem; }
+  #nnueWrap { position: relative; height: 250px; margin: 0.8rem 0; }
+  #nnueBars { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.5rem; }
+  #nnueBars span { background: #333; border-radius: 4px; padding: 0.2rem 0.6rem; font-size: 0.85em; }
   #spsaPanel { max-width: 950px; margin: 0 auto 2.4rem; }
   #spsaWrap { position: relative; height: 260px; margin: 0.8rem 0; }
   #spsaBars { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.5rem; }
@@ -120,6 +124,15 @@
   <div id="trainWrap"><canvas id="trainChart"></canvas></div>
   <table class="steps"><thead><tr><th>Gen</th><th class="num">Positions</th><th class="num">Held-out loss</th><th class="num">Elo vs champion</th><th>Kept?</th></tr></thead>
     <tbody id="trainBody"></tbody></table>
+</div>
+
+<div id="nnuePanel">
+  <h2>NNUE training (live)</h2>
+  <div id="nnueNote" class="note">HalfKP features (40,960 king-conditioned inputs per side), blended target of search score and game result, shallow high-volume self-play. Each network must win a match against the champion to be adopted.</div>
+  <div id="nnueBars"></div>
+  <div id="nnueWrap"><canvas id="nnueChart"></canvas></div>
+  <table class="steps"><thead><tr><th>Gen</th><th class="num">Pool</th><th class="num">Held-out</th><th class="num">Constant guess</th><th class="num">Explains</th><th class="num">Elo</th><th>Kept?</th></tr></thead>
+    <tbody id="nnueBody"></tbody></table>
 </div>
 
 <div id="spsaPanel">
@@ -834,6 +847,81 @@ async function pollSPSA() {
     });
   } catch (e) {}
 }
+
+// ---- live NNUE training -------------------------------------------------
+let nnueChart = null;
+
+async function pollNNUE() {
+  try {
+    const st = await fetch("nnue_status.json?_=" + Date.now()).then(r => r.json());
+    const bars = document.getElementById("nnueBars");
+    bars.innerHTML = "";
+    const chips = [];
+    if (st.generation) chips.push(`Gen ${st.generation}/${st.generations}`);
+    if (st.phase) chips.push(st.phase);
+    if (st.phase === "self-play" && st.games_total) chips.push(`game ${st.games}/${st.games_total}`);
+    if (st.phase === "training" && st.epochs) chips.push(`epoch ${st.epoch}/${st.epochs}`);
+    if (st.phase === "evaluating" && st.eval_games) chips.push(`${st.eval_games} test games`);
+    if (st.pool) chips.push(`${st.pool.toLocaleString()} positions in pool`);
+    chips.push(`cumulative ${(st.cum_elo || 0) >= 0 ? "+" : ""}${st.cum_elo || 0} Elo`);
+    for (const c of chips) {
+      const el = document.createElement("span");
+      el.textContent = c;
+      bars.appendChild(el);
+    }
+  } catch (e) {}
+
+  try {
+    const hist = await fetch("nnue.json?_=" + Date.now()).then(r => r.json());
+    if (!Array.isArray(hist) || !hist.length) return;
+
+    const body = document.getElementById("nnueBody");
+    body.innerHTML = "";
+    for (const h of hist.slice().reverse().slice(0, 25)) {
+      const explains = 100 * (1 - h.test_loss / h.baseline);
+      const tr = document.createElement("tr");
+      tr.innerHTML =
+        `<td>${h.generation}</td>` +
+        `<td class="num">${h.positions.toLocaleString()}</td>` +
+        `<td class="num">${h.test_loss.toFixed(5)}</td>` +
+        `<td class="num">${h.baseline.toFixed(5)}</td>` +
+        `<td class="num">${explains.toFixed(0)}%</td>` +
+        `<td class="num">${h.elo >= 0 ? "+" : ""}${h.elo} &plusmn; ${h.elo_margin}</td>` +
+        `<td class="${h.accepted ? "kept" : "rejected"}">${h.accepted ? "kept" : "rejected"}</td>`;
+      body.appendChild(tr);
+    }
+
+    const data = {
+      labels: hist.map(h => h.generation),
+      datasets: [
+        {label: "explains % of held-out variance",
+         data: hist.map(h => 100 * (1 - h.test_loss / h.baseline)),
+         borderColor: "#4ade80", backgroundColor: "#4ade80", yAxisID: "y", tension: 0.2},
+        {label: "Elo vs champion", data: hist.map(h => h.elo),
+         borderColor: "#fbbf24", backgroundColor: "#fbbf24", yAxisID: "y1", tension: 0.2},
+      ],
+    };
+    if (nnueChart) { nnueChart.data = data; nnueChart.update(); return; }
+    nnueChart = new Chart(document.getElementById("nnueChart"), {
+      type: "line", data,
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {legend: {labels: {color: "#ddd", boxWidth: 12}}},
+        scales: {
+          y: {position: "left", title: {display: true, text: "explains % (held out, split by game)", color: "#4ade80"},
+              ticks: {color: "#bbb"}, grid: {color: "#333"}},
+          y1: {position: "right", title: {display: true, text: "Elo vs champion", color: "#fbbf24"},
+               ticks: {color: "#bbb"}, grid: {drawOnChartArea: false}},
+          x: {title: {display: true, text: "generation", color: "#bbb"},
+              ticks: {color: "#bbb"}, grid: {color: "#333"}},
+        },
+      },
+    });
+  } catch (e) {}
+}
+
+pollNNUE();
+setInterval(pollNNUE, 2000);
 
 pollSPSA();
 setInterval(pollSPSA, 3000);
