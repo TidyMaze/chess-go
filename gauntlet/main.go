@@ -31,6 +31,7 @@ func main() {
 	tuned := flag.Bool("tuned", true, "challenger uses the Texel-tuned evaluation")
 	netPath := flag.String("net", "", "challenger uses this trained network instead")
 	halfkpPath := flag.String("halfkp", "", "challenger uses this HalfKP network")
+	blend := flag.Float64("blend", 0, "weight on the hand evaluation when a network is used")
 	refNoCastle := flag.Bool("ref-no-castle", false, "reference refuses to castle")
 	refNoRep := flag.Bool("ref-no-repetition", false, "reference has no repetition detection")
 	noLMR := flag.Bool("no-lmr", false, "challenger disables late move reductions")
@@ -69,6 +70,7 @@ func main() {
 			return
 		}
 		challenger.HalfKP = n
+		challenger.HalfKPBlend = *blend
 		challenger.Tuned = false
 		fmt.Printf("loaded %s (hidden %d, sigmoid=%v)\n", *halfkpPath, n.H, n.Sigmoid)
 	}

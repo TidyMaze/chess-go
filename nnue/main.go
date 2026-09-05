@@ -408,6 +408,8 @@ type genRecord struct {
 	TestLoss   float64 `json:"test_loss"`
 	Baseline   float64 `json:"baseline"`
 	HandMSE    float64 `json:"hand_mse"`
+	Jump       float64 `json:"jump"`
+	HandJump   float64 `json:"hand_jump"`
 	Elo        int     `json:"elo"`
 	EloMargin  int     `json:"elo_margin"`
 	Accepted   bool    `json:"accepted"`
@@ -545,7 +547,7 @@ func main() {
 			continue
 		}
 
-		var lastTrain, lastTest, handMSE float64
+		var lastTrain, lastTest, handMSE, smoothness, handSmoothness float64
 		for e := 1; e <= *epochs; e++ {
 			rng.Shuffle(len(trainIdx), func(i, j int) {
 				trainIdx[i], trainIdx[j] = trainIdx[j], trainIdx[i]
@@ -596,10 +598,42 @@ func main() {
 			handErr += d * d
 		}
 		handErr /= float64(len(testSet))
-		fmt.Printf("  train %.4f  held out %.4f  (constant %.4f, explains %.0f%%)  hand eval %.4f%s\n",
-			lastTrain, lastTest, baseline, 100*(1-lastTest/baseline), handErr,
-			map[bool]string{true: "  <- network is better", false: ""}[lastTest < handErr])
+
+		// Smoothness: how much the evaluation moves between positions one
+		// move apart, which for consecutive samples from the same game is
+		// exactly what they are.
+		//
+		// This is the quantity that decides whether a network can be used
+		// at all, and it is not the same as accuracy. The search prunes on
+		// pawn thresholds (aspiration window 0.5, futility 1 to 3), so an
+		// evaluation that jumps a pawn per move makes all of them
+		// misfire. Measured on the generation-12 network: 0.97 pawns per
+		// move against the hand evaluation's 0.18, and a blend sweep gave
+		// a clean dose-response (+9 Elo at 10% network, -80 at 30%, -207
+		// at 50%): the more network, the worse, in proportion.
+		netJump, handJump, pairs := 0.0, 0.0, 0
+		accS, actS := make([]float32, 2*n.h), make([]float32, 2*n.h)
+		for i := 1; i < len(testSet); i++ {
+			if testSet[i].game != testSet[i-1].game {
+				continue
+			}
+			a := float64(n.forward(&testSet[i-1], accS, actS))
+			b := float64(n.forward(&testSet[i], accS, actS))
+			netJump += math.Abs(b - a)
+			handJump += math.Abs(testSet[i].static - testSet[i-1].static)
+			pairs++
+		}
+		if pairs > 0 {
+			netJump /= float64(pairs)
+			handJump /= float64(pairs)
+		}
+		smoothness = netJump
+		handSmoothness = handJump
+		fmt.Printf("  train %.3f  held out %.3f (hand %.3f)  jump/move %.3f (hand %.3f)%s\n",
+			lastTrain, lastTest, handErr, smoothness, handSmoothness,
+			map[bool]string{true: "  <- more accurate", false: ""}[lastTest < handErr])
 		handMSE = handErr
+		_ = handSmoothness
 
 		exported := n.export(*k)
 		_ = exported.Save("halfkp_latest.json")
@@ -632,6 +666,7 @@ func main() {
 		history = append(history, genRecord{
 			Generation: gen, Positions: len(pool),
 			TrainLoss: lastTrain, TestLoss: lastTest, Baseline: baseline, HandMSE: handMSE,
+			Jump: smoothness, HandJump: handSmoothness,
 			Elo: elo, EloMargin: margin, Accepted: accepted, Tested: tested,
 			CumElo: cumElo, Seconds: int(time.Since(t0).Seconds()),
 		})

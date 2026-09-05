@@ -64,6 +64,8 @@ type Player struct {
 	Net *Net
 	// HalfKP is the king-conditioned network, used the way NNUE is.
 	HalfKP *HalfKPNet
+	// HalfKPBlend weights the hand-written evaluation against it.
+	HalfKPBlend float64
 	// NoCastle declines castling. Measurement only, see Eval.NoCastle.
 	NoCastle bool
 	// NoLMR disables late move reductions.
@@ -127,6 +129,7 @@ func (p Player) pickWith(g *game.Game, reuse *TranspositionTable) (game.Move, bo
 		Structure: p.Structure, Futility: p.Futility}
 	ev.Net = p.Net
 	ev.HalfKP = p.HalfKP
+	ev.HalfKPBlend = p.HalfKPBlend
 	ev.NoCastle = p.NoCastle
 	ev.NoLMR = p.NoLMR
 	ev.NoRepetition = p.NoRepetition

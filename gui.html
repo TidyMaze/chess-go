@@ -135,7 +135,7 @@
      one thing instead of six. -->
 <div id="nnuePanel">
   <h2>NNUE training (live)</h2>
-  <div id="nnueNote" class="note">HalfKP features (40,960 king-conditioned inputs per side), blended target of search score and game result, shallow high-volume self-play. The green line is the network's error on games it has never seen; the red dashed line is the hand-written evaluation's error on those same positions. The network has to get below the red line before it can be expected to win a game. Each network must then win a match against the champion to be adopted.</div>
+  <div id="nnueNote" class="note">HalfKP features (40,960 king-conditioned inputs per side), blended target of search score and game result, shallow high-volume self-play. Green is the network's error on games it has never seen, red dashed is the hand-written evaluation's error on the same positions: green below red means the network is more accurate. Purple is how much each evaluation moves between positions one move apart, and it matters just as much: the search prunes on pawn thresholds, so an evaluation that jumps a pawn per move makes them all misfire. A network needs to be both more accurate and about as smooth before it can win a game.</div>
   <div id="nnueArch"></div>
   <div id="nnueBars"></div>
   <div id="genProgressOuter"><div id="genProgressFill"></div><div id="genProgressLabel"></div></div>
@@ -144,7 +144,7 @@
     <div id="nnueLiveLabel" class="note"></div>
   </div>
   <div id="nnueWrap"><canvas id="nnueChart"></canvas></div>
-  <table class="steps"><thead><tr><th>Gen</th><th class="num">Pool</th><th class="num">Net held-out</th><th class="num">Hand eval</th><th class="num">Explains</th><th class="num">Elo</th><th>Kept?</th></tr></thead>
+  <table class="steps"><thead><tr><th>Gen</th><th class="num">Pool</th><th class="num">Net error</th><th class="num">Hand error</th><th class="num">Jump/move</th><th class="num">Hand jump</th><th class="num">Elo</th><th>Kept?</th></tr></thead>
     <tbody id="nnueBody"></tbody></table>
 </div>
 
@@ -1032,7 +1032,8 @@ async function pollNNUE() {
         `<td class="num">${h.positions.toLocaleString()}</td>` +
         `<td class="num">${h.test_loss.toFixed(3)}</td>` +
         `<td class="num ${h.hand_mse && h.test_loss < h.hand_mse ? "kept" : ""}">${h.hand_mse ? h.hand_mse.toFixed(3) : "&mdash;"}</td>` +
-        `<td class="num">${explains.toFixed(0)}%</td>` +
+        `<td class="num ${h.jump && h.hand_jump && h.jump < h.hand_jump * 1.5 ? "kept" : "rejected"}">${h.jump ? h.jump.toFixed(3) : "&mdash;"}</td>` +
+        `<td class="num">${h.hand_jump ? h.hand_jump.toFixed(3) : "&mdash;"}</td>` +
         `<td class="num">${h.tested ? (h.elo >= 0 ? "+" : "") + h.elo + " &plusmn; " + h.elo_margin : "&mdash;"}</td>` +
         `<td class="${h.accepted ? "kept" : "rejected"}">${h.tested ? (h.accepted ? "kept" : "rejected") : "not tested"}</td>`;
       body.appendChild(tr);
@@ -1048,6 +1049,12 @@ async function pollNNUE() {
          data: hist.map(h => h.hand_mse || null), spanGaps: true,
          borderColor: "#f87171", backgroundColor: "#f87171", borderDash: [5, 4],
          yAxisID: "y", tension: 0.2},
+        {label: "network jump per move (pawns)", data: hist.map(h => h.jump || null),
+         spanGaps: true, borderColor: "#a78bfa", backgroundColor: "#a78bfa",
+         yAxisID: "y1", tension: 0.2},
+        {label: "hand evaluation jump per move", data: hist.map(h => h.hand_jump || null),
+         spanGaps: true, borderColor: "#c4b5fd", backgroundColor: "#c4b5fd",
+         borderDash: [5, 4], yAxisID: "y1", tension: 0.2},
         {label: "Elo vs champion", data: hist.map(h => h.tested ? h.elo : null), spanGaps: true,
          borderColor: "#fbbf24", backgroundColor: "#fbbf24", yAxisID: "y1", tension: 0.2},
       ],
@@ -1061,7 +1068,7 @@ async function pollNNUE() {
         scales: {
           y: {position: "left", title: {display: true, text: "held-out error, pawns squared (lower is better)", color: "#4ade80"},
               ticks: {color: "#bbb"}, grid: {color: "#333"}},
-          y1: {position: "right", title: {display: true, text: "Elo vs champion", color: "#fbbf24"},
+          y1: {position: "right", title: {display: true, text: "pawns of change per move (lower is smoother)", color: "#a78bfa"},
                ticks: {color: "#bbb"}, grid: {drawOnChartArea: false}},
           x: {title: {display: true, text: "generation", color: "#bbb"},
               ticks: {color: "#bbb"}, grid: {color: "#333"}},

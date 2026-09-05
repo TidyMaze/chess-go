@@ -158,8 +158,19 @@ type Eval struct {
 	// where the played move is chosen.
 	NoCastle bool
 	// HalfKP is a king-conditioned network. When set it replaces the
-	// hand-written evaluation entirely, which is how NNUE is used.
+	// hand-written evaluation, or blends with it if HalfKPBlend is set.
 	HalfKP *HalfKPNet
+	// HalfKPBlend is the weight given to the hand-written evaluation when
+	// a network is present: 0 uses the network alone, 1 ignores it.
+	//
+	// A network trained on a few hundred thousand positions is accurate
+	// on average and jagged locally. Measured: its score moves 0.97 pawns
+	// after a single quiet move, against 0.18 for the hand-written
+	// evaluation. The search's pruning is calibrated in pawns (aspiration
+	// window 0.5, futility margins 1 to 3), so that jumpiness makes every
+	// threshold misfire. Blending keeps the smooth backbone and scales
+	// the network's noise by (1 - blend).
+	HalfKPBlend float64
 	// Net replaces the hand-written evaluation with a trained network.
 	// When set, the material, table and structure terms are not used at
 	// all: the network was fitted to the same target they were and is a
@@ -246,6 +257,12 @@ func positionScoreEvalReference(b *board.Board, color board.Color, ev *Eval) flo
 		score := ev.HalfKP.Evaluate(b)
 		if color == board.Black {
 			score = -score
+		}
+		if ev.HalfKPBlend > 0 {
+			plain := *ev
+			plain.HalfKP = nil
+			score = ev.HalfKPBlend*PositionScoreEval(b, color, &plain) +
+				(1-ev.HalfKPBlend)*score
 		}
 		// The endgame king-driving term stays: it is the mechanism that
 		// converts a won endgame into a mate, not a positional opinion,
@@ -336,6 +353,12 @@ func PositionScoreEval(b *board.Board, color board.Color, ev *Eval) float64 {
 		score := ev.HalfKP.Evaluate(b)
 		if color == board.Black {
 			score = -score
+		}
+		if ev.HalfKPBlend > 0 {
+			plain := *ev
+			plain.HalfKP = nil
+			score = ev.HalfKPBlend*PositionScoreEval(b, color, &plain) +
+				(1-ev.HalfKPBlend)*score
 		}
 		// The endgame king-driving term stays: it is the mechanism that
 		// converts a won endgame into a mate, not a positional opinion,
