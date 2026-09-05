@@ -68,6 +68,20 @@ func materialAndCentralization(b *board.Board, color board.Color, weights Weight
 type Eval struct {
 	Weights Weights
 	UsePST  bool
+	// Table is the transposition cache. Nil disables it. One table per
+	// search (not shared across concurrent games) keeps it lock-free.
+	Table *TranspositionTable
+	// NullMove enables null-move pruning.
+	NullMove bool
+}
+
+func (e *Eval) useNullMove() bool { return e != nil && e.NullMove }
+
+func (e *Eval) table() *TranspositionTable {
+	if e == nil {
+		return nil
+	}
+	return e.Table
 }
 
 func (e *Eval) weightsOrDefault() Weights {

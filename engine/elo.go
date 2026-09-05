@@ -23,6 +23,10 @@ type Player struct {
 	Quiescence bool
 	// UsePST swaps the simple centralization nudge for piece-square tables.
 	UsePST bool
+	// TTBits sizes the transposition table (2^TTBits entries); 0 disables.
+	TTBits uint
+	// NullMove enables null-move pruning.
+	NullMove bool
 }
 
 func (p Player) pick(g *game.Game) (game.Move, bool) {
@@ -33,7 +37,11 @@ func (p Player) pick(g *game.Game) (game.Move, bool) {
 		}
 		return moves[randIntn(len(moves))], true
 	}
-	return chooseMoveOpts(g, g.Turn, p.Depth, &Eval{Weights: p.Weights, UsePST: p.UsePST}, p.Quiescence)
+	ev := &Eval{Weights: p.Weights, UsePST: p.UsePST, NullMove: p.NullMove}
+	if p.TTBits > 0 {
+		ev.Table = NewTranspositionTable(p.TTBits)
+	}
+	return chooseMoveOpts(g, g.Turn, p.Depth, ev, p.Quiescence)
 }
 
 // AnchorPlayer is the fixed reference the Elo scale is pinned to: the
@@ -132,3 +140,6 @@ func playPlayers(white, black Player, maxMoves int) (board.Color, bool) {
 	}
 	return board.White, false
 }
+
+// PlayerPick exposes a Player's move choice for benchmarking harnesses.
+func PlayerPick(p Player, g *game.Game) (game.Move, bool) { return p.pick(g) }

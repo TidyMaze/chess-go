@@ -27,15 +27,28 @@ func terminalScore(g *game.Game, color, maximizingFor board.Color, depthLeft int
 	return 0
 }
 
-// orderInPlace: try captures first, a cheap move-ordering heuristic that
-// lets alpha-beta prune more. Sorts the caller's slice in place -- it
-// used to copy, which allocated once per search node.
+// mvvLvaValue scores a move for ordering: most valuable victim, least
+// valuable attacker. Trying "pawn takes queen" before "queen takes pawn"
+// makes alpha-beta cut off far sooner, because the best move is usually
+// found first -- which matters more than any other single search tweak,
+// since the whole point of alpha-beta is that good ordering prunes more.
+var mvvLvaPiece = [6]int{board.Pawn: 1, board.Knight: 3, board.Bishop: 3, board.Rook: 5, board.Queen: 9, board.King: 20}
+
+func moveOrderScore(g *game.Game, m game.Move) int {
+	victim, isCapture := g.Board.PieceAt(m.To)
+	if !isCapture {
+		return 0 // quiet moves last
+	}
+	attacker, _ := g.Board.PieceAt(m.From)
+	// Higher is better: big victim, small attacker.
+	return 100 + mvvLvaPiece[victim.Type]*10 - mvvLvaPiece[attacker.Type]
+}
+
+// orderInPlace sorts the caller's slice in place, best-looking moves
+// first.
 func orderInPlace(g *game.Game, out []game.Move) []game.Move {
 	captureFirst := func(m game.Move) int {
-		if _, occupied := g.Board.PieceAt(m.To); occupied {
-			return 0
-		}
-		return 1
+		return -moveOrderScore(g, m)
 	}
 	// simple insertion sort by key: stable, and the slices here are small
 	// (at most a few dozen moves), so O(n^2) is not a concern.
@@ -59,6 +72,19 @@ func Minimax(g *game.Game, color, maximizingFor board.Color, depth int, alpha, b
 // (the horizon effect) -- e.g. counting a queen it just "won" without
 // seeing the recapture on the very next ply.
 func minimaxOpts(g *game.Game, color, maximizingFor board.Color, depth int, alpha, beta float64, ev *Eval, useQuiescence bool) float64 {
+	// Transposition probe: the same position is reached by many different
+	// move orders, and without this the search re-explores each arrival
+	// from scratch.
+	var key uint64
+	tt := ev.table()
+	if tt != nil && depth > 0 {
+		key = zobristHash(g)
+		if score, ok := tt.probe(key, depth, maximizingFor, alpha, beta); ok {
+			return score
+		}
+	}
+	origAlpha, origBeta := alpha, beta
+
 	var moveBuf [48]game.Move
 	legalMoves := g.AppendLegalMoves(moveBuf[:0], color)
 	if len(legalMoves) == 0 {
@@ -72,6 +98,24 @@ func minimaxOpts(g *game.Game, color, maximizingFor board.Color, depth int, alph
 	}
 
 	maximizing := color == maximizingFor
+
+	// Null-move pruning: let the side to move "pass" and search the reply
+	// shallower. If even giving the opponent a free move leaves the
+	// position good enough to cause a cutoff, the real move will too, so
+	// the whole subtree can be skipped. Disabled in check (passing is
+	// nonsense there) and near the leaves (no depth left to save).
+	if ev.useNullMove() && depth >= 3 && !moves.IsInCheck(&g.Board, color) {
+		passed := game.Game{Board: g.Board, Turn: color.Other()}
+		const reduction = 2
+		score := minimaxOpts(&passed, color.Other(), maximizingFor, depth-1-reduction, alpha, beta, ev, useQuiescence)
+		if maximizing && score >= beta {
+			return score
+		}
+		if !maximizing && score <= alpha {
+			return score
+		}
+	}
+
 	best := negInf
 	if !maximizing {
 		best = posInf
@@ -102,6 +146,16 @@ func minimaxOpts(g *game.Game, color, maximizingFor board.Color, depth int, alph
 		if beta <= alpha {
 			break
 		}
+	}
+
+	if tt != nil && depth > 0 {
+		flag := ttExact
+		if best <= origAlpha {
+			flag = ttUpperBound
+		} else if best >= origBeta {
+			flag = ttLowerBound
+		}
+		tt.store(key, best, depth, flag, maximizingFor)
 	}
 	return best
 }
