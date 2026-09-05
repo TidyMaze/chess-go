@@ -54,9 +54,7 @@ func defaultKnobs() []knob {
 		{"mobRook", mob[board.Rook], 0, 0.20, 0.012},
 		{"mobQueen", mob[board.Queen], 0, 0.20, 0.010},
 		{"isolated", str.Isolated, 0, 0.60, 0.030},
-		{"doubled", str.Doubled, 0, 0.60, 0.030},
 		{"rookOpen", str.RookOpen, 0, 0.90, 0.040},
-		{"rookSemiOpen", str.RookSemiOpen, 0, 0.90, 0.040},
 	}
 }
 
@@ -82,9 +80,7 @@ func player(ks []knob, depth int) engine.Player {
 	}
 	str := engine.DefaultStructureWeights()
 	str.Isolated = byName["isolated"]
-	str.Doubled = byName["doubled"]
 	str.RookOpen = byName["rookOpen"]
-	str.RookSemiOpen = byName["rookSemiOpen"]
 
 	return engine.Player{
 		Name: "spsa", Depth: depth, UsePST: true, Quiescence: true, TTBits: 20,
@@ -107,7 +103,12 @@ func main() {
 	iterations := flag.Int("iterations", 60, "SPSA iterations")
 	games := flag.Int("games", 160, "games per iteration")
 	depth := flag.Int("depth", 4, "search depth")
-	a := flag.Float64("a", 0.35, "step size gain")
+	// a is calibrated so that a clearly-won iteration moves a parameter by
+	// a meaningful fraction of its step. The first version used 0.35 and
+	// combined it with a division by the perturbation size, which made the
+	// updates about 7e-5 against step sizes of 0.012: the parameters did
+	// not move at all over five iterations.
+	a := flag.Float64("a", 6.0, "step size gain")
 	c := flag.Float64("c", 1.0, "perturbation gain, in units of each knob's step")
 	seed := flag.Int64("seed", 17, "random seed")
 	checkGames := flag.Int("check-games", 800, "games in the final check against the starting values")
@@ -157,7 +158,7 @@ func main() {
 		// steps are right more often than not.
 		grad := 2 * (score - 0.5)
 		for i := range ks {
-			ks[i].Value = clamp(ks[i].Value+ak*grad*delta[i]*ks[i].Step/ck,
+			ks[i].Value = clamp(ks[i].Value+ak*grad*delta[i]*ks[i].Step,
 				ks[i].Min, ks[i].Max)
 		}
 
