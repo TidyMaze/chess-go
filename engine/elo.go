@@ -353,6 +353,19 @@ func playFrom(g *game.Game, white, black Player, maxMoves int, live LiveHook) (b
 // PlayerPick exposes a Player's move choice for benchmarking harnesses.
 func PlayerPick(p Player, g *game.Game) (game.Move, bool) { return p.pick(g) }
 
+// PlayerPickWith is PlayerPick with a caller-supplied transposition
+// table.
+//
+// Without it, every call allocates one: at TTBits 20 that is 24 MB per
+// move. The self-play generator calls this for every move of every game,
+// so a profile of the training workload was 58% Go runtime, a quarter of
+// it in madvise alone, handing pages back to the operating system as
+// fast as they were taken. Reuse also makes each search cheaper, since
+// entries from earlier moves in the same game are still valid.
+func PlayerPickWith(p Player, g *game.Game, reuse *TranspositionTable) (game.Move, bool) {
+	return p.pickWith(g, reuse)
+}
+
 // PlayMatchAgainstUCI plays a match against an external engine using one
 // process per worker, so the games run in parallel.
 //

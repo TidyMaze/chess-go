@@ -394,6 +394,11 @@ func generate(champion engine.Player, games, playDepth, labelDepth, maxPlies int
 			// position. 16 bits is 1.5 MB, which stays in cache; the
 			// labelling search is shallow and does not need more.
 			labelTT := engine.NewTranspositionTable(16)
+			// The playing search gets its own table for the whole game.
+			// Allocating one per move was the single largest cost in the
+			// generator: 24 MB a move, and the profile showed 58% of the
+			// workload in the Go runtime because of it.
+			playTT := engine.NewTranspositionTable(16)
 
 			rng := rand.New(rand.NewSource(int64(gen)*1_000_003 + int64(gi)*7919))
 			g := game.New()
@@ -428,7 +433,7 @@ func generate(champion engine.Player, games, playDepth, labelDepth, maxPlies int
 					g.IsThreefoldRepetition() || g.KingCaptured {
 					break
 				}
-				m, ok := engine.PlayerPick(player, g)
+				m, ok := engine.PlayerPickWith(player, g, playTT)
 				if !ok {
 					break
 				}

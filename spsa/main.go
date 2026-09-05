@@ -113,11 +113,37 @@ func main() {
 	seed := flag.Int64("seed", 17, "random seed")
 	checkGames := flag.Int("check-games", 800, "games in the final check against the starting values")
 	out := flag.String("out", "spsa.json", "progress output for the UI")
+	state := flag.String("state", "spsa_state.json", "checkpoint, so a restart resumes")
+	fresh := flag.Bool("fresh", false, "ignore the checkpoint and start over")
 	flag.Parse()
 
 	rng := rand.New(rand.NewSource(*seed))
 	ks := defaultKnobs()
 	start := append([]knob(nil), ks...)
+
+	// Resume rather than restart. Each iteration is a 200-game match, so
+	// a run that has reached iteration 30 represents an hour of ten
+	// cores, and the parameter vector it has walked to is the entire
+	// product of that hour.
+	startIter := 1
+	var history []iterRecord
+	if !*fresh {
+		if data, err := os.ReadFile(*state); err == nil {
+			var st struct {
+				Iteration int          `json:"iteration"`
+				Values    []float64    `json:"values"`
+				History   []iterRecord `json:"history"`
+			}
+			if json.Unmarshal(data, &st) == nil && len(st.Values) == len(ks) {
+				for i := range ks {
+					ks[i].Value = st.Values[i]
+				}
+				startIter = st.Iteration + 1
+				history = st.History
+				fmt.Printf("resumed from %s at iteration %d\n", *state, st.Iteration)
+			}
+		}
+	}
 
 	fmt.Printf("SPSA over %d parameters, %d iterations of %d games at depth %d\n",
 		len(ks), *iterations, *games, *depth)
@@ -125,10 +151,9 @@ func main() {
 		fmt.Printf("  %-14s %.4f  [%.2f, %.2f]\n", k.Name, k.Value, k.Min, k.Max)
 	}
 
-	var history []iterRecord
 	t0 := time.Now()
 
-	for iter := 1; iter <= *iterations; iter++ {
+	for iter := startIter; iter < startIter+*iterations; iter++ {
 		it0 := time.Now()
 		// Gains decay so early iterations explore and later ones settle.
 		ak := *a / math.Pow(float64(iter)+10, 0.602)
@@ -175,6 +200,16 @@ func main() {
 			"iterations": *iterations, "elapsed": int(time.Since(t0).Seconds()),
 		}); err == nil {
 			_ = os.WriteFile(*out, data, 0644)
+		}
+		// Checkpoint after every iteration: the state is small and the
+		// work behind it is a whole match.
+		if data, err := json.Marshal(map[string]any{
+			"iteration": iter, "values": values, "history": history,
+		}); err == nil {
+			tmp := *state + ".tmp"
+			if os.WriteFile(tmp, data, 0644) == nil {
+				_ = os.Rename(tmp, *state)
+			}
 		}
 		fmt.Printf("iter %3d: plus scored %.3f (%+d Elo)  %s  (%.0fs)\n",
 			iter, score, res.Elo(), summary(ks), time.Since(it0).Seconds())

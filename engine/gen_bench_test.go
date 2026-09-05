@@ -9,9 +9,10 @@ func BenchmarkTrainingWorkload(b *testing.B) {
 	play := fullPlayer(2)
 	label := fullPlayer(4)
 	tt := NewTranspositionTable(16)
+	playTT := NewTranspositionTable(16)
 	for i := 0; i < b.N; i++ {
 		g := midOpeningPosition()
-		m, _ := PlayerPick(play, g)
+		m, _ := PlayerPickWith(play, g, playTT)
 		g.ApplyMove(m.From, m.To)
 		PlayerScoreWith(label, g, tt)
 	}
