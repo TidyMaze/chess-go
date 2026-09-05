@@ -73,14 +73,35 @@ type net struct {
 	b1 []float32
 	w2 []float32 // 2h
 	b2 float32
+	// Adam's second-moment estimate, one per weight.
+	//
+	// Plain SGD with a single learning rate is a poor fit for a sparse
+	// feature set: a common feature column receives hundreds of updates
+	// per epoch and a rare one receives two, so any rate that moves the
+	// rare ones destabilises the common ones. Adam scales each weight by
+	// its own gradient history, which is exactly the mismatch here.
+	//
+	// The first moment (momentum) is deliberately omitted. Under Hogwild
+	// the workers race, and momentum accumulates those races into a
+	// persistent wrong direction; the second moment only ever grows, so
+	// it degrades gracefully.
+	v1   []float32
+	vb1  []float32
+	v2   []float32
+	vb2  float32
+	step int64
 }
 
 func newNet(h int, rng *rand.Rand) *net {
+	inputs := engine.HalfKPInputs
 	n := &net{
-		h:  h,
-		w1: make([]float32, engine.HalfKPInputs*h),
-		b1: make([]float32, h),
-		w2: make([]float32, 2*h),
+		h:   h,
+		w1:  make([]float32, inputs*h),
+		b1:  make([]float32, h),
+		w2:  make([]float32, 2*h),
+		v1:  make([]float32, inputs*h),
+		vb1: make([]float32, h),
+		v2:  make([]float32, 2*h),
 	}
 	// About 30 features are active at once, so the accumulator is a sum
 	// of 30 of these plus the bias, and the activation clips to [0,1].
@@ -244,6 +265,13 @@ func (n *net) export(k float64) *engine.HalfKPNet {
 		B2: n.b2, Scale: 1,
 	}
 }
+
+const (
+	beta2 = float32(0.999)
+	eps   = float32(1e-8)
+)
+
+func sqrt32(x float32) float32 { return float32(math.Sqrt(float64(x))) }
 
 // ---------------------------------------------------------------------
 // data generation
@@ -432,7 +460,10 @@ func main() {
 	evalEvery := flag.Int("eval-every", 5, "run the test match every N generations")
 	evalDepth := flag.Int("eval-depth", 4, "depth for the test match")
 	epochs := flag.Int("epochs", 6, "training epochs per generation")
-	lr := flag.Float64("lr", 0.01, "learning rate")
+	// With Adam the update is lr * g / sqrt(v), which is order lr
+	// regardless of gradient scale, so this is much smaller than the
+	// plain-SGD rate it replaces.
+	lr := flag.Float64("lr", 0.001, "learning rate")
 	// L2 weight decay. With 40,960 x hidden parameters and far fewer
 	// positions than that, the network memorises: generation 1 showed a
 	// training loss of 0.0017 against a held-out 0.0473, a 28x gap.

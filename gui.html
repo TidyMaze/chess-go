@@ -56,6 +56,14 @@
   #tech { margin-top: 0.5rem; font-size: 0.9em; color: #bbb; }
   #trainPanel { max-width: 950px; margin: 0 auto 2.4rem; }
   #nnuePanel { max-width: 950px; margin: 0 auto 2.4rem; }
+  #nnueVerdict { display: flex; gap: 0.6rem; flex-wrap: wrap; margin: 0.7rem 0; }
+  #nnueVerdict div { flex: 1 1 220px; border: 1px solid #333; border-radius: 6px;
+                     padding: 0.6rem 0.8rem; background: #202020; text-align: left; }
+  #nnueVerdict .k { font-size: 0.78em; color: #999; text-transform: uppercase;
+                    letter-spacing: 0.04em; }
+  #nnueVerdict .v { font-size: 1.25em; font-weight: 700; margin: 0.15rem 0; }
+  #nnueVerdict .n { font-size: 0.8em; color: #999; }
+  .pass { color: #4ade80; } .fail { color: #fbbf24; } .neutral { color: #9ca3af; }
   #nnueArch { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
               gap: 0.4rem 1rem; background: #202020; border: 1px solid #333; border-radius: 6px;
               padding: 0.7rem 0.9rem; margin: 0.6rem 0; font-size: 0.85em; text-align: left; }
@@ -136,6 +144,7 @@
 <div id="nnuePanel">
   <h2>NNUE training (live)</h2>
   <div id="nnueNote" class="note">HalfKP features (40,960 king-conditioned inputs per side), blended target of search score and game result, shallow high-volume self-play. Green is the network's error on games it has never seen, red dashed is the hand-written evaluation's error on the same positions: green below red means the network is more accurate. Purple is how much each evaluation moves between positions one move apart, and it matters just as much: the search prunes on pawn thresholds, so an evaluation that jumps a pawn per move makes them all misfire. A network needs to be both more accurate and about as smooth before it can win a game.</div>
+  <div id="nnueVerdict"></div>
   <div id="nnueArch"></div>
   <div id="nnueBars"></div>
   <div id="genProgressOuter"><div id="genProgressFill"></div><div id="genProgressLabel"></div></div>
@@ -1021,6 +1030,28 @@ async function pollNNUE() {
   try {
     const hist = await fetch("nnue.json?_=" + Date.now()).then(r => r.json());
     if (!Array.isArray(hist) || !hist.length) return;
+
+    // One panel that says whether the network is ready to be worth
+    // testing, because two of these three numbers are only leading
+    // indicators and the third is the verdict.
+    const last = hist[hist.length - 1];
+    const tested = hist.filter(h => h.tested);
+    const lastTested = tested.length ? tested[tested.length - 1] : null;
+    const accOK = last.hand_mse && last.test_loss < last.hand_mse;
+    const accRatio = last.hand_mse ? (last.hand_mse / last.test_loss) : 0;
+    const jumpRatio = last.hand_jump ? (last.jump / last.hand_jump) : 0;
+    const smoothOK = jumpRatio > 0 && jumpRatio < 1.25;
+    document.getElementById("nnueVerdict").innerHTML = `
+      <div><div class="k">Accuracy (leading)</div>
+        <div class="v ${accOK ? "pass" : "fail"}">${accOK ? accRatio.toFixed(1) + "x better" : "behind"}</div>
+        <div class="n">network ${last.test_loss.toFixed(2)} vs hand ${(last.hand_mse || 0).toFixed(2)}</div></div>
+      <div><div class="k">Smoothness (the blocker)</div>
+        <div class="v ${smoothOK ? "pass" : "fail"}">${jumpRatio ? jumpRatio.toFixed(2) + "x jumpier" : "&mdash;"}</div>
+        <div class="n">${last.jump ? last.jump.toFixed(3) : "?"} vs ${last.hand_jump ? last.hand_jump.toFixed(3) : "?"} pawns per move</div></div>
+      <div><div class="k">Elo vs champion (verdict)</div>
+        <div class="v ${lastTested ? (lastTested.accepted ? "pass" : "fail") : "neutral"}">${
+          lastTested ? (lastTested.elo >= 0 ? "+" : "") + lastTested.elo + " &plusmn; " + lastTested.elo_margin : "not tested yet"}</div>
+        <div class="n">${lastTested ? "generation " + lastTested.generation : "first test at generation " + (last.generation - last.generation % 8 + 8)}</div></div>`;
 
     const body = document.getElementById("nnueBody");
     body.innerHTML = "";
