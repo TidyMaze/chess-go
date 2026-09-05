@@ -2,6 +2,7 @@ package engine
 
 import (
 	"math"
+	"math/rand"
 	"runtime"
 	"sync"
 
@@ -67,6 +68,8 @@ type Player struct {
 	NoLMR bool
 	// Mobility adds the mobility evaluation term.
 	Mobility bool
+	// KingSafety weights the attacker-counting king danger term.
+	KingSafety float64
 	// UCI delegates move choice to an external engine (Stockfish), giving
 	// an externally-calibrated reference point rather than only measuring
 	// against this engine's own ancestors.
@@ -118,6 +121,7 @@ func (p Player) pickWith(g *game.Game, reuse *TranspositionTable) (game.Move, bo
 	ev.NoCastle = p.NoCastle
 	ev.NoLMR = p.NoLMR
 	ev.Mobility = p.Mobility
+	ev.KingSafety = p.KingSafety
 	if p.Tuned {
 		if p.Weights == nil {
 			ev.Weights = TunedWeights()
@@ -209,7 +213,9 @@ func PlayMatchLive(a, b Player, games, maxMoves int, live LiveHook) MatchResult 
 			if i == 0 {
 				hook = live
 			}
-			winner, decisive := playPlayersLive(white, black, maxMoves, hook)
+			// i/2 so the pair sharing an opening gets the same seed.
+			start := randomOpening(rand.New(rand.NewSource(int64(i/2)+1)), OpeningPlies)
+			winner, decisive := playFrom(start, white, black, maxMoves, hook)
 			perspective := board.White
 			if !aIsWhite {
 				perspective = board.Black
@@ -243,7 +249,8 @@ func PlayMatchSerial(a, b Player, games, maxMoves int) MatchResult {
 		if !aIsWhite {
 			white, black = b, a
 		}
-		winner, decisive := playPlayersLive(white, black, maxMoves, nil)
+		start := randomOpening(rand.New(rand.NewSource(int64(i/2)+1)), OpeningPlies)
+		winner, decisive := playFrom(start, white, black, maxMoves, nil)
 		perspective := board.White
 		if !aIsWhite {
 			perspective = board.Black
@@ -260,8 +267,40 @@ func PlayMatchSerial(a, b Player, games, maxMoves int) MatchResult {
 	return res
 }
 
-func playPlayersLive(white, black Player, maxMoves int, live LiveHook) (board.Color, bool) {
+// OpeningPlies is how many random moves start each game.
+//
+// Without it every game in a match begins from the same position, and two
+// engines that differ in one flag play very nearly the same game every
+// time: recent 400-game matches were 40% draws, which wastes most of the
+// sample. Random openings make the games independent, so a match of the
+// same size resolves a smaller difference.
+//
+// Paired: games 2k and 2k+1 use the same opening with the colours
+// swapped, so neither engine is handed the better half of the book.
+var OpeningPlies = 6
+
+// randomOpening plays OpeningPlies legal moves chosen by rnd. Positions
+// where that leaves someone already lost are not filtered out: both
+// engines get the same one, and a slightly unbalanced start is a
+// perfectly good test of who handles it better.
+func randomOpening(rnd *rand.Rand, plies int) *game.Game {
 	g := game.New()
+	for i := 0; i < plies; i++ {
+		legal := g.AllLegalMoves(g.Turn)
+		if len(legal) == 0 {
+			break
+		}
+		m := legal[rnd.Intn(len(legal))]
+		g.ApplyMove(m.From, m.To)
+	}
+	return g
+}
+
+func playPlayersLive(white, black Player, maxMoves int, live LiveHook) (board.Color, bool) {
+	return playFrom(game.New(), white, black, maxMoves, live)
+}
+
+func playFrom(g *game.Game, white, black Player, maxMoves int, live LiveHook) (board.Color, bool) {
 	// One table per player per game, not one per move. They must not be
 	// shared between the two players: a stored score is from one side's
 	// point of view, and the entries also encode each engine's own
@@ -339,7 +378,8 @@ func PlayMatchAgainstUCI(me Player, newOpponent func() (Player, func(), error), 
 				if !meIsWhite {
 					white, black = opp, me
 				}
-				winner, decisive := playPlayersLive(white, black, maxMoves, nil)
+				start := randomOpening(rand.New(rand.NewSource(int64(i/2)+1)), OpeningPlies)
+				winner, decisive := playFrom(start, white, black, maxMoves, nil)
 				perspective := board.White
 				if !meIsWhite {
 					perspective = board.Black
@@ -367,4 +407,32 @@ func PlayMatchAgainstUCI(me Player, newOpponent func() (Player, func(), error), 
 		res.Losses += r.losses
 	}
 	return res, nil
+}
+
+// PlayerScore returns the player's evaluation of the position from the
+// side to move's point of view, using its full search.
+//
+// This is the training signal for the self-play loop: the network learns
+// to predict what a deeper search of the same engine concludes, so the
+// evaluation is being fitted to its own search rather than to another
+// engine's opinion.
+func PlayerScore(p Player, g *game.Game) (float64, bool) {
+	ev := &Eval{Weights: p.Weights, UsePST: p.UsePST, NullMove: p.NullMove,
+		MaterialOnly: p.MaterialOnly, QuiescePly: p.QuiescePly, Tapered: p.Tapered,
+		Extensions: p.Extensions, Aspiration: p.Aspiration, SEEPruning: p.SEEPruning,
+		Structure: p.Structure, Futility: p.Futility, Mobility: p.Mobility,
+		KingSafety: p.KingSafety, Net: p.Net}
+	if p.TTBits > 0 {
+		ev.Table = NewTranspositionTable(p.TTBits)
+	}
+	depth := p.Depth
+	if depth < 1 {
+		depth = 1
+	}
+	if len(g.AllLegalMoves(g.Turn)) == 0 {
+		return 0, false
+	}
+	ctx := &searchCtx{ev: ev, quiescence: p.Quiescence, extensions: ev.Extensions}
+	score := ctx.search(g, g.Turn, g.Turn, depth, 0, negInf, posInf)
+	return score, true
 }

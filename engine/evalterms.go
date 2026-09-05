@@ -250,3 +250,71 @@ func mobilityScore(b *board.Board, pieces []board.ColoredPiece, color board.Colo
 	}
 	return score
 }
+
+// King safety by counting attackers.
+//
+// The existing king term counts shelter pawns, which says whether the
+// king has a roof but nothing about whether anyone is coming. Every fit
+// so far has pushed that term around without conviction and one drove it
+// to zero, which is what a term too crude to be worth its weight looks
+// like.
+//
+// This is the standard form: count the enemy pieces that attack the
+// squares around the king, weight them by what they are, and make the
+// penalty superlinear in how many there are. Two attackers are far more
+// than twice one attacker, because mating nets need pieces to cooperate,
+// and a linear term cannot say that at any weight.
+//
+// It matters more now than it would have earlier: before castling
+// existed, kings sat on e1 all game and every king term was describing a
+// situation that never varied.
+var kingAttackerWeight = [6]float64{
+	board.Knight: 2, board.Bishop: 2, board.Rook: 3, board.Queen: 5,
+}
+
+// kingDanger rises faster than the number of attackers, then flattens:
+// past four attackers the king is lost and more does not change that.
+var kingDangerScale = [8]float64{0, 0.10, 0.35, 0.70, 1.00, 1.15, 1.25, 1.30}
+
+// kingSafetyPenalty is how bad `color`'s king position is, as a positive
+// number to be subtracted from color's score.
+func kingSafetyPenalty(b *board.Board, pieces []board.ColoredPiece, color board.Color, phase float64, weight float64) float64 {
+	if weight == 0 || phase < 0.25 {
+		// In an endgame the king is a fighting piece and being near the
+		// action is correct, so the whole idea inverts. Left to the
+		// endgame king tables and kingDrivingBonus.
+		return 0
+	}
+	king := b.KingSquare(color)
+	enemy := color.Other()
+
+	var buf [28]board.Sq
+	attackers, weightSum := 0, 0.0
+	for _, p := range pieces {
+		if p.Color != enemy {
+			continue
+		}
+		w := kingAttackerWeight[p.Type]
+		if w == 0 {
+			continue
+		}
+		hits := 0
+		for _, t := range moves.AppendLegalTargets(buf[:0], b, p.Sq, enemy, p.Type) {
+			df, dr := t.File-king.File, t.Rank-king.Rank
+			if df >= -1 && df <= 1 && dr >= -1 && dr <= 1 {
+				hits++
+			}
+		}
+		if hits > 0 {
+			attackers++
+			weightSum += w * float64(hits)
+		}
+	}
+	if attackers == 0 {
+		return 0
+	}
+	if attackers >= len(kingDangerScale) {
+		attackers = len(kingDangerScale) - 1
+	}
+	return weight * kingDangerScale[attackers] * weightSum * phase
+}

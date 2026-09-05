@@ -127,6 +127,8 @@ type Eval struct {
 	Futility bool
 	// Mobility adds a bonus per square each piece can reach.
 	Mobility bool
+	// KingSafety weights the attacker-counting king danger term. 0 is off.
+	KingSafety float64
 	// MobilityW overrides the per-piece mobility weights. Nil uses the
 	// defaults. Hand-picked weights measured +9 +/- 34, which is what a
 	// guess is worth; these exist so the tuner can fit them instead.
@@ -394,6 +396,11 @@ func PositionScoreEval(b *board.Board, color board.Color, ev *Eval) float64 {
 		sw := ev.structureWeights()
 		score += structurePieces(pieces, color, pawns[color], pawns[other], phase, sw)
 		score -= structurePieces(pieces, other, pawns[other], pawns[color], phase, sw)
+	}
+
+	if ev != nil && ev.KingSafety != 0 {
+		score -= kingSafetyPenalty(b, pieces, color, phase, ev.KingSafety)
+		score += kingSafetyPenalty(b, pieces, other, phase, ev.KingSafety)
 	}
 
 	if ev != nil && ev.Mobility {

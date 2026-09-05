@@ -35,6 +35,7 @@ func main() {
 	noNull := flag.Bool("no-null", false, "challenger disables null-move pruning")
 	qply := flag.Int("qply", 0, "challenger quiescence ply cap (0 = default)")
 	mobility := flag.Bool("mobility", false, "challenger adds the mobility term")
+	kingSafety := flag.Float64("king-safety", 0, "challenger's king-danger weight (0 = off)")
 	flag.Parse()
 
 	reference := full("reference (current FULL)", *depth)
@@ -55,6 +56,7 @@ func main() {
 	challenger.NullMove = !*noNull
 	challenger.QuiescePly = *qply
 	challenger.Mobility = *mobility
+	challenger.KingSafety = *kingSafety
 	if *netPath != "" {
 		n, err := engine.LoadNet(*netPath)
 		if err != nil {

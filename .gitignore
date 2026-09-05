@@ -25,3 +25,4 @@ tuning_labels.jsonl
 nnuetrain-bin
 net.json
 labels_static.jsonl
+trainloop-bin

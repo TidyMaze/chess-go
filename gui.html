@@ -54,6 +54,12 @@
   .note { color: #8b8b8b; font-size: 0.88em; }
   #external { margin-top: 0.8rem; font-size: 0.9em; color: #bbb; }
   #tech { margin-top: 0.5rem; font-size: 0.9em; color: #bbb; }
+  #trainPanel { max-width: 950px; margin: 0 auto 2.4rem; }
+  #trainWrap { position: relative; height: 240px; margin: 0.8rem 0; }
+  #trainBars { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.5rem; }
+  #trainBars span { background: #333; border-radius: 4px; padding: 0.2rem 0.6rem; font-size: 0.85em; }
+  .kept { color: #4ade80; font-weight: 600; }
+  .rejected { color: #9ca3af; }
   #caveat { margin-top: 0.8rem; padding: 0.6rem 0.8rem; border-left: 3px solid #b45309;
             background: #2a2118; font-size: 0.85em; color: #d6c9b4; line-height: 1.5; }
   .loss { color: #f87171; }
@@ -101,6 +107,15 @@
     <button id="playFlip">Play as Black</button>
     <span id="playStatus"></span>
   </div>
+</div>
+
+<div id="trainPanel">
+  <h2>Self-play training (live)</h2>
+  <div id="trainStatus" class="note">waiting for a training run...</div>
+  <div id="trainBars"></div>
+  <div id="trainWrap"><canvas id="trainChart"></canvas></div>
+  <table class="steps"><thead><tr><th>Gen</th><th class="num">Positions</th><th class="num">Held-out loss</th><th class="num">Elo vs champion</th><th>Kept?</th></tr></thead>
+    <tbody id="trainBody"></tbody></table>
 </div>
 
 <h2 id="title">Self-play: WHITE vs BLACK (depth-2 engine)</h2>
@@ -679,6 +694,83 @@ fetch("/api/engine").then(r => r.json()).then(d => {
     "Engine API not reachable: start ./play-bin instead of a static file server.";
 });
 newGame();
+
+// ---- live self-play training ------------------------------------------
+let trainChart = null;
+
+async function pollTraining() {
+  try {
+    const st = await fetch("train_status.json?_=" + Date.now()).then(r => r.json());
+    const bars = document.getElementById("trainBars");
+    bars.innerHTML = "";
+    const chips = [];
+    if (st.generation) chips.push(`Gen ${st.generation}/${st.generations}`);
+    if (st.phase) chips.push(st.phase);
+    if (st.phase === "self-play" && st.games_total)
+      chips.push(`game ${st.games}/${st.games_total}`);
+    if (st.phase === "training" && st.epochs)
+      chips.push(`epoch ${st.epoch}/${st.epochs}`);
+    if (st.phase === "evaluating" && st.eval_games)
+      chips.push(`${st.eval_games} test games`);
+    if (st.positions) chips.push(`${st.positions.toLocaleString()} positions`);
+    chips.push(`cumulative ${st.cum_elo >= 0 ? "+" : ""}${st.cum_elo || 0} Elo`);
+    for (const c of chips) {
+      const el = document.createElement("span");
+      el.textContent = c;
+      bars.appendChild(el);
+    }
+    document.getElementById("trainStatus").textContent =
+      st.phase === "done"
+        ? "Training finished."
+        : "The engine plays itself, learns to predict its own deeper search, and each new network must win a match against the current champion to be kept.";
+  } catch (e) {}
+
+  try {
+    const hist = await fetch("training.json?_=" + Date.now()).then(r => r.json());
+    if (!Array.isArray(hist) || !hist.length) return;
+
+    const body = document.getElementById("trainBody");
+    body.innerHTML = "";
+    for (const h of hist.slice().reverse()) {
+      const tr = document.createElement("tr");
+      tr.innerHTML =
+        `<td>${h.generation}</td>` +
+        `<td class="num">${h.positions.toLocaleString()}</td>` +
+        `<td class="num">${h.test_loss.toFixed(3)}</td>` +
+        `<td class="num">${h.elo >= 0 ? "+" : ""}${h.elo} &plusmn; ${h.elo_margin}</td>` +
+        `<td class="${h.accepted ? "kept" : "rejected"}">${h.accepted ? "kept" : "rejected"}</td>`;
+      body.appendChild(tr);
+    }
+
+    const data = {
+      labels: hist.map(h => "gen " + h.generation),
+      datasets: [
+        {label: "cumulative Elo gain", data: hist.map(h => h.cum_elo),
+         borderColor: "#4ade80", backgroundColor: "#4ade80", yAxisID: "y", tension: 0.2},
+        {label: "held-out loss (pawns squared)", data: hist.map(h => h.test_loss),
+         borderColor: "#60a5fa", backgroundColor: "#60a5fa", yAxisID: "y1", tension: 0.2},
+      ],
+    };
+    if (trainChart) { trainChart.data = data; trainChart.update(); return; }
+    trainChart = new Chart(document.getElementById("trainChart"), {
+      type: "line", data,
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {legend: {labels: {color: "#ddd"}}},
+        scales: {
+          y: {position: "left", title: {display: true, text: "cumulative Elo", color: "#4ade80"},
+              ticks: {color: "#bbb"}, grid: {color: "#333"}},
+          y1: {position: "right", title: {display: true, text: "held-out loss", color: "#60a5fa"},
+               ticks: {color: "#bbb"}, grid: {drawOnChartArea: false}},
+          x: {ticks: {color: "#bbb"}, grid: {color: "#333"}},
+        },
+      },
+    });
+  } catch (e) {}
+}
+
+pollTraining();
+setInterval(pollTraining, 1500);
 
 pollImprovements();
 setInterval(pollImprovements, 2000);
