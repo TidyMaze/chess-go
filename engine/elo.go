@@ -21,6 +21,8 @@ type Player struct {
 	Random bool
 	// Quiescence extends the search through captures at the leaves.
 	Quiescence bool
+	// UsePST swaps the simple centralization nudge for piece-square tables.
+	UsePST bool
 }
 
 func (p Player) pick(g *game.Game) (game.Move, bool) {
@@ -31,7 +33,7 @@ func (p Player) pick(g *game.Game) (game.Move, bool) {
 		}
 		return moves[randIntn(len(moves))], true
 	}
-	return chooseMoveOpts(g, g.Turn, p.Depth, p.Weights, p.Quiescence)
+	return chooseMoveOpts(g, g.Turn, p.Depth, &Eval{Weights: p.Weights, UsePST: p.UsePST}, p.Quiescence)
 }
 
 // AnchorPlayer is the fixed reference the Elo scale is pinned to: the

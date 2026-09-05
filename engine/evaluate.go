@@ -48,11 +48,11 @@ func abs(x float64) float64 {
 // computes both material and the centralization bonus together instead
 // of two separate scans, since PiecesOf is non-trivial cost at the node
 // counts search reaches.
-func materialAndCentralization(b *board.Board, color board.Color, weights Weights) (material, center float64) {
+func materialAndCentralization(b *board.Board, color board.Color, weights Weights, usePST bool) (material, center float64) {
 	var buf [16]board.PieceAtSquare
 	for _, ps := range b.AppendPiecesOf(buf[:0], color) {
 		material += weights[ps.Type]
-		if UsePST {
+		if usePST {
 			center += pstValue(ps.Type, ps.Sq, color)
 		} else if bonus := centerBonus[ps.Type]; bonus != 0 {
 			center += bonus * (3.5 - centerDistance(ps.Sq))
@@ -61,18 +61,30 @@ func materialAndCentralization(b *board.Board, color board.Color, weights Weight
 	return
 }
 
-// UsePST swaps the simple centralization nudge for full piece-square
-// tables. A package-level switch rather than a parameter so it doesn't
-// have to be threaded through every search call site; set once at
-// startup.
-var UsePST = false
+// Eval bundles everything the evaluation needs. It travels with the
+// search instead of living in package-level state, so two engines with
+// different evaluations can play each other concurrently -- which is
+// exactly what the Elo ladder does.
+type Eval struct {
+	Weights Weights
+	UsePST  bool
+}
+
+func (e *Eval) weightsOrDefault() Weights {
+	if e == nil || e.Weights == nil {
+		return defaultWeights
+	}
+	return e.Weights
+}
+
+func (e *Eval) usePST() bool { return e != nil && e.UsePST }
 
 func MaterialScore(b *board.Board, color board.Color, weights Weights) float64 {
 	if weights == nil {
 		weights = defaultWeights
 	}
-	own, _ := materialAndCentralization(b, color, weights)
-	enemy, _ := materialAndCentralization(b, color.Other(), weights)
+	own, _ := materialAndCentralization(b, color, weights, false)
+	enemy, _ := materialAndCentralization(b, color.Other(), weights, false)
 	return own - enemy
 }
 
@@ -93,11 +105,14 @@ func kingDrivingBonus(b *board.Board, color board.Color) float64 {
 }
 
 func PositionScore(b *board.Board, color board.Color, weights Weights) float64 {
-	if weights == nil {
-		weights = defaultWeights
-	}
-	ownMaterial, ownCenter := materialAndCentralization(b, color, weights)
-	enemyMaterial, enemyCenter := materialAndCentralization(b, color.Other(), weights)
+	return PositionScoreEval(b, color, &Eval{Weights: weights})
+}
+
+func PositionScoreEval(b *board.Board, color board.Color, ev *Eval) float64 {
+	weights := ev.weightsOrDefault()
+	usePST := ev.usePST()
+	ownMaterial, ownCenter := materialAndCentralization(b, color, weights, usePST)
+	enemyMaterial, enemyCenter := materialAndCentralization(b, color.Other(), weights, usePST)
 	score := (ownMaterial - enemyMaterial) + (ownCenter - enemyCenter)
 
 	if score >= 4 {
