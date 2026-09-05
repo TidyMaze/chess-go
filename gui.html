@@ -55,6 +55,10 @@
   #external { margin-top: 0.8rem; font-size: 0.9em; color: #bbb; }
   #tech { margin-top: 0.5rem; font-size: 0.9em; color: #bbb; }
   #trainPanel { max-width: 950px; margin: 0 auto 2.4rem; }
+  #spsaPanel { max-width: 950px; margin: 0 auto 2.4rem; }
+  #spsaWrap { position: relative; height: 260px; margin: 0.8rem 0; }
+  #spsaBars { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.5rem; }
+  #spsaBars span { background: #333; border-radius: 4px; padding: 0.2rem 0.6rem; font-size: 0.85em; }
   #trainWrap { position: relative; height: 240px; margin: 0.8rem 0; }
   #trainBars { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.5rem; }
   #trainBars span { background: #333; border-radius: 4px; padding: 0.2rem 0.6rem; font-size: 0.85em; }
@@ -116,6 +120,13 @@
   <div id="trainWrap"><canvas id="trainChart"></canvas></div>
   <table class="steps"><thead><tr><th>Gen</th><th class="num">Positions</th><th class="num">Held-out loss</th><th class="num">Elo vs champion</th><th>Kept?</th></tr></thead>
     <tbody id="trainBody"></tbody></table>
+</div>
+
+<div id="spsaPanel">
+  <h2>SPSA tuning (live)</h2>
+  <div id="spsaNote" class="note">Tuning evaluation weights against game results rather than against a prediction target. Each iteration perturbs every weight at once and plays the two versions against each other.</div>
+  <div id="spsaBars"></div>
+  <div id="spsaWrap"><canvas id="spsaChart"></canvas></div>
 </div>
 
 <h2 id="title">Self-play: WHITE vs BLACK (depth-2 engine)</h2>
@@ -771,6 +782,61 @@ async function pollTraining() {
 
 pollTraining();
 setInterval(pollTraining, 1500);
+
+// ---- live SPSA tuning ---------------------------------------------------
+const SPSA_COLOURS = ["#4ade80","#60a5fa","#f472b6","#fbbf24","#a78bfa","#34d399","#fb923c"];
+let spsaChart = null;
+
+async function pollSPSA() {
+  try {
+    const d = await fetch("spsa.json?_=" + Date.now()).then(r => r.json());
+    if (!d.history || !d.history.length) return;
+    const last = d.history[d.history.length - 1];
+
+    const bars = document.getElementById("spsaBars");
+    bars.innerHTML = "";
+    const chips = [`iteration ${last.iteration}/${d.iterations}`,
+                   `${Math.round(d.elapsed / 60)} min elapsed`];
+    d.names.forEach((n, i) => chips.push(`${n} ${last.values[i].toFixed(3)}`));
+    for (const c of chips) {
+      const el = document.createElement("span");
+      el.textContent = c;
+      bars.appendChild(el);
+    }
+
+    // Each weight is drawn relative to where it started, so seven very
+    // different scales can share one axis and what matters (which way
+    // each one is drifting) stays readable.
+    const first = d.history[0].values;
+    const data = {
+      labels: d.history.map(h => h.iteration),
+      datasets: d.names.map((n, i) => ({
+        label: n,
+        data: d.history.map(h => h.values[i] / (first[i] || 1)),
+        borderColor: SPSA_COLOURS[i % SPSA_COLOURS.length],
+        backgroundColor: SPSA_COLOURS[i % SPSA_COLOURS.length],
+        tension: 0.2, pointRadius: 0,
+      })),
+    };
+    if (spsaChart) { spsaChart.data = data; spsaChart.update(); return; }
+    spsaChart = new Chart(document.getElementById("spsaChart"), {
+      type: "line", data,
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {legend: {labels: {color: "#ddd", boxWidth: 12}}},
+        scales: {
+          y: {title: {display: true, text: "weight, relative to its starting value", color: "#bbb"},
+              ticks: {color: "#bbb"}, grid: {color: "#333"}},
+          x: {title: {display: true, text: "iteration", color: "#bbb"},
+              ticks: {color: "#bbb"}, grid: {color: "#333"}},
+        },
+      },
+    });
+  } catch (e) {}
+}
+
+pollSPSA();
+setInterval(pollSPSA, 3000);
 
 pollImprovements();
 setInterval(pollImprovements, 2000);
