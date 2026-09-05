@@ -507,6 +507,9 @@ type genRecord struct {
 	HandMSE    float64 `json:"hand_mse"`
 	Jump       float64 `json:"jump"`
 	HandJump   float64 `json:"hand_jump"`
+	GenSecs    int     `json:"gen_secs"`
+	TrainSecs  int     `json:"train_secs"`
+	EvalSecs   int     `json:"eval_secs"`
 	Elo        int     `json:"elo"`
 	EloMargin  int     `json:"elo_margin"`
 	Accepted   bool    `json:"accepted"`
@@ -692,6 +695,8 @@ func main() {
 			continue
 		}
 
+		genSecs := time.Since(t0).Seconds()
+		trainStart := time.Now()
 		var lastTrain, lastTest, handMSE, smoothness, handSmoothness float64
 		for e := 1; e <= *epochs; e++ {
 			rng.Shuffle(len(trainIdx), func(i, j int) {
@@ -781,6 +786,9 @@ func main() {
 		handMSE = handErr
 		_ = handSmoothness
 
+		trainSecs := time.Since(trainStart).Seconds()
+		evalStart := time.Now()
+
 		exported := n.export(*k, useSigmoid)
 		_ = exported.Save("halfkp_latest.json")
 
@@ -809,10 +817,17 @@ func main() {
 				res.Wins, res.Draws, res.Losses, elo, margin, accepted)
 		}
 
+		evalSecs := time.Since(evalStart).Seconds()
+		// Where the wall clock goes, which decides what is worth
+		// optimising and specifically whether moving training to the GPU
+		// would help at all.
+		fmt.Printf("  time: %.0fs self-play, %.0fs training, %.0fs testing\n",
+			genSecs, trainSecs, evalSecs)
 		history = append(history, genRecord{
 			Generation: gen, Positions: len(pool),
 			TrainLoss: lastTrain, TestLoss: lastTest, Baseline: baseline, HandMSE: handMSE,
 			Jump: smoothness, HandJump: handSmoothness,
+			GenSecs: int(genSecs), TrainSecs: int(trainSecs), EvalSecs: int(evalSecs),
 			Elo: elo, EloMargin: margin, Accepted: accepted, Tested: tested,
 			CumElo: cumElo, Seconds: int(time.Since(t0).Seconds()),
 		})

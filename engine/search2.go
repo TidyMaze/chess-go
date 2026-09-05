@@ -1,6 +1,8 @@
 package engine
 
 import (
+	"sync"
+
 	"chess/board"
 	"chess/game"
 	"chess/moves"
@@ -32,6 +34,20 @@ import (
 
 const maxSearchPly = 64
 
+// searchCtxPool recycles search contexts.
+//
+// A searchCtx carries the history table, which at [2][64][64] is 32 KB
+// even as int32, plus killers and the repetition path. Allocating one per
+// search made the training workload 170 KB and 132 allocations per move,
+// 86% of all bytes allocated, and every one of those had to be zeroed and
+// later collected.
+//
+// Recycled rather than cleared: the history heuristic is a move-ordering
+// hint, and carrying it between searches is what strong engines do
+// deliberately, since a move that caused cutoffs a moment ago probably
+// still will. Stale killers are harmless for the same reason.
+var searchCtxPool = sync.Pool{New: func() any { return new(searchCtx) }}
+
 // futilityMargin is how much a single move is assumed to be worth, per
 // remaining ply, in pawns. A position further than this from the bound is
 // treated as unreachable. Indexed by depth; only 1..3 are used.
@@ -45,7 +61,7 @@ var LastSearchNodes int
 type searchCtx struct {
 	ev         *Eval
 	killers    [maxSearchPly][2]game.Move
-	history    [2][64][64]int
+	history    [2][64][64]int32
 	quiescence bool
 	nodes      int
 	extensions bool
@@ -92,7 +108,7 @@ func (c *searchCtx) recordKiller(ply int, m game.Move) {
 }
 
 func (c *searchCtx) recordHistory(color board.Color, m game.Move, depth int) {
-	c.history[color][sqIndex(m.From)][sqIndex(m.To)] += depth * depth
+	c.history[color][sqIndex(m.From)][sqIndex(m.To)] += int32(depth * depth)
 }
 
 // scoreMove ranks a move for ordering: transposition-table move first,
@@ -113,7 +129,7 @@ func (c *searchCtx) scoreMove(g *game.Game, m game.Move, ttMove game.Move, ply i
 			return 1<<19 - 1
 		}
 	}
-	return c.history[color][sqIndex(m.From)][sqIndex(m.To)]
+	return int(c.history[color][sqIndex(m.From)][sqIndex(m.To)])
 }
 
 func (c *searchCtx) orderMoves(g *game.Game, ms []game.Move, ttMove game.Move, ply int, color board.Color) {
@@ -366,8 +382,11 @@ func ChooseMoveIterative(g *game.Game, color board.Color, maxDepth int, ev *Eval
 	if ev.Table == nil {
 		ev.Table = NewTranspositionTable(20)
 	}
-	ctx := &searchCtx{ev: ev, quiescence: useQuiescence, extensions: ev.Extensions,
-		played: playedKeys(g)}
+	ctx := searchCtxPool.Get().(*searchCtx)
+	defer searchCtxPool.Put(ctx)
+	ctx.ev, ctx.quiescence, ctx.extensions = ev, useQuiescence, ev.Extensions
+	ctx.nodes = 0
+	ctx.played = playedKeys(g)
 	ctx.path[0] = zobristHash(g)
 	defer func() { LastSearchNodes = ctx.nodes }()
 

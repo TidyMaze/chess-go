@@ -479,7 +479,10 @@ func PlayerScoreWith(p Player, g *game.Game, reuse *TranspositionTable) (float64
 	if len(g.AllLegalMoves(g.Turn)) == 0 {
 		return 0, false
 	}
-	ctx := &searchCtx{ev: ev, quiescence: p.Quiescence, extensions: ev.Extensions}
+	ctx := searchCtxPool.Get().(*searchCtx)
+	defer searchCtxPool.Put(ctx)
+	ctx.ev, ctx.quiescence, ctx.extensions = ev, p.Quiescence, ev.Extensions
+	ctx.nodes, ctx.played = 0, nil
 	score := ctx.search(g, g.Turn, g.Turn, depth, 0, negInf, posInf)
 	return score, true
 }

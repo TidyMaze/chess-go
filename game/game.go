@@ -6,7 +6,6 @@ package game
 import (
 	"chess/board"
 	"chess/moves"
-	"sort"
 )
 
 type Move struct {
@@ -19,7 +18,7 @@ type Game struct {
 	KingCaptured    bool
 	HalfmoveClock   int
 	TrackRepetition bool
-	positionCounts  map[string]int
+	positionCounts  map[uint64]int
 	// playedBoards holds every position that has occurred in this game,
 	// so a search can tell that reaching one again would repeat. Only
 	// populated when TrackRepetition is on, which is the real game loops
@@ -51,6 +50,11 @@ func From(b board.Board, turn board.Color) *Game {
 // right after construction (not mid-game) or the position count starts
 // one occurrence short.
 func (g *Game) EnableRepetitionTracking() {
+	if g.playedBoards == nil {
+		// A game is a few hundred plies; growing this by doubling churns
+		// the allocator on every game the generator plays.
+		g.playedBoards = make([]board.Board, 0, 256)
+	}
 	g.TrackRepetition = true
 	g.recordPosition()
 }
@@ -196,35 +200,39 @@ func (g *Game) CountIfPlayed(from, to board.Sq) int {
 // enough (called once per real move played, not once per search node --
 // TrackRepetition is off by default for the search's throwaway positions)
 // and simple to get right compared to a numeric zobrist hash.
-func (g *Game) positionKey() string {
-	white := g.Board.PiecesOf(board.White)
-	black := g.Board.PiecesOf(board.Black)
-	sortPieces(white)
-	sortPieces(black)
-	key := make([]byte, 0, 128)
-	for _, p := range white {
-		key = append(key, byte('A'+p.Type), byte('a'+p.Sq.File), byte('0'+p.Sq.Rank))
+// positionKey hashes the position into a single integer.
+//
+// It used to build a sorted string of every piece, which allocated twice
+// (the byte slice and the string) on every move of every game, and then
+// used that string as a map key, which hashes it a third time. The
+// profile put recordPosition at 57% of all bytes allocated in the
+// training workload.
+//
+// The hash is order-independent, so no sort is needed: each piece
+// contributes a value mixed by multiplication and combined with XOR,
+// which is commutative. A collision would merge two distinct positions
+// into one repetition count; at 64 bits over the few hundred positions
+// in a game that is not going to happen.
+func (g *Game) positionKey() uint64 {
+	var h uint64
+	var buf [32]board.ColoredPiece
+	for _, p := range g.Board.AppendAllPieces(buf[:0]) {
+		v := uint64(p.Sq.Rank*8+p.Sq.File)<<8 | uint64(p.Type)<<4 | uint64(p.Color)
+		// A cheap integer mix so that neighbouring squares do not produce
+		// neighbouring hashes, then XOR so piece order does not matter.
+		v *= 0x9E3779B97F4A7C15
+		v ^= v >> 29
+		h ^= v
 	}
-	key = append(key, '|')
-	for _, p := range black {
-		key = append(key, byte('A'+p.Type), byte('a'+p.Sq.File), byte('0'+p.Sq.Rank))
+	if g.Turn == board.Black {
+		h ^= 0xD6E8FEB86659FD93
 	}
-	key = append(key, byte('0'+int(g.Turn)))
-	return string(key)
-}
-
-func sortPieces(pieces []board.PieceAtSquare) {
-	sort.Slice(pieces, func(i, j int) bool {
-		if pieces[i].Sq.File != pieces[j].Sq.File {
-			return pieces[i].Sq.File < pieces[j].Sq.File
-		}
-		return pieces[i].Sq.Rank < pieces[j].Sq.Rank
-	})
+	return h
 }
 
 func (g *Game) recordPosition() {
 	if g.positionCounts == nil {
-		g.positionCounts = map[string]int{}
+		g.positionCounts = make(map[uint64]int, 128)
 	}
 	g.positionCounts[g.positionKey()]++
 	g.playedBoards = append(g.playedBoards, g.Board)
