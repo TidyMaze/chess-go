@@ -89,3 +89,43 @@ func TestPiecesOfCountsSixteenAtStart(t *testing.T) {
 		t.Errorf("expected 16 black pieces, got %d", len(b.PiecesOf(Black)))
 	}
 }
+
+func TestMakeUnmakeRestoresPosition(t *testing.T) {
+	b := Initial()
+	before := b
+	u := b.MakeMove(Sq{4, 1}, Sq{4, 3})
+	if b == before {
+		t.Fatalf("MakeMove did not change the board")
+	}
+	b.UnmakeMove(u)
+	if b != before {
+		t.Errorf("UnmakeMove did not restore the board exactly")
+	}
+}
+
+func TestMakeUnmakeRestoresCapture(t *testing.T) {
+	b := NewEmpty()
+	b.Place(Sq{0, 0}, Piece{White, King})
+	b.Place(Sq{7, 7}, Piece{Black, King})
+	b.Place(Sq{0, 4}, Piece{White, Rook})
+	b.Place(Sq{0, 6}, Piece{Black, Queen})
+	before := b
+	u := b.MakeMove(Sq{0, 4}, Sq{0, 6})
+	if p, ok := b.PieceAt(Sq{0, 6}); !ok || p.Type != Rook {
+		t.Fatalf("capture did not apply")
+	}
+	b.UnmakeMove(u)
+	if b != before {
+		t.Errorf("UnmakeMove did not restore a capture exactly")
+	}
+}
+
+func TestMakeUnmakeRestoresKingSquare(t *testing.T) {
+	b := Initial()
+	before := b
+	u := b.MakeMove(Sq{4, 0}, Sq{4, 1})
+	b.UnmakeMove(u)
+	if b.KingSquare(White) != before.KingSquare(White) || b != before {
+		t.Errorf("king square not restored")
+	}
+}

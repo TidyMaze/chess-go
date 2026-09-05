@@ -185,6 +185,44 @@ func hitsSlider(b *board.Board, from board.Sq, d [2]int, enemy board.Color, type
 	}
 }
 
+// IsAttackedBy probes outward from a square to see whether `by` attacks
+// it. Same technique as IsInCheck, applied to any square: O(1) piece-type
+// probes rather than generating every one of that side's moves and
+// checking their destinations, which is what the quiescence pruning was
+// doing for every candidate capture.
+func IsAttackedBy(b *board.Board, sq board.Sq, by board.Color) bool {
+	for _, d := range knightOffsets {
+		if p, ok := b.CellPiece(board.Sq{File: sq.File + d[0], Rank: sq.Rank + d[1]}); ok &&
+			p.Color == by && p.Type == board.Knight {
+			return true
+		}
+	}
+	for _, d := range kingOffsets {
+		if p, ok := b.CellPiece(board.Sq{File: sq.File + d[0], Rank: sq.Rank + d[1]}); ok &&
+			p.Color == by && p.Type == board.King {
+			return true
+		}
+	}
+	for _, d := range rookDirs {
+		if hitsSlider(b, sq, d, by, board.Rook, board.Queen) {
+			return true
+		}
+	}
+	for _, d := range bishopDirs {
+		if hitsSlider(b, sq, d, by, board.Bishop, board.Queen) {
+			return true
+		}
+	}
+	byDir := direction[by]
+	for _, df := range [2]int{-1, 1} {
+		if p, ok := b.CellPiece(board.Sq{File: sq.File + df, Rank: sq.Rank - byDir}); ok &&
+			p.Color == by && p.Type == board.Pawn {
+			return true
+		}
+	}
+	return false
+}
+
 // PinnedSquares returns the set of color's own squares that are pinned to
 // its king: moving that piece could expose check, so its legality needs
 // the expensive per-move self-check test. Computed once per position

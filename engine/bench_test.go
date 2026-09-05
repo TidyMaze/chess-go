@@ -42,3 +42,13 @@ func BenchmarkAllLegalMoves(b *testing.B) {
 		g.AllLegalMoves(g.Turn)
 	}
 }
+
+func BenchmarkFullEngineDepth5(b *testing.B) {
+	p := Player{Depth: 5, UsePST: true, Quiescence: true, TTBits: 20,
+		NullMove: true, Tapered: true, Iterative: true,
+		Extensions: true, Aspiration: true, SEEPruning: true}
+	for i := 0; i < b.N; i++ {
+		g := midOpeningPosition()
+		PlayerPick(p, g)
+	}
+}

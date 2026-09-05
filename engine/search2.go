@@ -133,8 +133,7 @@ func (c *searchCtx) search(g *game.Game, color, maximizingFor board.Color, depth
 	inCheck := moves.IsInCheck(&g.Board, color)
 
 	if c.ev.useNullMove() && depth >= 3 && !inCheck {
-		passed := game.Game{Board: g.Board, Turn: color.Other()}
-		score := c.search(&passed, color.Other(), maximizingFor, depth-3, ply+1, alpha, beta)
+		score := c.search(g, color.Other(), maximizingFor, depth-3, ply+1, alpha, beta)
 		if maximizing && score >= beta {
 			return score
 		}
@@ -153,8 +152,23 @@ func (c *searchCtx) search(g *game.Game, color, maximizingFor board.Color, depth
 
 	for i, m := range legal {
 		_, isCapture := g.Board.PieceAt(m.To)
-		next := game.Game{Board: g.Board, Turn: color}
-		next.ApplyMove(m.From, m.To)
+
+		// Make/unmake rather than copying the board into a child Game:
+		// this is the hot path, and the copy was the largest per-node cost
+		// left. Promotion is handled here because the board layer does not
+		// know the rule.
+		undo := g.Board.MakeMove(m.From, m.To)
+		promoted := false
+		if p, ok := g.Board.PieceAt(m.To); ok && p.Type == board.Pawn {
+			if (p.Color == board.White && m.To.Rank == 7) || (p.Color == board.Black && m.To.Rank == 0) {
+				g.Board.SetPiece(m.To, board.Piece{Color: p.Color, Type: board.Queen})
+				promoted = true
+			}
+		}
+		_ = promoted
+		// Recurse on the same Game: search reads the board through g and
+		// takes the side to move as a parameter, so there is no need to
+		// build a child object at all.
 
 		// Late move reductions: the ordering above says moves after the
 		// first few are unlikely to be best, so look at them shallower.
@@ -168,28 +182,30 @@ func (c *searchCtx) search(g *game.Game, color, maximizingFor board.Color, depth
 		// search sees how the check resolves instead of evaluating a
 		// position that is about to change sharply.
 		extension := 0
-		if c.extensions && ply < maxSearchPly-2 && moves.IsInCheck(&next.Board, color.Other()) {
+		if c.extensions && ply < maxSearchPly-2 && moves.IsInCheck(&g.Board, color.Other()) {
 			extension = 1
 			reduction = 0
 		}
 
 		var value float64
 		if i == 0 {
-			value = c.search(&next, color.Other(), maximizingFor, depth-1+extension, ply+1, alpha, beta)
+			value = c.search(g, color.Other(), maximizingFor, depth-1+extension, ply+1, alpha, beta)
 		} else {
 			// Principal variation search: try a zero-width window first.
 			if maximizing {
-				value = c.search(&next, color.Other(), maximizingFor, depth-1-reduction+extension, ply+1, alpha, alpha+1e-6)
+				value = c.search(g, color.Other(), maximizingFor, depth-1-reduction+extension, ply+1, alpha, alpha+1e-6)
 				if value > alpha {
-					value = c.search(&next, color.Other(), maximizingFor, depth-1+extension, ply+1, alpha, beta)
+					value = c.search(g, color.Other(), maximizingFor, depth-1+extension, ply+1, alpha, beta)
 				}
 			} else {
-				value = c.search(&next, color.Other(), maximizingFor, depth-1-reduction+extension, ply+1, beta-1e-6, beta)
+				value = c.search(g, color.Other(), maximizingFor, depth-1-reduction+extension, ply+1, beta-1e-6, beta)
 				if value < beta {
-					value = c.search(&next, color.Other(), maximizingFor, depth-1+extension, ply+1, alpha, beta)
+					value = c.search(g, color.Other(), maximizingFor, depth-1+extension, ply+1, alpha, beta)
 				}
 			}
 		}
+
+		g.Board.UnmakeMove(undo)
 
 		if maximizing {
 			if value > best {
@@ -266,9 +282,14 @@ func ChooseMoveIterative(g *game.Game, color board.Color, maxDepth int, ev *Eval
 		ctx.orderMoves(g, ordered, best, 0, color)
 
 		for _, m := range ordered {
-			next := game.Game{Board: g.Board, Turn: color}
-			next.ApplyMove(m.From, m.To)
-			score := ctx.search(&next, color.Other(), color, depth-1, 1, alpha, beta)
+			undo := g.Board.MakeMove(m.From, m.To)
+			if p, ok := g.Board.PieceAt(m.To); ok && p.Type == board.Pawn {
+				if (p.Color == board.White && m.To.Rank == 7) || (p.Color == board.Black && m.To.Rank == 0) {
+					g.Board.SetPiece(m.To, board.Piece{Color: p.Color, Type: board.Queen})
+				}
+			}
+			score := ctx.search(g, color.Other(), color, depth-1, 1, alpha, beta)
+			g.Board.UnmakeMove(undo)
 			if score > bestScore {
 				bestScore, iterBest = score, m
 				tied = tied[:0]

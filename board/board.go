@@ -223,3 +223,43 @@ func (b *Board) AppendPiecesOf(dst []PieceAtSquare, c Color) []PieceAtSquare {
 	return result
 }
 
+
+// Undo captures everything Move changes, so a move can be taken back
+// without copying the board. The search visits hundreds of thousands of
+// nodes per move and copied a whole Board into a new Game at each one;
+// make/unmake removes that copy entirely.
+type Undo struct {
+	from, to    Sq
+	movedCode   cellCode
+	capturedRaw cellCode
+	kings       [2]Sq
+	occupied    [32]Sq
+	occCount    int
+}
+
+// MakeMove applies a move and returns what is needed to undo it.
+func (b *Board) MakeMove(from, to Sq) Undo {
+	u := Undo{
+		from:        from,
+		to:          to,
+		movedCode:   b.cells[index(from)],
+		capturedRaw: b.cells[index(to)],
+		kings:       b.kings,
+		occupied:    b.occupied,
+		occCount:    b.occupiedCount,
+	}
+	b.Move(from, to)
+	return u
+}
+
+// UnmakeMove restores the position saved in u.
+func (b *Board) UnmakeMove(u Undo) {
+	b.cells[index(u.from)] = u.movedCode
+	b.cells[index(u.to)] = u.capturedRaw
+	b.kings = u.kings
+	b.occupied = u.occupied
+	b.occupiedCount = u.occCount
+}
+
+// SetPiece replaces the piece on a square (used for promotion).
+func (b *Board) SetPiece(s Sq, p Piece) { b.setPiece(s, p) }

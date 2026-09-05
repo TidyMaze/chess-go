@@ -207,13 +207,13 @@ func quiesce(g *game.Game, color, maximizingFor board.Color, alpha, beta float64
 		// losing ones, which is where its node count explodes.
 		if ev.useSEEPruning() {
 			attacker, _ := g.Board.PieceAt(m.From)
-			if mvvLvaPiece[attacker.Type] > mvvLvaPiece[victim.Type] && squareDefended(g, m.To, color.Other()) {
+			if mvvLvaPiece[attacker.Type] > mvvLvaPiece[victim.Type] && moves.IsAttackedBy(&g.Board, m.To, color.Other()) {
 				continue
 			}
 		}
-		next := game.Game{Board: g.Board, Turn: color}
-		next.ApplyMove(m.From, m.To)
-		value := quiesce(&next, color.Other(), maximizingFor, alpha, beta, ev, ply+1)
+		undo := g.Board.MakeMove(m.From, m.To)
+		value := quiesce(g, color.Other(), maximizingFor, alpha, beta, ev, ply+1)
+		g.Board.UnmakeMove(undo)
 		if maximizing {
 			if value > best {
 				best = value
@@ -286,17 +286,3 @@ func chooseMoveOpts(g *game.Game, color board.Color, depth int, ev *Eval, useQui
 	return best[rand.Intn(len(best))], true
 }
 
-
-// squareDefended reports whether `by` has any piece attacking `sq`. Used
-// as the cheap stand-in for a full static exchange evaluation: enough to
-// tell "my queen takes a defended pawn" from a free capture.
-func squareDefended(g *game.Game, sq board.Sq, by board.Color) bool {
-	var buf [48]game.Move
-	trial := game.Game{Board: g.Board, Turn: by}
-	for _, m := range trial.AppendLegalMoves(buf[:0], by) {
-		if m.To == sq {
-			return true
-		}
-	}
-	return false
-}
