@@ -57,6 +57,7 @@ type ttEntry struct {
 	// maximizingFor matters: a stored score is from one side's point of
 	// view, and reusing it for the other side would invert its meaning.
 	maximizingFor board.Color
+	best          game.Move
 }
 
 // TranspositionTable is a fixed-size, direct-mapped cache. No eviction
@@ -96,6 +97,13 @@ func (t *TranspositionTable) probe(key uint64, depth int, maximizingFor board.Co
 }
 
 func (t *TranspositionTable) store(key uint64, score float64, depth int, flag ttFlag, maximizingFor board.Color) {
+	t.storeWithMove(key, score, depth, flag, maximizingFor, game.Move{})
+}
+
+// storeWithMove also remembers the best move found, which the next
+// iterative-deepening pass tries first -- the main reason iterative
+// deepening ends up cheaper than searching the target depth directly.
+func (t *TranspositionTable) storeWithMove(key uint64, score float64, depth int, flag ttFlag, maximizingFor board.Color, best game.Move) {
 	if t == nil {
 		return
 	}
@@ -103,5 +111,5 @@ func (t *TranspositionTable) store(key uint64, score float64, depth int, flag tt
 	if e.key == key && e.depth > depth {
 		return
 	}
-	*e = ttEntry{key: key, score: score, depth: depth, flag: flag, maximizingFor: maximizingFor}
+	*e = ttEntry{key: key, score: score, depth: depth, flag: flag, maximizingFor: maximizingFor, best: best}
 }

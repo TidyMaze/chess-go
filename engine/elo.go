@@ -27,19 +27,52 @@ type Player struct {
 	TTBits uint
 	// NullMove enables null-move pruning.
 	NullMove bool
+	// Greedy plays a random capture when one is available, else a random
+	// move. It sits between random and a 1-ply search, which is what the
+	// bottom of the ladder needs: without a rung there, random vs depth-1
+	// is a ~96% score, and the Elo formula's output at that extreme is
+	// dominated by a handful of games rather than being a real reading.
+	Greedy bool
+	// MaterialOnly strips the positional terms, giving a weaker rung to
+	// break up another saturating gap.
+	MaterialOnly bool
+	// QuiescePly caps the quiescence search depth (0 = default), which
+	// gives finer-grained rungs between "no quiescence" and "full
+	// quiescence" -- that jump alone is otherwise a 97% score, too
+	// saturated to measure.
+	QuiescePly int
+	// Tapered enables middlegame/endgame blended evaluation.
+	Tapered bool
+	// Iterative uses the iterative-deepening search with killers,
+	// history, PVS and late move reductions.
+	Iterative bool
 }
 
 func (p Player) pick(g *game.Game) (game.Move, bool) {
-	if p.Random {
+	if p.Random || p.Greedy {
 		moves := g.AllLegalMoves(g.Turn)
 		if len(moves) == 0 {
 			return game.Move{}, false
 		}
+		if p.Greedy {
+			captures := moves[:0:0]
+			for _, m := range moves {
+				if _, isCapture := g.Board.PieceAt(m.To); isCapture {
+					captures = append(captures, m)
+				}
+			}
+			if len(captures) > 0 {
+				return captures[randIntn(len(captures))], true
+			}
+		}
 		return moves[randIntn(len(moves))], true
 	}
-	ev := &Eval{Weights: p.Weights, UsePST: p.UsePST, NullMove: p.NullMove}
+	ev := &Eval{Weights: p.Weights, UsePST: p.UsePST, NullMove: p.NullMove, MaterialOnly: p.MaterialOnly, QuiescePly: p.QuiescePly, Tapered: p.Tapered}
 	if p.TTBits > 0 {
 		ev.Table = NewTranspositionTable(p.TTBits)
+	}
+	if p.Iterative {
+		return ChooseMoveIterative(g, g.Turn, p.Depth, ev, p.Quiescence)
 	}
 	return chooseMoveOpts(g, g.Turn, p.Depth, ev, p.Quiescence)
 }
@@ -56,9 +89,11 @@ type MatchResult struct {
 	Wins, Draws, Losses int
 }
 
-func (m MatchResult) Games() int      { return m.Wins + m.Draws + m.Losses }
-func (m MatchResult) Score() float64  { return (float64(m.Wins) + 0.5*float64(m.Draws)) / float64(m.Games()) }
-func (m MatchResult) Elo() int        { return EloFromWinRate(m.Score()) }
+func (m MatchResult) Games() int { return m.Wins + m.Draws + m.Losses }
+func (m MatchResult) Score() float64 {
+	return (float64(m.Wins) + 0.5*float64(m.Draws)) / float64(m.Games())
+}
+func (m MatchResult) Elo() int { return EloFromWinRate(m.Score()) }
 
 // EloMargin is the 95% confidence half-width on the Elo estimate, from
 // the standard error of the score. Reporting an Elo without it invites

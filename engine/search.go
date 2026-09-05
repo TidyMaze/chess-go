@@ -171,7 +171,7 @@ const maxQuiescePly = 4
 
 func quiesce(g *game.Game, color, maximizingFor board.Color, alpha, beta float64, ev *Eval, ply int) float64 {
 	standPat := PositionScoreEval(&g.Board, maximizingFor, ev)
-	if ply >= maxQuiescePly {
+	if ply >= ev.quiescePly() {
 		return standPat
 	}
 	maximizing := color == maximizingFor

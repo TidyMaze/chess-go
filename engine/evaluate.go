@@ -49,14 +49,46 @@ func abs(x float64) float64 {
 // of two separate scans, since PiecesOf is non-trivial cost at the node
 // counts search reaches.
 func materialAndCentralization(b *board.Board, color board.Color, weights Weights, usePST bool) (material, center float64) {
+	return materialAndPositional(b, color, weights, usePST, false, 1.0)
+}
+
+// gamePhase is 1.0 with all pieces on the board and 0.0 in a bare
+// king-and-pawn ending.
+func gamePhase(b *board.Board) float64 {
+	total := 0.0
 	var buf [16]board.PieceAtSquare
+	for _, color := range [2]board.Color{board.White, board.Black} {
+		for _, ps := range b.AppendPiecesOf(buf[:0], color) {
+			total += phaseWeight[ps.Type]
+		}
+	}
+	if total > maxPhase {
+		total = maxPhase
+	}
+	return total / maxPhase
+}
+
+func materialAndPositional(b *board.Board, color board.Color, weights Weights, usePST, tapered bool, phase float64) (material, center float64) {
+	var buf [16]board.PieceAtSquare
+	bishops := 0
 	for _, ps := range b.AppendPiecesOf(buf[:0], color) {
 		material += weights[ps.Type]
-		if usePST {
+		if ps.Type == board.Bishop {
+			bishops++
+		}
+		if tapered {
+			center += pstValueTapered(ps.Type, ps.Sq, color, phase)
+		} else if usePST {
 			center += pstValue(ps.Type, ps.Sq, color)
 		} else if bonus := centerBonus[ps.Type]; bonus != 0 {
 			center += bonus * (3.5 - centerDistance(ps.Sq))
 		}
+	}
+	// Bishop pair: two bishops cover both colour complexes and are worth
+	// noticeably more than the sum of their parts, which per-piece values
+	// cannot express.
+	if (tapered || usePST) && bishops >= 2 {
+		center += 0.3
 	}
 	return
 }
@@ -73,6 +105,21 @@ type Eval struct {
 	Table *TranspositionTable
 	// NullMove enables null-move pruning.
 	NullMove bool
+	// MaterialOnly strips positional terms from the evaluation.
+	MaterialOnly bool
+	// QuiescePly caps how far the quiescence search follows captures.
+	// 0 means the default.
+	QuiescePly int
+	// Tapered blends middlegame and endgame piece-square tables by how
+	// much material is left.
+	Tapered bool
+}
+
+func (e *Eval) quiescePly() int {
+	if e == nil || e.QuiescePly <= 0 {
+		return maxQuiescePly
+	}
+	return e.QuiescePly
 }
 
 func (e *Eval) useNullMove() bool { return e != nil && e.NullMove }
@@ -125,8 +172,16 @@ func PositionScore(b *board.Board, color board.Color, weights Weights) float64 {
 func PositionScoreEval(b *board.Board, color board.Color, ev *Eval) float64 {
 	weights := ev.weightsOrDefault()
 	usePST := ev.usePST()
-	ownMaterial, ownCenter := materialAndCentralization(b, color, weights, usePST)
-	enemyMaterial, enemyCenter := materialAndCentralization(b, color.Other(), weights, usePST)
+	tapered := ev != nil && ev.Tapered
+	phase := 1.0
+	if tapered {
+		phase = gamePhase(b)
+	}
+	ownMaterial, ownCenter := materialAndPositional(b, color, weights, usePST, tapered, phase)
+	enemyMaterial, enemyCenter := materialAndPositional(b, color.Other(), weights, usePST, tapered, phase)
+	if ev != nil && ev.MaterialOnly {
+		ownCenter, enemyCenter = 0, 0
+	}
 	score := (ownMaterial - enemyMaterial) + (ownCenter - enemyCenter)
 
 	if score >= 4 {
