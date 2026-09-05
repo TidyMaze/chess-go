@@ -138,6 +138,11 @@ type Eval struct {
 	// means use the defaults.
 	PSTScale   *[6]float64
 	StructureW *StructureWeights
+	// NoRepetition turns off repetition detection in the search. A
+	// measurement instrument only, like NoCastle: repetition is a rule of
+	// chess and detecting it is not optional. It exists so one side of an
+	// A/B can price the change.
+	NoRepetition bool
 	// NoLMR disables late move reductions. They assume the move ordering
 	// is good enough that anything after the first few is not worth full
 	// depth, which is a much bigger assumption at depth 4 than at 20.

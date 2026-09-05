@@ -20,7 +20,15 @@ type Game struct {
 	HalfmoveClock   int
 	TrackRepetition bool
 	positionCounts  map[string]int
+	// playedBoards holds every position that has occurred in this game,
+	// so a search can tell that reaching one again would repeat. Only
+	// populated when TrackRepetition is on, which is the real game loops
+	// and never the search's own scratch positions.
+	playedBoards []board.Board
 }
+
+// PlayedBoards returns the positions that have already occurred.
+func (g *Game) PlayedBoards() []board.Board { return g.playedBoards }
 
 func New() *Game {
 	g := From(board.Initial(), board.White)
@@ -198,4 +206,5 @@ func (g *Game) recordPosition() {
 		g.positionCounts = map[string]int{}
 	}
 	g.positionCounts[g.positionKey()]++
+	g.playedBoards = append(g.playedBoards, g.Board)
 }

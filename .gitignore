@@ -28,3 +28,5 @@ labels_static.jsonl
 trainloop-bin
 analyze-bin
 analysis.json
+spsa-bin
+spsa.json

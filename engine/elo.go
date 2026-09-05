@@ -66,10 +66,16 @@ type Player struct {
 	NoCastle bool
 	// NoLMR disables late move reductions.
 	NoLMR bool
+	// NoRepetition disables repetition detection. Measurement only.
+	NoRepetition bool
 	// Mobility adds the mobility evaluation term.
 	Mobility bool
 	// KingSafety weights the attacker-counting king danger term.
 	KingSafety float64
+	// MobilityW and StructureW override the evaluation constants, so a
+	// tuner can vary them per player without touching package state.
+	MobilityW  *[6]float64
+	StructureW *StructureWeights
 	// UCI delegates move choice to an external engine (Stockfish), giving
 	// an externally-calibrated reference point rather than only measuring
 	// against this engine's own ancestors.
@@ -120,8 +126,15 @@ func (p Player) pickWith(g *game.Game, reuse *TranspositionTable) (game.Move, bo
 	ev.Net = p.Net
 	ev.NoCastle = p.NoCastle
 	ev.NoLMR = p.NoLMR
+	ev.NoRepetition = p.NoRepetition
 	ev.Mobility = p.Mobility
 	ev.KingSafety = p.KingSafety
+	if p.MobilityW != nil {
+		ev.MobilityW = p.MobilityW
+	}
+	if p.StructureW != nil {
+		ev.StructureW = p.StructureW
+	}
 	if p.Tuned {
 		if p.Weights == nil {
 			ev.Weights = TunedWeights()

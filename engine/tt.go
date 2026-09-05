@@ -34,21 +34,26 @@ func init() {
 }
 
 func zobristHash(g *game.Game) uint64 {
+	return zobristBoard(&g.Board, g.Turn)
+}
+
+// zobristBoard hashes a board plus whose turn it is. Split out from
+// zobristHash so positions from the game's history, which are boards
+// without a Game around them, can be hashed the same way.
+func zobristBoard(b *board.Board, turn board.Color) uint64 {
 	var h uint64
-	var buf [16]board.PieceAtSquare
-	for _, color := range [2]board.Color{board.White, board.Black} {
-		for _, ps := range g.Board.AppendPiecesOf(buf[:0], color) {
-			idx := int(color)*6 + int(ps.Type)
-			h ^= zobristPiece[idx][ps.Sq.Rank*8+ps.Sq.File]
-		}
+	var buf [32]board.ColoredPiece
+	for _, p := range b.AppendAllPieces(buf[:0]) {
+		idx := int(p.Color)*6 + int(p.Type)
+		h ^= zobristPiece[idx][p.Sq.Rank*8+p.Sq.File]
 	}
-	if g.Turn == board.Black {
+	if turn == board.Black {
 		h ^= zobristBlackToMove
 	}
 	// Castling rights are part of the position: two boards with identical
 	// pieces but different rights have different legal moves, and without
 	// this the table would hand one's score to the other.
-	h ^= zobristCastle[g.Board.Castle()&0x0f]
+	h ^= zobristCastle[b.Castle()&0x0f]
 	return h
 }
 

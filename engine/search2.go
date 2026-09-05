@@ -49,6 +49,33 @@ type searchCtx struct {
 	quiescence bool
 	nodes      int
 	extensions bool
+	// path holds the Zobrist key of every position on the line currently
+	// being searched, so a repetition can be recognised as a draw.
+	//
+	// Without this the search cannot see that shuffling a piece back and
+	// forth goes nowhere, and it showed: analysis against Stockfish caught
+	// the engine playing Be3-c1, Bc1-g5, Bg5-c1, matches ran 36-40% draws,
+	// and an extra ply of search was worth +14 +/- 27 Elo when it should be
+	// worth 50-70. A deeper search without repetition detection mostly
+	// finds more elaborate ways to go round in circles.
+	path [maxSearchPly]uint64
+	// played holds positions that already occurred in the real game.
+	// Repeating one of those is a draw by repetition, which the search
+	// must be able to see coming, especially when it is winning.
+	played map[uint64]int
+}
+
+// isRepetition reports whether this position already appears on the
+// current search line, or twice in the game before the search began.
+func (c *searchCtx) isRepetition(key uint64, ply int) bool {
+	for i := 0; i < ply && i < maxSearchPly; i++ {
+		if c.path[i] == key {
+			return true
+		}
+	}
+	// Two prior occurrences plus this one is threefold. One prior
+	// occurrence is not yet a draw, so it is not treated as one.
+	return c.played[key] >= 2
 }
 
 func sqIndex(s board.Sq) int { return s.Rank*8 + s.File }
@@ -114,10 +141,19 @@ func (c *searchCtx) search(g *game.Game, color, maximizingFor board.Color, depth
 	c.nodes++
 	tt := c.ev.table()
 
-	var key uint64
 	var ttMove game.Move
+	key := zobristHash(g)
+	if ply > 0 && depth > 0 && !(c.ev != nil && c.ev.NoRepetition) && c.isRepetition(key, ply) {
+		// A draw, scored 0 regardless of whose turn it is. This is
+		// deliberately checked before the transposition table: the table
+		// keys on the position, not on how the game reached it, so it
+		// cannot distinguish a first visit from a repetition.
+		return 0
+	}
+	if ply < maxSearchPly {
+		c.path[ply] = key
+	}
 	if tt != nil && depth > 0 {
-		key = zobristHash(g)
 		if score, ok := tt.probe(key, depth, maximizingFor, alpha, beta); ok {
 			return score
 		}
@@ -331,7 +367,9 @@ func ChooseMoveIterative(g *game.Game, color board.Color, maxDepth int, ev *Eval
 	if ev.Table == nil {
 		ev.Table = NewTranspositionTable(20)
 	}
-	ctx := &searchCtx{ev: ev, quiescence: useQuiescence, extensions: ev.Extensions}
+	ctx := &searchCtx{ev: ev, quiescence: useQuiescence, extensions: ev.Extensions,
+		played: playedKeys(g)}
+	ctx.path[0] = zobristHash(g)
 	defer func() { LastSearchNodes = ctx.nodes }()
 
 	best := legal[0]
@@ -408,3 +446,27 @@ func TotalNodes() int { return LastSearchNodes + quiesceNodes }
 
 // ResetNodes clears the counters between measurements.
 func ResetNodes() { LastSearchNodes, quiesceNodes = 0, 0 }
+
+// playedKeys hashes the positions already seen in the game, so the search
+// can recognise that reaching one again is a repetition.
+//
+// Built once per move choice rather than kept incrementally: a game is a
+// few hundred positions and a search is millions of nodes, so this is
+// noise, and an incremental version would have to be kept correct across
+// every make and unmake.
+func playedKeys(g *game.Game) map[uint64]int {
+	boards := g.PlayedBoards()
+	if len(boards) == 0 {
+		return nil
+	}
+	out := make(map[uint64]int, len(boards))
+	turn := g.Turn
+	// Positions alternate colours, so walk back from the current side to
+	// move: the key includes whose turn it is and two positions with
+	// different sides to move are not the same position.
+	for i := len(boards) - 1; i >= 0; i-- {
+		out[zobristBoard(&boards[i], turn)]++
+		turn = turn.Other()
+	}
+	return out
+}

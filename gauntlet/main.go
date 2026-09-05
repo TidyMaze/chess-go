@@ -31,16 +31,20 @@ func main() {
 	tuned := flag.Bool("tuned", true, "challenger uses the Texel-tuned evaluation")
 	netPath := flag.String("net", "", "challenger uses this trained network instead")
 	refNoCastle := flag.Bool("ref-no-castle", false, "reference refuses to castle")
+	refNoRep := flag.Bool("ref-no-repetition", false, "reference has no repetition detection")
 	noLMR := flag.Bool("no-lmr", false, "challenger disables late move reductions")
 	noNull := flag.Bool("no-null", false, "challenger disables null-move pruning")
 	qply := flag.Int("qply", 0, "challenger quiescence ply cap (0 = default)")
 	mobility := flag.Bool("mobility", false, "challenger adds the mobility term")
 	kingSafety := flag.Float64("king-safety", 0, "challenger's king-danger weight (0 = off)")
+	openingPlies := flag.Int("opening-plies", 6, "random plies starting each game")
 	flag.Parse()
+	engine.OpeningPlies = *openingPlies
 
 	reference := full("reference (current FULL)", *depth)
 	reference.Futility = *futility
 	reference.NoCastle = *refNoCastle
+	reference.NoRepetition = *refNoRep
 
 	// The challenger is the same configuration; whatever new feature is
 	// under test is enabled here. Flags on the Player struct make the
