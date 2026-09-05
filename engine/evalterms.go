@@ -35,12 +35,13 @@ type StructureWeights struct {
 // advancement heavily; the king-shield term is too crude to be worth its
 // weight (it counts pawns on neighbouring files without caring where
 // they are or whether the king is actually under attack).
-var structureWeights = StructureWeights{
+var defaultStructureWeights = StructureWeights{
 	Isolated: 0.12, Doubled: 0.15, RookOpen: 0.20, RookSemiOpen: 0.10,
 }
 
-// SetStructureWeights replaces the tuning constants (used by the sweep).
-func SetStructureWeights(w StructureWeights) { structureWeights = w }
+// DefaultStructureWeights reports the built-in weights. The live values
+// travel on Eval so concurrent engines do not share them.
+func DefaultStructureWeights() StructureWeights { return defaultStructureWeights }
 
 // pawnFiles summarises pawn placement per file for one side: how many
 // pawns, and the most advanced one (from that side's point of view).
@@ -75,7 +76,7 @@ func scanPawns(b *board.Board, color board.Color) pawnFiles {
 
 // structureScore evaluates pawn structure, rook placement and king
 // shelter for one side.
-func structureScore(b *board.Board, color board.Color, own, enemy pawnFiles, phase float64) float64 {
+func structureScore(b *board.Board, color board.Color, own, enemy pawnFiles, phase float64, w StructureWeights) float64 {
 	score := 0.0
 	var buf [16]board.PieceAtSquare
 
@@ -91,24 +92,24 @@ func structureScore(b *board.Board, color board.Color, own, enemy pawnFiles, pha
 			// neighbouring file. Worth more the further it has advanced,
 			// and worth much more once the pieces come off.
 			if isPassed(file, rank, enemy) {
-				score += (structureWeights.PassedBase + structureWeights.PassedPerRank*float64(rank)) * (2 - phase)
+				score += (w.PassedBase + w.PassedPerRank*float64(rank)) * (2 - phase)
 			}
 			// Isolated: no friendly pawn on either neighbouring file, so
 			// it can never be defended by a pawn.
 			if !hasNeighbourPawn(file, own) {
-				score -= structureWeights.Isolated
+				score -= w.Isolated
 			}
 			// Doubled: pawns stacked on one file block each other.
 			if own.count[file] > 1 {
-				score -= structureWeights.Doubled / float64(own.count[file])
+				score -= w.Doubled / float64(own.count[file])
 			}
 		case board.Rook:
 			// Rooks want files without pawns in the way.
 			if own.count[file] == 0 {
 				if enemy.count[file] == 0 {
-					score += structureWeights.RookOpen
+					score += w.RookOpen
 				} else {
-					score += structureWeights.RookSemiOpen
+					score += w.RookSemiOpen
 				}
 			}
 		case board.King:
@@ -125,7 +126,7 @@ func structureScore(b *board.Board, color board.Color, own, enemy pawnFiles, pha
 					shield++
 				}
 			}
-			score += float64(shield) * structureWeights.KingShield * phase
+			score += float64(shield) * w.KingShield * phase
 		}
 	}
 	return score

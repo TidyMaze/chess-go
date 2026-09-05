@@ -63,9 +63,37 @@
   #milestones { position: relative; height: 2.4em; margin-bottom: 0.9rem; font-size: 0.78em; color: #9ca3af; }
   #milestones span { position: absolute; transform: translateX(-50%); white-space: nowrap; }
   #milestones span::before { content: ""; display: block; width: 1px; height: 0.5em; background: #555; margin: 0 auto 2px; }
+  /* The play board reuses the .sq styling from the self-play viewer; only
+     the interaction affordances are new. */
+  #playPanel { max-width: 640px; margin: 0 auto 2.2rem; }
+  #playBoard { display: grid; grid-template-columns: repeat(8, 1fr); aspect-ratio: 1;
+               border: 2px solid #555; user-select: none; }
+  #playBoard .sq { cursor: pointer; }
+  #playBoard .sel { outline: 3px solid #facc15; outline-offset: -3px; }
+  #playBoard .target::after { content: ""; position: absolute; inset: 38%;
+                              border-radius: 50%; background: rgba(250,204,21,0.75); }
+  #playBoard .sq { position: relative; }
+  #playControls { display: flex; gap: 0.5rem; align-items: center; margin-top: 0.6rem; flex-wrap: wrap; }
+  #playStatus { margin-left: 0.4rem; font-weight: 600; }
+  #playStatus.bad { color: #f87171; }
+  #playStatus.good { color: #4ade80; }
+  #playMeta { margin-bottom: 0.5rem; }
 </style>
 </head>
 <body>
+
+<div id="playPanel">
+  <h2>Play the engine</h2>
+  <div id="playMeta" class="note"></div>
+  <div id="playBoard"></div>
+  <div id="playControls">
+    <button id="playNew">New game</button>
+    <button id="playHint">Hint</button>
+    <button id="playFlip">Play as Black</button>
+    <span id="playStatus"></span>
+  </div>
+</div>
+
 <h2 id="title">Self-play: WHITE vs BLACK (depth-2 engine)</h2>
 <div id="badge"></div>
 <div id="board"></div>
@@ -487,6 +515,161 @@ function drawAgreement(a) {
     },
   });
 }
+
+// ---- Play against the engine -------------------------------------------
+// The position lives here as a FEN and is sent with every request, so the
+// server stays stateless and a reload cannot desynchronise the game.
+let playFEN = null;
+let playLegal = [];
+let playSel = null;
+let humanWhite = true;
+let playBusy = false;
+
+function playSquareEl(file, rank) {
+  return document.getElementById(`pq-${files[file]}${rank + 1}`);
+}
+
+function buildPlayBoard() {
+  const el = document.getElementById("playBoard");
+  el.innerHTML = "";
+  const ranks = humanWhite ? [7,6,5,4,3,2,1,0] : [0,1,2,3,4,5,6,7];
+  const fileOrder = humanWhite ? [0,1,2,3,4,5,6,7] : [7,6,5,4,3,2,1,0];
+  for (const rank of ranks) {
+    for (const file of fileOrder) {
+      const div = document.createElement("div");
+      div.id = `pq-${files[file]}${rank + 1}`;
+      div.className = "sq " + ((file + rank) % 2 === 0 ? "dark" : "light");
+      div.addEventListener("click", () => onPlayClick(files[file] + (rank + 1)));
+      el.appendChild(div);
+    }
+  }
+}
+
+// FEN is the only board representation the server speaks, so the browser
+// unpacks it rather than keeping a second copy of the position.
+function fenToMap(fen) {
+  const map = {};
+  const rows = fen.split(" ")[0].split("/");
+  for (let i = 0; i < 8; i++) {
+    const rank = 8 - i;
+    let file = 0;
+    for (const ch of rows[i]) {
+      if (ch >= "1" && ch <= "8") { file += +ch; continue; }
+      const color = ch === ch.toUpperCase() ? "w" : "b";
+      map[files[file] + rank] = color + ch.toUpperCase();
+      file++;
+    }
+  }
+  return map;
+}
+
+function renderPlay(lastFrom, lastTo) {
+  if (!playFEN) return;
+  const map = fenToMap(playFEN);
+  for (let rank = 0; rank < 8; rank++) {
+    for (let file = 0; file < 8; file++) {
+      const name = files[file] + (rank + 1);
+      const el = playSquareEl(file, rank);
+      if (!el) continue;
+      const code = map[name];
+      el.textContent = code ? SYMBOLS[code] : "";
+      el.className = "sq " + ((file + rank) % 2 === 0 ? "dark" : "light");
+      if (code) el.classList.add(code[0] === "w" ? "wpiece" : "bpiece");
+      if (name === lastFrom || name === lastTo) el.classList.add("highlight");
+      if (name === playSel) el.classList.add("sel");
+      if (playSel && playLegal.includes(playSel + name)) el.classList.add("target");
+    }
+  }
+}
+
+function setStatus(text, kind) {
+  const el = document.getElementById("playStatus");
+  el.textContent = text || "";
+  el.className = kind || "";
+}
+
+async function post(path, body) {
+  const r = await fetch(path, {method: "POST", body: JSON.stringify(body || {})});
+  return r.json();
+}
+
+async function onPlayClick(square) {
+  if (playBusy || !playFEN) return;
+  if (playSel === square) { playSel = null; renderPlay(); return; }
+  if (playSel && playLegal.includes(playSel + square)) {
+    const from = playSel;
+    playSel = null;
+    playBusy = true;
+    setStatus("thinking...");
+    const res = await post("/api/move", {fen: playFEN, from, to: square});
+    playBusy = false;
+    if (!res.ok) { setStatus(res.error || "rejected", "bad"); renderPlay(); return; }
+    playFEN = res.fen;
+    playLegal = res.legal || [];
+    const em = res.engine_move;
+    renderPlay(em ? em.slice(0,2) : from, em ? em.slice(2,4) : square);
+    let msg = em ? `engine played ${em} in ${res.think_ms} ms` : "";
+    if (res.status) msg = res.status + (msg ? " . " + msg : "");
+    setStatus(msg, res.status && res.status !== "check" ? "good" : "");
+    return;
+  }
+  // Selecting a piece only makes sense if it has somewhere to go.
+  if (playLegal.some(m => m.slice(0,2) === square)) {
+    playSel = square;
+    renderPlay();
+  }
+}
+
+async function newGame() {
+  const res = await post("/api/new");
+  playFEN = res.fen;
+  playLegal = res.legal || [];
+  playSel = null;
+  buildPlayBoard();
+  renderPlay();
+  setStatus("");
+  // Playing Black means the engine opens, so ask it for the first move by
+  // letting it reply to no move at all.
+  if (!humanWhite) {
+    playBusy = true;
+    setStatus("thinking...");
+    const r = await post("/api/hint", {fen: playFEN});
+    if (r.ok && r.engine_move) {
+      const mv = await post("/api/move", {fen: playFEN, from: r.engine_move.slice(0,2), to: r.engine_move.slice(2,4)});
+      if (mv.ok) { playFEN = mv.fen; playLegal = mv.legal || []; renderPlay(); }
+    }
+    playBusy = false;
+    setStatus("");
+  }
+}
+
+document.getElementById("playNew").addEventListener("click", newGame);
+document.getElementById("playFlip").addEventListener("click", (e) => {
+  humanWhite = !humanWhite;
+  e.target.textContent = humanWhite ? "Play as Black" : "Play as White";
+  newGame();
+});
+document.getElementById("playHint").addEventListener("click", async () => {
+  if (!playFEN || playBusy) return;
+  playBusy = true;
+  setStatus("thinking...");
+  const r = await post("/api/hint", {fen: playFEN});
+  playBusy = false;
+  if (r.ok && r.engine_move) {
+    playSel = r.engine_move.slice(0, 2);
+    renderPlay(r.engine_move.slice(0,2), r.engine_move.slice(2,4));
+    setStatus("engine suggests " + r.engine_move);
+  } else setStatus("no suggestion", "bad");
+});
+
+fetch("/api/engine").then(r => r.json()).then(d => {
+  document.getElementById("playMeta").textContent =
+    `Opponent: ${d.description}.`;
+}).catch(() => {
+  document.getElementById("playMeta").textContent =
+    "Engine API not reachable: start ./play-bin instead of a static file server.";
+});
+newGame();
 
 pollImprovements();
 setInterval(pollImprovements, 2000);

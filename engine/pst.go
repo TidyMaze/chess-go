@@ -84,12 +84,12 @@ var pstTables = [6]*[64]float64{
 
 // pstValue looks up the positional bonus for a piece, mirroring the rank
 // for Black so both sides read the same table from their own viewpoint.
-func pstValue(pt board.PieceType, sq board.Sq, color board.Color) float64 {
+func pstValue(pt board.PieceType, sq board.Sq, color board.Color, scale *[6]float64) float64 {
 	rank := sq.Rank
 	if color == board.Black {
 		rank = 7 - rank
 	}
-	return pstTables[pt][rank*8+sq.File]
+	return pstTables[pt][rank*8+sq.File] * scale[pt]
 }
 
 // pstKingEndgame: in the endgame the king is a strong piece and wants to
@@ -137,7 +137,7 @@ const maxPhase = 24.0 // 4 knights + 4 bishops + 4 rooks*2 + 2 queens*4
 // pstValueTapered blends the middlegame and endgame tables by how much
 // material is still on the board, so the evaluation shifts smoothly
 // rather than flipping at an arbitrary cutoff.
-func pstValueTapered(pt board.PieceType, sq board.Sq, color board.Color, phase float64) float64 {
+func pstValueTapered(pt board.PieceType, sq board.Sq, color board.Color, phase float64, scale *[6]float64) float64 {
 	rank := sq.Rank
 	if color == board.Black {
 		rank = 7 - rank
@@ -145,5 +145,19 @@ func pstValueTapered(pt board.PieceType, sq board.Sq, color board.Color, phase f
 	idx := rank*8 + sq.File
 	mg := pstTables[pt][idx]
 	eg := pstEndgameTables[pt][idx]
-	return mg*phase + eg*(1-phase)
+	return (mg*phase + eg*(1-phase)) * scale[pt]
 }
+
+// defaultPSTScale multiplies each piece's tables. The tables themselves
+// were hand-written, so their shapes are plausible but their magnitudes
+// relative to a pawn were guesses. One scalar per piece is the cheapest
+// thing a tuner can fit that corrects those guesses without needing
+// enough data to fit all 768 table entries independently.
+//
+// It is the default only. The live values travel on Eval, because two
+// engines with different evaluations play each other concurrently and a
+// package-level scale would be shared between them.
+var defaultPSTScale = [6]float64{1, 1, 1, 1, 1, 1}
+
+// DefaultPSTScale reports the built-in multipliers.
+func DefaultPSTScale() [6]float64 { return defaultPSTScale }

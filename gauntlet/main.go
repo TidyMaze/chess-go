@@ -27,10 +27,12 @@ func main() {
 	maxMoves := flag.Int("max-moves", 250, "ply cap")
 	depth := flag.Int("depth", 4, "search depth for the reference")
 	cdepth := flag.Int("cdepth", 0, "challenger depth; 0 means same as -depth")
-	futility := flag.Bool("futility", true, "enable futility pruning on the challenger")
+	futility := flag.Bool("futility", true, "enable futility pruning on both sides")
+	tuned := flag.Bool("tuned", true, "challenger uses the Texel-tuned evaluation")
 	flag.Parse()
 
 	reference := full("reference (current FULL)", *depth)
+	reference.Futility = *futility
 
 	// The challenger is the same configuration; whatever new feature is
 	// under test is enabled here. Flags on the Player struct make the
@@ -41,6 +43,7 @@ func main() {
 	}
 	challenger := full("challenger", cd)
 	challenger.Futility = *futility
+	challenger.Tuned = *tuned
 
 	t0 := time.Now()
 	res := engine.PlayMatch(challenger, reference, *games, *maxMoves)

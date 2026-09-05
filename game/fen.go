@@ -2,6 +2,7 @@ package game
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"chess/board"
@@ -79,4 +80,72 @@ func MoveFromUCI(s string) (Move, bool) {
 // UCI renders a move as a UCI string.
 func (m Move) UCI() string {
 	return fmt.Sprintf("%c%d%c%d", 'a'+m.From.File, m.From.Rank+1, 'a'+m.To.File, m.To.Rank+1)
+}
+
+// ParseFEN is the inverse of FEN. Only the piece placement, the side to
+// move and the halfmove clock are read; castling and en-passant fields
+// are parsed for shape and then discarded, because this engine does not
+// implement either rule and FEN writes them as unavailable.
+func ParseFEN(s string) (*Game, error) {
+	fields := strings.Fields(s)
+	if len(fields) < 6 {
+		return nil, fmt.Errorf("fen: want 6 fields, got %d in %q", len(fields), s)
+	}
+
+	ranks := strings.Split(fields[0], "/")
+	if len(ranks) != 8 {
+		return nil, fmt.Errorf("fen: want 8 ranks, got %d", len(ranks))
+	}
+
+	fromLetter := map[byte]board.PieceType{}
+	for t, ch := range fenLetters {
+		fromLetter[ch] = board.PieceType(t)
+	}
+
+	b := board.NewEmpty()
+	for i, row := range ranks {
+		rank := 7 - i // FEN starts at rank 8
+		file := 0
+		for j := 0; j < len(row); j++ {
+			ch := row[j]
+			if ch >= '1' && ch <= '8' {
+				file += int(ch - '0')
+				continue
+			}
+			color := board.Black
+			lower := ch
+			if ch >= 'A' && ch <= 'Z' {
+				color = board.White
+				lower = ch - 'A' + 'a'
+			}
+			pt, ok := fromLetter[lower]
+			if !ok {
+				return nil, fmt.Errorf("fen: unknown piece %q in rank %q", string(ch), row)
+			}
+			if file > 7 {
+				return nil, fmt.Errorf("fen: rank %q overflows the board", row)
+			}
+			b.Place(board.Sq{File: file, Rank: rank}, board.Piece{Color: color, Type: pt})
+			file++
+		}
+		if file != 8 {
+			return nil, fmt.Errorf("fen: rank %q covers %d files, want 8", row, file)
+		}
+	}
+
+	var turn board.Color
+	switch fields[1] {
+	case "w":
+		turn = board.White
+	case "b":
+		turn = board.Black
+	default:
+		return nil, fmt.Errorf("fen: side to move %q is not w or b", fields[1])
+	}
+
+	g := From(b, turn)
+	if n, err := strconv.Atoi(fields[4]); err == nil {
+		g.HalfmoveClock = n
+	}
+	return g, nil
 }

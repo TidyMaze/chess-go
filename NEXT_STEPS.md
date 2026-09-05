@@ -55,6 +55,42 @@ Reproduce:
   1 (42.3%). That path is not used in matches. Worth a look only if the
   aspiration question leads back to it.
 
+## Texel tuning: fitted, measured, not adopted (2026-09-05)
+
+Built `gendata` (self-play positions labelled with the game result,
+appended per game so the expensive part is crash-resumable) and `tune`
+(coordinate descent on the squared error between sigmoid(K*score) and the
+result). 166,201 positions from 1,994 games.
+
+The fit worked as a fit: squared error fell 1.78% on the training slice
+and 2.10% on a shuffled held-out slice, so it found real signal rather
+than memorising. (The first run had the held-out error starting *below*
+the training error, because positions arrive in game order and an
+unshuffled tail is the last few hundred games, not a sample. Fixed.)
+
+It did not become Elo: **-16 +/- 48 over 200 games at depth 4**. Lower
+prediction error is not the same objective as winning games, which is the
+known caveat of the method, and this run is a clean example of it. The
+parameters are kept behind `Player.Tuned` rather than adopted.
+
+Two things worth reading in the fitted values, in `engine/tuned.go`:
+
+- The rook drops from 5.00 to 4.70 while the open-file bonus climbs from
+  0.20 to 0.76: value moves out of the piece and into where it stands.
+- The king table is scaled to zero. In self-play games between engines
+  this weak, king placement does not predict the result. That is a
+  statement about the training set, not about chess, and points at the
+  real gap: there is no king-safety term that counts attackers, only one
+  that counts shelter pawns.
+
+Next things to try on this, in order:
+1. Label positions with a Stockfish evaluation instead of the self-play
+   result. Self-play games between ~1900 engines are a weak teacher, and
+   the king-table collapse is what that weakness looks like.
+2. Tune the 768 individual table entries, not 6 scalars. 166k positions
+   supports more parameters than this used.
+3. Add a real king-safety term first, then tune it.
+
 ## Calibration reality check (2026-09-05)
 
 150 games against Stockfish at five Elo-limited settings, per build:

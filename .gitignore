@@ -16,3 +16,7 @@ calibrate-bin2
 gauntlet-bin
 arena-bin
 agree-bin
+gendata-bin
+tuning_data.jsonl
+tune-bin
+play-bin

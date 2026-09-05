@@ -49,7 +49,7 @@ func abs(x float64) float64 {
 // of two separate scans, since PiecesOf is non-trivial cost at the node
 // counts search reaches.
 func materialAndCentralization(b *board.Board, color board.Color, weights Weights, usePST bool) (material, center float64) {
-	return materialAndPositional(b, color, weights, usePST, false, 1.0)
+	return materialAndPositional(b, color, weights, usePST, false, 1.0, &defaultPSTScale)
 }
 
 // gamePhase is 1.0 with all pieces on the board and 0.0 in a bare
@@ -68,7 +68,7 @@ func gamePhase(b *board.Board) float64 {
 	return total / maxPhase
 }
 
-func materialAndPositional(b *board.Board, color board.Color, weights Weights, usePST, tapered bool, phase float64) (material, center float64) {
+func materialAndPositional(b *board.Board, color board.Color, weights Weights, usePST, tapered bool, phase float64, scale *[6]float64) (material, center float64) {
 	var buf [16]board.PieceAtSquare
 	bishops := 0
 	for _, ps := range b.AppendPiecesOf(buf[:0], color) {
@@ -77,9 +77,9 @@ func materialAndPositional(b *board.Board, color board.Color, weights Weights, u
 			bishops++
 		}
 		if tapered {
-			center += pstValueTapered(ps.Type, ps.Sq, color, phase)
+			center += pstValueTapered(ps.Type, ps.Sq, color, phase, scale)
 		} else if usePST {
-			center += pstValue(ps.Type, ps.Sq, color)
+			center += pstValue(ps.Type, ps.Sq, color, scale)
 		} else if bonus := centerBonus[ps.Type]; bonus != 0 {
 			center += bonus * (3.5 - centerDistance(ps.Sq))
 		}
@@ -125,6 +125,25 @@ type Eval struct {
 	// Futility enables futility and reverse-futility pruning near the
 	// leaves (Heinz, 1998).
 	Futility bool
+	// PSTScale and StructureW override the built-in evaluation constants,
+	// so a tuned engine can play an untuned one in the same process. Nil
+	// means use the defaults.
+	PSTScale   *[6]float64
+	StructureW *StructureWeights
+}
+
+func (e *Eval) pstScale() *[6]float64 {
+	if e == nil || e.PSTScale == nil {
+		return &defaultPSTScale
+	}
+	return e.PSTScale
+}
+
+func (e *Eval) structureWeights() StructureWeights {
+	if e == nil || e.StructureW == nil {
+		return defaultStructureWeights
+	}
+	return *e.StructureW
 }
 
 func (e *Eval) useSEEPruning() bool { return e != nil && e.SEEPruning }
@@ -191,8 +210,9 @@ func PositionScoreEval(b *board.Board, color board.Color, ev *Eval) float64 {
 	if tapered {
 		phase = gamePhase(b)
 	}
-	ownMaterial, ownCenter := materialAndPositional(b, color, weights, usePST, tapered, phase)
-	enemyMaterial, enemyCenter := materialAndPositional(b, color.Other(), weights, usePST, tapered, phase)
+	scale := ev.pstScale()
+	ownMaterial, ownCenter := materialAndPositional(b, color, weights, usePST, tapered, phase, scale)
+	enemyMaterial, enemyCenter := materialAndPositional(b, color.Other(), weights, usePST, tapered, phase, scale)
 	if ev != nil && ev.MaterialOnly {
 		ownCenter, enemyCenter = 0, 0
 	}
@@ -201,8 +221,9 @@ func PositionScoreEval(b *board.Board, color board.Color, ev *Eval) float64 {
 	if ev != nil && ev.Structure {
 		ownPawns := scanPawns(b, color)
 		enemyPawns := scanPawns(b, color.Other())
-		score += structureScore(b, color, ownPawns, enemyPawns, phase)
-		score -= structureScore(b, color.Other(), enemyPawns, ownPawns, phase)
+		sw := ev.structureWeights()
+		score += structureScore(b, color, ownPawns, enemyPawns, phase, sw)
+		score -= structureScore(b, color.Other(), enemyPawns, ownPawns, phase, sw)
 	}
 
 	if score >= 4 {
