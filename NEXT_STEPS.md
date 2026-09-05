@@ -119,7 +119,53 @@ Start with fewer than ten parameters (piece values and the mobility
 weights), because the number of games needed grows with the parameter
 count, not with how much each one matters.
 
-### 3. The self-play loop: what is left to fix
+### 3. The neural evaluation does not have enough data, at any size
+
+Settled with a measurement, after three bugs were fixed to get an honest
+one. Held-out error, split **by game**, against the hand-written
+evaluation on the same positions:
+
+| hidden units | parameters | net held-out | hand eval | ratio |
+|---|---|---|---|---|
+| 4 | 3k | 15.99 | 7.86 | 2.0x worse |
+| 16 | 12k | 13.64 | 5.07 | 2.7x worse |
+| 64 | 49k | 18.40 | 2.67 | 6.9x worse |
+| 256 | 197k | 16.87 | 8.13 | 2.1x worse |
+
+The network is worse than the hand-written evaluation at every capacity,
+including one small enough that it cannot overfit. So this is not a
+capacity problem and not a regularisation problem: a few hundred
+self-play games do not contain enough information to learn an evaluation
+from scratch, and twenty hand-set parameters informed by chess knowledge
+beat anything learnable from that much data.
+
+Real NNUE is trained on billions of positions from millions of games.
+Generating that here at a useful label depth would take days, not the
+minutes the rest of this loop takes.
+
+**Three bugs had to be fixed before that measurement meant anything**,
+and each one had produced a confident wrong conclusion:
+
+1. The network was a residual (its output added to the hand evaluation)
+   but trained on the full search score, so the engine counted the
+   evaluation twice. -211 +/- 41.
+2. It trained on all positions, including tactical ones where the gap
+   between static and search score *is* the tactic and no static function
+   can predict it. Filtering to quiet positions cut held-out error from
+   3.30 to 1.35.
+3. **The held-out split was by position, not by game.** Consecutive
+   positions in a game differ by one move, so every held-out position had
+   near-copies in the training set. This reported "explains 96% of
+   variance, 7x better than the hand evaluation" for a network that lost
+   0-0-60. Splitting by game turned that same number into "explains 31%,
+   2.7x worse".
+
+Number 3 is the one to remember. It is not specific to chess: any
+sequential data split at random will do this, and the symptom is exactly
+what happened here, an excellent validation score attached to a model
+that fails completely in use.
+
+### 4. If the self-play loop is resumed
 
 Running now (`trainloop`). The engine plays itself, learns to predict what
 its own deeper search concludes, and each network must win a match
@@ -149,7 +195,7 @@ for it to add. Real NNUE uses king-relative features (HalfKP), where every
 piece feature is paired with the king's square, which is what lets it
 learn king safety at all.
 
-### 4. Fix why the offline network failed, rather than abandoning it
+### 5. Fix why the offline network failed, rather than abandoning it
 
 The failures were informative and none of them was "neural evaluation
 does not work here":
@@ -170,13 +216,13 @@ positions rather than 60,000. Held-out error needs to be well under 0.5
 pawns before a network is worth putting in a game: at ~2 pawns it hangs
 pieces, which is what -300 Elo looks like.
 
-### 5. En passant
+### 6. En passant
 
 The only chess rule still missing. Worth little Elo directly, but it is a
 rule, and its absence means FEN cannot describe some positions the
 opponent can reach.
 
-### 6. Tune the tables entry by entry
+### 7. Tune the tables entry by entry
 
 The tuner currently fits 6 piece-square scalars and could fit all 768
 entries given enough positions. Do this only after item 2: fitting more
@@ -184,7 +230,7 @@ parameters against the same wrong objective will just find a worse
 engine faster. If the tables are fitted at all, verify the result in
 games before believing it, the way the mobility weights were.
 
-### 7. King safety that counts attackers
+### 8. King safety that counts attackers
 
 Implemented behind `-king-safety <weight>`, counting attackers on the
 squares around the king and scaling superlinearly with how many. A first

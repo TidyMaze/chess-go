@@ -30,6 +30,7 @@ import (
 	"math/rand"
 	"os"
 	"runtime"
+	"sort"
 	"sync"
 	"time"
 
@@ -39,14 +40,19 @@ import (
 	"chess/moves"
 )
 
-const (
-	inputs = 768
-	hidden = 256
-)
+const inputs = 768
+
+// hidden is a variable because capacity turned out to be the binding
+// constraint in the wrong direction: 256 units is 200,000 parameters,
+// and a few hundred self-play games cannot support that. Held-out error
+// (split by game) was 10.05 against the hand evaluation's 3.78.
+var hidden = 256
 
 type example struct {
 	features []int32
 	target   float64 // pawns, from White's point of view
+	static   float64 // what the hand-written evaluation says about it
+	game     int     // which self-play game it came from
 }
 
 var writeMu sync.Mutex
@@ -206,7 +212,7 @@ func (n *net) train(train, test []example, epochs int, lr float64, rng *rand.Ran
 // deeper search is the same engine, just given more time, so the network
 // is being asked to compress what the engine already knows into
 // something it can see instantly at a leaf.
-func collect(champion engine.Player, games, playDepth, labelDepth, maxPlies int,
+func collect(generation int, champion engine.Player, games, playDepth, labelDepth, maxPlies int, learnResidual bool,
 	live func(*game.Game, int, board.Sq, board.Sq), progress func(done, positions int)) []example {
 
 	var mu sync.Mutex
@@ -222,6 +228,7 @@ func collect(champion engine.Player, games, playDepth, labelDepth, maxPlies int,
 			defer wg.Done()
 			defer func() { <-sem }()
 
+			gameID := generation*1000000 + gi
 			player := champion
 			player.Depth = playDepth
 			labeler := champion
@@ -292,8 +299,23 @@ func collect(champion engine.Player, games, playDepth, labelDepth, maxPlies int,
 				// whole score. Training it on the whole score makes the
 				// engine count the evaluation twice, which is what
 				// generation 1 measured as -211 Elo.
-				target := score - static
-				local = append(local, example{features: featuresOf(&g.Board), target: target})
+				// Full score, not a correction to the static evaluation.
+				//
+				// Learning the residual on quiet positions is close to
+				// degenerate: "quiet" means nothing tactical is pending,
+				// which is precisely where the search score and the static
+				// score already agree, so the residual is small and mostly
+				// noise. Measured: held-out error sat at 1.32 while the
+				// training error rose, meaning the network was fitting
+				// noise and generalising nothing.
+				//
+				// Real NNUE learns the score itself on quiet positions,
+				// which is a real function to learn.
+				target := score
+				if learnResidual {
+					target = score - static
+				}
+				local = append(local, example{features: featuresOf(&g.Board), target: target, static: static, game: gameID})
 			}
 
 			mu.Lock()
@@ -334,8 +356,11 @@ func main() {
 	epochs := flag.Int("epochs", 12, "training epochs per generation")
 	lr := flag.Float64("lr", 0.02, "learning rate")
 	maxPlies := flag.Int("max-plies", 200, "ply cap in self-play")
+	residual := flag.Bool("residual", false, "learn a correction to the hand evaluation instead of replacing it")
+	hiddenFlag := flag.Int("hidden", 256, "hidden units")
 	flag.Parse()
 
+	hidden = *hiddenFlag
 	rng := rand.New(rand.NewSource(11))
 	n := newNet(rng)
 
@@ -360,7 +385,7 @@ func main() {
 			"cum_elo": cumElo,
 		})
 
-		fresh := collect(champion, *gamesPerGen, *playDepth, *labelDepth, *maxPlies,
+		fresh := collect(gen, champion, *gamesPerGen, *playDepth, *labelDepth, *maxPlies, *residual,
 			func(g *game.Game, ply int, from, to board.Sq) {
 				writeJSON("live_game.json", map[string]any{
 					"label":   fmt.Sprintf("Generation %d self-play", gen),
@@ -388,10 +413,45 @@ func main() {
 		}
 		fmt.Printf("gen %d: %d new positions, pool %d\n", gen, len(fresh), len(pool))
 
+		// Split by game, not by position.
+		//
+		// Splitting positions at random leaks badly: consecutive
+		// positions in one game differ by a single move, so a position in
+		// the test set has near-copies of itself in the training set and
+		// the network can score well by memorising its neighbours. That
+		// produced a held-out error of 1.36 against the hand evaluation's
+		// 5.89, apparently a 4x better evaluation, while the same network
+		// scored 2.32 against the hand evaluation's 2.12 on positions from
+		// games it had never seen, and lost every game it played.
+		//
+		// Holding out whole games removes the near-copies.
 		data := append([]example(nil), pool...)
-		rng.Shuffle(len(data), func(i, j int) { data[i], data[j] = data[j], data[i] })
-		split := int(float64(len(data)) * 0.85)
-		trainSet, testSet := data[:split], data[split:]
+		gameIDs := map[int]bool{}
+		for _, e := range data {
+			gameIDs[e.game] = true
+		}
+		ids := make([]int, 0, len(gameIDs))
+		for id := range gameIDs {
+			ids = append(ids, id)
+		}
+		sort.Ints(ids)
+		rng.Shuffle(len(ids), func(i, j int) { ids[i], ids[j] = ids[j], ids[i] })
+		heldOut := map[int]bool{}
+		for _, id := range ids[:1+len(ids)*15/100] {
+			heldOut[id] = true
+		}
+		var trainSet, testSet []example
+		for _, e := range data {
+			if heldOut[e.game] {
+				testSet = append(testSet, e)
+			} else {
+				trainSet = append(trainSet, e)
+			}
+		}
+		if len(testSet) == 0 || len(trainSet) == 0 {
+			fmt.Println("not enough games to split; skipping generation")
+			continue
+		}
 
 		writeJSON("train_status.json", map[string]any{
 			"phase": "training", "generation": gen, "generations": *generations,
@@ -408,7 +468,35 @@ func main() {
 					"positions": len(pool), "cum_elo": cumElo,
 				})
 			})
-		fmt.Printf("  loss train %.4f held out %.4f\n", lastTrain, lastTest)
+		// Variance of the held-out target: what a network that always
+		// guessed the mean would score. A held-out loss near this means
+		// the network has learned nothing, which is not visible from the
+		// loss alone.
+		mean := 0.0
+		for _, e := range testSet {
+			mean += e.target
+		}
+		mean /= float64(len(testSet))
+		variance := 0.0
+		for _, e := range testSet {
+			variance += (e.target - mean) * (e.target - mean)
+		}
+		variance /= float64(len(testSet))
+		explained := 100 * (1 - lastTest/variance)
+
+		// The comparison that matters: how well does the hand-written
+		// evaluation, which the network is trying to beat, predict the
+		// same targets? A network that is more accurate and still loses
+		// games is not failing on accuracy, and knowing that stops the
+		// next twenty generations being spent on more data.
+		handErr := 0.0
+		for _, e := range testSet {
+			d := e.static - e.target
+			handErr += d * d
+		}
+		handErr /= float64(len(testSet))
+		fmt.Printf("  loss train %.4f held out %.4f (variance %.4f, explains %.0f%%); hand eval %.4f\n",
+			lastTrain, lastTest, variance, explained, handErr)
 
 		// The only test that counts: does it win games against the current
 		// champion? Every fit this session that was judged by its loss
@@ -419,7 +507,10 @@ func main() {
 			"eval_games": *evalGames,
 		})
 		challenger := champion
-		challenger.Net = n.export(true)
+		challenger.Net = n.export(*residual)
+		// Saved whether or not it is adopted: a rejected network is the
+		// thing that most needs inspecting.
+		_ = challenger.Net.Save("net_latest.json")
 		challenger.Depth = *evalDepth
 		ref := champion
 		ref.Depth = *evalDepth
