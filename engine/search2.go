@@ -32,6 +32,11 @@ import (
 
 const maxSearchPly = 64
 
+// LastSearchNodes is the node count of the most recent search, for
+// reporting nodes per second. Not safe to read from concurrent searches;
+// intended for single-threaded benchmarking.
+var LastSearchNodes int
+
 type searchCtx struct {
 	ev         *Eval
 	killers    [maxSearchPly][2]game.Move
@@ -258,6 +263,7 @@ func ChooseMoveIterative(g *game.Game, color board.Color, maxDepth int, ev *Eval
 		ev.Table = NewTranspositionTable(20)
 	}
 	ctx := &searchCtx{ev: ev, quiescence: useQuiescence, extensions: ev.Extensions}
+	defer func() { LastSearchNodes = ctx.nodes }()
 
 	best := legal[0]
 	prevScore := 0.0
@@ -326,3 +332,10 @@ func ChooseMoveIterative(g *game.Game, color board.Color, maxDepth int, ev *Eval
 	}
 	return best, true
 }
+
+// TotalNodes reports nodes visited by the most recent search, including
+// quiescence nodes.
+func TotalNodes() int { return LastSearchNodes + quiesceNodes }
+
+// ResetNodes clears the counters between measurements.
+func ResetNodes() { LastSearchNodes, quiesceNodes = 0, 0 }

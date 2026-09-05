@@ -12,6 +12,10 @@ func randIntn(n int) int { return rand.Intn(n) }
 
 const mateScore = 1000
 
+// quiesceNodes counts quiescence nodes so nodes-per-second reflects the
+// whole search, not just the main tree.
+var quiesceNodes int
+
 func terminalScore(g *game.Game, color, maximizingFor board.Color, depthLeft int) float64 {
 	if moves.IsInCheck(&g.Board, color) {
 		// `color` is the side to move and has no legal moves: it is
@@ -170,6 +174,7 @@ const posInf = 1e18
 const maxQuiescePly = 4
 
 func quiesce(g *game.Game, color, maximizingFor board.Color, alpha, beta float64, ev *Eval, ply int) float64 {
+	quiesceNodes++
 	standPat := PositionScoreEval(&g.Board, maximizingFor, ev)
 	if ply >= ev.quiescePly() {
 		return standPat
