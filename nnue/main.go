@@ -362,6 +362,7 @@ func blendedTarget(score, result, lambda float64) float64 {
 type genStats struct {
 	games     int64
 	positions int64
+	truncated int64
 }
 
 // generate plays self-play games and returns labelled quiet positions.
@@ -419,6 +420,7 @@ func generate(champion engine.Player, games, playDepth, labelDepth, maxPlies int
 			}
 			var kept []pending
 			result := 0.5
+			finished := false
 
 			for ply := 0; ply < maxPlies; ply++ {
 				if g.IsCheckmate(g.Turn) {
@@ -427,10 +429,12 @@ func generate(champion engine.Player, games, playDepth, labelDepth, maxPlies int
 					} else {
 						result = 1
 					}
+					finished = true
 					break
 				}
 				if g.IsStalemate(g.Turn) || g.IsFiftyMoveDraw() ||
 					g.IsThreefoldRepetition() || g.KingCaptured {
+					finished = true
 					break
 				}
 				m, ok := engine.PlayerPickWith(player, g, playTT)
@@ -469,6 +473,22 @@ func generate(champion engine.Player, games, playDepth, labelDepth, maxPlies int
 				ownBuf = engine.AppendHalfKPFeatures(ownBuf, &g.Board, board.White)
 				oppBuf = engine.AppendHalfKPFeatures(oppBuf, &g.Board, board.Black)
 				kept = append(kept, pending{ownBuf, oppBuf, score, static})
+			}
+
+			// A game stopped by the ply cap did not end in a draw, it just
+			// ran out of moves to play. Labelling it 0.5 tells the network
+			// that a position one side was winning by five pawns was
+			// balanced, and that lie is carried by every position in the
+			// game. Truncated games are scored by what the search thinks
+			// of the final position instead.
+			if !finished {
+				atomic.AddInt64(&stats.truncated, 1)
+				if final, ok := engine.PlayerScoreWith(labeler, g, labelTT); ok {
+					if g.Turn == board.Black {
+						final = -final
+					}
+					result = sigmoid(final, 0.30)
+				}
 			}
 
 			local := make([]sample, 0, len(kept))
@@ -661,8 +681,9 @@ func main() {
 		if len(pool) > *poolCap {
 			pool = pool[len(pool)-*poolCap:]
 		}
-		fmt.Printf("gen %d: %d new positions, pool %d (%.0fs generating)\n",
-			gen, len(freshSamples), len(pool), time.Since(t0).Seconds())
+		fmt.Printf("gen %d: %d new positions, pool %d, %d/%d games hit the ply cap (%.0fs)\n",
+			gen, len(freshSamples), len(pool),
+			atomic.LoadInt64(&stats.truncated), *gamesPerGen, time.Since(t0).Seconds())
 
 		// Split by game, never by position: consecutive positions in a
 		// game differ by one move, so a random split leaks near-copies

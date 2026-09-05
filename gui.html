@@ -1093,23 +1093,27 @@ async function pollNNUE() {
       body.appendChild(tr);
     }
 
+    // Only the last ten generations: the early ones are a random network
+    // and their errors are so large that everything since is a flat line
+    // against them.
+    const recent = hist.slice(-10);
     const data = {
-      labels: hist.map(h => h.generation),
+      labels: recent.map(h => h.generation),
       datasets: [
         {label: "network held-out error (pawns squared)",
-         data: hist.map(h => h.test_loss),
+         data: recent.map(h => h.test_loss),
          borderColor: "#4ade80", backgroundColor: "#4ade80", yAxisID: "y", tension: 0.2},
         {label: "hand evaluation on the same positions",
-         data: hist.map(h => h.hand_mse || null), spanGaps: true,
+         data: recent.map(h => h.hand_mse || null), spanGaps: true,
          borderColor: "#f87171", backgroundColor: "#f87171", borderDash: [5, 4],
          yAxisID: "y", tension: 0.2},
-        {label: "network jump per move (pawns)", data: hist.map(h => h.jump || null),
+        {label: "network jump per move (pawns)", data: recent.map(h => h.jump || null),
          spanGaps: true, borderColor: "#a78bfa", backgroundColor: "#a78bfa",
          yAxisID: "y1", tension: 0.2},
-        {label: "hand evaluation jump per move", data: hist.map(h => h.hand_jump || null),
+        {label: "hand evaluation jump per move", data: recent.map(h => h.hand_jump || null),
          spanGaps: true, borderColor: "#c4b5fd", backgroundColor: "#c4b5fd",
          borderDash: [5, 4], yAxisID: "y1", tension: 0.2},
-        {label: "Elo vs champion", data: hist.map(h => h.tested ? h.elo : null), spanGaps: true,
+        {label: "Elo vs champion", data: recent.map(h => h.tested ? h.elo : null), spanGaps: true,
          borderColor: "#fbbf24", backgroundColor: "#fbbf24", yAxisID: "y1", tension: 0.2},
       ],
     };
