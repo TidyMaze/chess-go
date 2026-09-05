@@ -51,9 +51,21 @@ type Player struct {
 	Extensions bool
 	Aspiration bool
 	SEEPruning bool
+	// UCI delegates move choice to an external engine (Stockfish), giving
+	// an externally-calibrated reference point rather than only measuring
+	// against this engine's own ancestors.
+	UCI      *UCIEngine
+	UCIDepth int
 }
 
 func (p Player) pick(g *game.Game) (game.Move, bool) {
+	if p.UCI != nil {
+		depth := p.UCIDepth
+		if depth <= 0 {
+			depth = 1
+		}
+		return p.UCI.BestMove(g, depth)
+	}
 	if p.Random || p.Greedy {
 		moves := g.AllLegalMoves(g.Turn)
 		if len(moves) == 0 {
@@ -162,6 +174,33 @@ func PlayMatchLive(a, b Player, games, maxMoves int, live LiveHook) MatchResult 
 	var res MatchResult
 	for _, s := range scores {
 		switch s {
+		case 1.0:
+			res.Wins++
+		case 0.5:
+			res.Draws++
+		default:
+			res.Losses++
+		}
+	}
+	return res
+}
+
+// PlayMatchSerial plays the games one at a time. Needed for an external
+// UCI engine: one process behind one pipe cannot serve concurrent games.
+func PlayMatchSerial(a, b Player, games, maxMoves int) MatchResult {
+	var res MatchResult
+	for i := 0; i < games; i++ {
+		white, black := a, b
+		aIsWhite := i%2 == 0
+		if !aIsWhite {
+			white, black = b, a
+		}
+		winner, decisive := playPlayersLive(white, black, maxMoves, nil)
+		perspective := board.White
+		if !aIsWhite {
+			perspective = board.Black
+		}
+		switch engineScore := ResultScore(winner, decisive, perspective); engineScore {
 		case 1.0:
 			res.Wins++
 		case 0.5:
