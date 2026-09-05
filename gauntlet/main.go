@@ -30,10 +30,15 @@ func main() {
 	futility := flag.Bool("futility", true, "enable futility pruning on both sides")
 	tuned := flag.Bool("tuned", true, "challenger uses the Texel-tuned evaluation")
 	netPath := flag.String("net", "", "challenger uses this trained network instead")
+	refNoCastle := flag.Bool("ref-no-castle", false, "reference refuses to castle")
+	noLMR := flag.Bool("no-lmr", false, "challenger disables late move reductions")
+	noNull := flag.Bool("no-null", false, "challenger disables null-move pruning")
+	qply := flag.Int("qply", 0, "challenger quiescence ply cap (0 = default)")
 	flag.Parse()
 
 	reference := full("reference (current FULL)", *depth)
 	reference.Futility = *futility
+	reference.NoCastle = *refNoCastle
 
 	// The challenger is the same configuration; whatever new feature is
 	// under test is enabled here. Flags on the Player struct make the
@@ -45,6 +50,9 @@ func main() {
 	challenger := full("challenger", cd)
 	challenger.Futility = *futility
 	challenger.Tuned = *tuned
+	challenger.NoLMR = *noLMR
+	challenger.NullMove = !*noNull
+	challenger.QuiescePly = *qply
 	if *netPath != "" {
 		n, err := engine.LoadNet(*netPath)
 		if err != nil {

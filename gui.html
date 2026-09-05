@@ -489,8 +489,8 @@ async function pollImprovements() {
         `${e.opponent} &rarr; score ${e.score.toFixed(2)}`).join(" &middot; ");
     if (d.tech) {
       document.getElementById("tech").innerHTML =
-        `Throughput: <b>${d.tech.nps}</b> positions/sec (single-threaded) &middot; ` +
-        `Deep Blue 1997: ~200M/sec on 480 custom chips &middot; depth ${d.tech.depth}`;
+        `Throughput: <b>${d.tech.nps}</b> positions/sec (single-threaded), depth ${d.tech.depth}. ` +
+        `${d.tech.reference || ""}`;
     }
     document.getElementById("caveat").textContent = d.caveat || "";
     if (d.agreement) drawAgreement(d.agreement);

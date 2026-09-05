@@ -236,7 +236,7 @@ func (c *searchCtx) search(g *game.Game, color, maximizingFor board.Color, depth
 		// Late move reductions: the ordering above says moves after the
 		// first few are unlikely to be best, so look at them shallower.
 		reduction := 0
-		if depth >= 3 && i >= 3 && !isCapture && !inCheck {
+		if depth >= 3 && i >= 3 && !isCapture && !inCheck && !(c.ev != nil && c.ev.NoLMR) {
 			reduction = 1
 		}
 
@@ -311,6 +311,17 @@ func (c *searchCtx) search(g *game.Game, color, maximizingFor board.Color, depth
 // iterations.
 func ChooseMoveIterative(g *game.Game, color board.Color, maxDepth int, ev *Eval, useQuiescence bool) (game.Move, bool) {
 	legal := g.AllLegalMoves(color)
+	if ev != nil && ev.NoCastle {
+		kept := legal[:0]
+		for _, m := range legal {
+			if p, ok := g.Board.PieceAt(m.From); ok && p.Type == board.King &&
+				(m.To.File-m.From.File == 2 || m.From.File-m.To.File == 2) {
+				continue
+			}
+			kept = append(kept, m)
+		}
+		legal = kept
+	}
 	if len(legal) == 0 {
 		return game.Move{}, false
 	}

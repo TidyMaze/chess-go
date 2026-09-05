@@ -14,6 +14,8 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"runtime"
+	"sort"
 	"time"
 
 	"chess/engine"
@@ -34,6 +36,8 @@ func main() {
 	label := flag.String("label", "current", "name for this configuration")
 	config := flag.String("config", "current", "which engine build: base | search | current")
 	out := flag.String("out", "", "append the result to this JSON file")
+	workers := flag.Int("workers", runtime.NumCPU(), "games played in parallel")
+	probe := flag.Int("probe", 8, "games per level in the first pass")
 	flag.Parse()
 
 	// Every milestone has to be measured on the same Stockfish scale for the
@@ -67,26 +71,81 @@ func main() {
 	}
 	var estimates []estimate
 
-	fmt.Printf("calibrating %q (depth %d) against Stockfish\n", *label, *depth)
+	// play runs one match against a level, in parallel across workers.
+	play := func(lv level, n int) (engine.MatchResult, error) {
+		return engine.PlayMatchAgainstUCI(me, func() (engine.Player, func(), error) {
+			sf, err := engine.NewStockfish(stockfishPath, lv.skill, lv.elo)
+			if err != nil {
+				return engine.Player{}, func() {}, err
+			}
+			return engine.Player{Name: fmt.Sprintf("sf%d", lv.elo), UCI: sf, UCIDepth: lv.depth},
+				func() { sf.Close() }, nil
+		}, n, *maxMoves, *workers)
+	}
+
+	fmt.Printf("calibrating %q (depth %d) against Stockfish, %d workers\n", *label, *depth, *workers)
+	whole := time.Now()
+
+	// Pass 1: a short probe at every level. Most of a calibration run used
+	// to be spent playing full matches against levels that turn out to be
+	// far too strong or too weak, and those contribute almost nothing:
+	// a 23-0 result only says "somewhere below". The probe finds which
+	// levels are close before committing games to them.
+	type probed struct {
+		lv    level
+		res   engine.MatchResult
+		score float64
+	}
+	var first []probed
 	for _, lv := range levels {
-		sf, err := engine.NewStockfish(stockfishPath, lv.skill, lv.elo)
+		res, err := play(lv, *probe)
 		if err != nil {
 			fmt.Println("stockfish error:", err)
 			return
 		}
-		opp := engine.Player{Name: fmt.Sprintf("sf%d", lv.elo), UCI: sf, UCIDepth: lv.depth}
-		t0 := time.Now()
-		res := engine.PlayMatchSerial(me, opp, *games, *maxMoves)
-		sf.Close()
+		first = append(first, probed{lv, res, res.Score()})
+		fmt.Printf("  probe vs SF %d: W-D-L %2d-%2d-%2d  score %.2f\n",
+			lv.elo, res.Wins, res.Draws, res.Losses, res.Score())
+	}
 
+	// Pass 2: spend the remaining games on the levels nearest an even
+	// match, where the result actually pins the rating down.
+	sort.Slice(first, func(i, j int) bool {
+		return math.Abs(first[i].score-0.5) < math.Abs(first[j].score-0.5)
+	})
+	focus := map[int]bool{}
+	for i := 0; i < len(first) && i < 3; i++ {
+		focus[first[i].lv.elo] = true
+	}
+
+	fmt.Println()
+	for _, p := range first {
+		lv, res := p.lv, p.res
+		t0 := time.Now()
+		if focus[lv.elo] && *games > *probe {
+			extra, err := play(lv, *games-*probe)
+			if err != nil {
+				fmt.Println("stockfish error:", err)
+				return
+			}
+			res.Wins += extra.Wins
+			res.Draws += extra.Draws
+			res.Losses += extra.Losses
+		}
 		score := res.Score()
 		// Weight by closeness to an even match: a 50% result pins the
 		// rating tightly, a 100% result barely constrains it at all.
 		weight := 1 - 2*math.Abs(score-0.5)
 		estimates = append(estimates, estimate{lv, score, res.Elo(), weight})
-		fmt.Printf("  vs SF %d (depth %d): W-D-L %2d-%2d-%2d  score %.2f  gap %+5d  -> %d Elo  [weight %.2f]  (%.0fs)\n",
-			lv.elo, lv.depth, res.Wins, res.Draws, res.Losses, score, res.Elo(), lv.elo+res.Elo(), weight, time.Since(t0).Seconds())
+		mark := " "
+		if focus[lv.elo] {
+			mark = "*"
+		}
+		fmt.Printf(" %s vs SF %d (depth %d): W-D-L %2d-%2d-%2d  score %.2f  gap %+5d  -> %d Elo  [weight %.2f]  (%.0fs)\n",
+			mark, lv.elo, lv.depth, res.Wins, res.Draws, res.Losses, score, res.Elo(),
+			lv.elo+res.Elo(), weight, time.Since(t0).Seconds())
 	}
+	fmt.Printf("\n(* = levels the probe found closest to even, given the full game budget)\n")
 
 	var num, den float64
 	for _, e := range estimates {
@@ -98,7 +157,7 @@ func main() {
 		den += w
 	}
 	final := num / den
-	fmt.Printf("\nCALIBRATED ELO (Stockfish scale): %.0f\n", final)
+	fmt.Printf("\nCALIBRATED ELO (Stockfish scale): %.0f   (total %.0fs)\n", final, time.Since(whole).Seconds())
 
 	if *out != "" {
 		record := map[string]any{

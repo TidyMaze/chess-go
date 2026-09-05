@@ -61,6 +61,10 @@ type Player struct {
 	Tuned bool
 	// Net replaces the whole hand-written evaluation with a trained one.
 	Net *Net
+	// NoCastle declines castling. Measurement only, see Eval.NoCastle.
+	NoCastle bool
+	// NoLMR disables late move reductions.
+	NoLMR bool
 	// UCI delegates move choice to an external engine (Stockfish), giving
 	// an externally-calibrated reference point rather than only measuring
 	// against this engine's own ancestors.
@@ -98,6 +102,8 @@ func (p Player) pick(g *game.Game) (game.Move, bool) {
 		Extensions: p.Extensions, Aspiration: p.Aspiration, SEEPruning: p.SEEPruning,
 		Structure: p.Structure, Futility: p.Futility}
 	ev.Net = p.Net
+	ev.NoCastle = p.NoCastle
+	ev.NoLMR = p.NoLMR
 	if p.Tuned {
 		if p.Weights == nil {
 			ev.Weights = TunedWeights()
@@ -256,3 +262,77 @@ func playPlayersLive(white, black Player, maxMoves int, live LiveHook) (board.Co
 
 // PlayerPick exposes a Player's move choice for benchmarking harnesses.
 func PlayerPick(p Player, g *game.Game) (game.Move, bool) { return p.pick(g) }
+
+// PlayMatchAgainstUCI plays a match against an external engine using one
+// process per worker, so the games run in parallel.
+//
+// PlayMatchSerial exists because a single UCI process is a single
+// conversation: two goroutines sharing it interleave their commands and
+// corrupt each other's search. The fix is not a lock (that just
+// serialises again) but one process per worker, which is what newOpponent
+// supplies. On this machine that turns a calibration run from ten minutes
+// into about one.
+//
+// Colours still alternate by game index, so a worker taking games 3 and 7
+// plays the same colours it would have in the serial version and the
+// result is unchanged apart from speed.
+func PlayMatchAgainstUCI(me Player, newOpponent func() (Player, func(), error), games, maxMoves, workers int) (MatchResult, error) {
+	if workers < 1 {
+		workers = 1
+	}
+	if workers > games {
+		workers = games
+	}
+
+	type outcome struct {
+		wins, draws, losses int
+		err                 error
+	}
+	results := make([]outcome, workers)
+	var wg sync.WaitGroup
+
+	for w := 0; w < workers; w++ {
+		wg.Add(1)
+		go func(w int) {
+			defer wg.Done()
+			opp, closeOpp, err := newOpponent()
+			if err != nil {
+				results[w].err = err
+				return
+			}
+			defer closeOpp()
+			for i := w; i < games; i += workers {
+				white, black := me, opp
+				meIsWhite := i%2 == 0
+				if !meIsWhite {
+					white, black = opp, me
+				}
+				winner, decisive := playPlayersLive(white, black, maxMoves, nil)
+				perspective := board.White
+				if !meIsWhite {
+					perspective = board.Black
+				}
+				switch ResultScore(winner, decisive, perspective) {
+				case 1.0:
+					results[w].wins++
+				case 0.5:
+					results[w].draws++
+				default:
+					results[w].losses++
+				}
+			}
+		}(w)
+	}
+	wg.Wait()
+
+	var res MatchResult
+	for _, r := range results {
+		if r.err != nil {
+			return res, r.err
+		}
+		res.Wins += r.wins
+		res.Draws += r.draws
+		res.Losses += r.losses
+	}
+	return res, nil
+}

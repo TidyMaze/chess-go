@@ -1,193 +1,151 @@
 # Next steps to improve the engine
 
-## The evaluation is the ceiling, not the search (2026-09-05)
+Updated 2026-09-05.
 
-Measured with `./agree-bin`: sample positions from self-play, ask
-Stockfish at depth 14 for the best move in each, and count how often this
-engine picks the same move at each of its own depths. Same 300 positions
-in every arm (`engine.SeedRandom`).
+## Read this first: what a measurement here can and cannot detect
 
-| depth | full eval | material only | no aspiration | legacy alpha-beta |
-|---|---|---|---|---|
-| 1 | 45.0% | 34.9% | 31.5% | 42.3% |
-| 2 | 48.7% | 37.6% | 36.6% | 26.7% |
-| 3 | 54.7% | 37.2% | 40.6% | 27.7% |
-| 4 | 60.4% | 45.6% | 40.3% | 49.7% |
-| 5 | 59.7% | 43.6% | 42.3% | 46.3% |
-| 6 | 61.4% | 41.6% | 38.6% | n/a |
+This governs everything below, because most of the session's wasted
+effort came from testing changes with a tool too blunt to see them.
 
-Read the first two columns together, because that comparison is the whole
-finding:
+| Method | Cost | Resolution (95%) | Use it for |
+|---|---|---|---|
+| Stockfish calibration | ~140s | **+/- 130 Elo** | the absolute number, rarely |
+| Head-to-head, 300 games | ~2 min | +/- 39 Elo | quick reject of a bad idea |
+| Head-to-head, 1500 games | ~10 min | +/- 17 Elo | confirming a real change |
+| Head-to-head, 5000 games | ~35 min | +/- 10 Elo | a 1% change (19 Elo) |
+| Stockfish agreement probe | ~1 min | n/a | separating search from evaluation |
 
-- The full evaluation is worth about 15 points of agreement at every
-  depth. The positional terms do work.
-- Agreement stops improving after depth 4. Depth 6 is 61.4% against depth
-  4's 60.4%, for 6x the time.
-- With a material-only evaluation, agreement *falls* after depth 4 (45.6
-  to 41.6). A deeper search optimises harder for whatever the evaluation
-  says is good, so a weak evaluation gets actively worse with depth.
+Repeated calibrations of nearly identical builds returned 1892, 1909,
+1840 and 1786. That spread is the measurement, not the engine. **A 1%
+improvement is 19 Elo and calibration cannot see it.** Use head-to-head
+with enough games to decide whether a change works, and calibration only
+to place the result on the public scale.
 
-That is an evaluation ceiling, not a search defect. The engine already
-searches deep enough to reach the limit of what its evaluation can tell
-it apart, which is also why the games agreed: depth 5 over depth 4 was
-+60 +/- 70 Elo and depth 6 over depth 5 +38 +/- 69, both inside their
-margins, while depth 6 cost 3.8x the time.
+Current standing: roughly **1850 +/- 100** on the Stockfish scale, which
+is Class A, a strong club player.
 
-So: **evaluation quality is the next lever, and more search is not.**
-Texel tuning (below) moves from "nice to have" to the main event.
+## The central finding: the evaluation is the ceiling
 
-Reproduce:
+From the agreement probe (`agree`), which asks how often this engine
+picks the same move as a depth-14 Stockfish, over the same 300 positions
+in every arm:
 
-```
-./agree-bin -positions 300 -oracle-depth 14 -max-depth 6
-./agree-bin -positions 300 -oracle-depth 14 -max-depth 6 -material=true -pst=false
-```
-
-### Two loose ends, neither on the critical path
-
-- Turning aspiration windows off costs 20 points of agreement (60.4% to
-  40.3% at depth 4). Aspiration is a speed optimisation and should return
-  the same move as a full-window search once the fail-high/fail-low
-  re-search is right, so a swing that large is not yet explained. The
-  aspiration arm is the better one and is what matches use, so this is not
-  urgent, but it is not understood either.
-- The legacy alpha-beta path agrees less at depth 2 (26.7%) than at depth
-  1 (42.3%). That path is not used in matches. Worth a look only if the
-  aspiration question leads back to it.
-
-## Texel tuning: fitted, measured, not adopted (2026-09-05)
-
-Built `gendata` (self-play positions labelled with the game result,
-appended per game so the expensive part is crash-resumable) and `tune`
-(coordinate descent on the squared error between sigmoid(K*score) and the
-result). 166,201 positions from 1,994 games.
-
-The fit worked as a fit: squared error fell 1.78% on the training slice
-and 2.10% on a shuffled held-out slice, so it found real signal rather
-than memorising. (The first run had the held-out error starting *below*
-the training error, because positions arrive in game order and an
-unshuffled tail is the last few hundred games, not a sample. Fixed.)
-
-It did not become Elo: **-16 +/- 48 over 200 games at depth 4**. Lower
-prediction error is not the same objective as winning games, which is the
-known caveat of the method, and this run is a clean example of it. The
-parameters are kept behind `Player.Tuned` rather than adopted.
-
-Two things worth reading in the fitted values, in `engine/tuned.go`:
-
-- The rook drops from 5.00 to 4.70 while the open-file bonus climbs from
-  0.20 to 0.76: value moves out of the piece and into where it stands.
-- The king table is scaled to zero. In self-play games between engines
-  this weak, king placement does not predict the result. That is a
-  statement about the training set, not about chess, and points at the
-  real gap: there is no king-safety term that counts attackers, only one
-  that counts shelter pawns.
-
-Next things to try on this, in order:
-1. Label positions with a Stockfish evaluation instead of the self-play
-   result. Self-play games between ~1900 engines are a weak teacher, and
-   the king-table collapse is what that weakness looks like.
-2. Tune the 768 individual table entries, not 6 scalars. 166k positions
-   supports more parameters than this used.
-3. Add a real king-safety term first, then tune it.
-
-## Calibration reality check (2026-09-05)
-
-150 games against Stockfish at five Elo-limited settings, per build:
-
-| Build | Calibrated Elo | 95% CI |
+| depth | full evaluation | material only |
 |---|---|---|
-| Go port baseline | 1879 | 1739-2019 |
-| + ext/asp/SEE | 1855 | 1708-2001 |
-| + pawn structure | 1909 | 1781-2037 |
+| 1 | 45.0% | 34.9% |
+| 2 | 48.7% | 37.6% |
+| 3 | 54.7% | 37.2% |
+| 4 | 60.4% | 45.6% |
+| 5 | 59.7% | 43.6% |
+| 6 | 61.4% | 41.6% |
 
-The intervals overlap almost entirely. Head-to-head matches said +215 and
-+78 for those two changes; neither is visible against an outside
-opponent. Head-to-head only shows that a build beats its own ancestor.
-Any future claim of an Elo gain needs an external confirmation before it
-goes in the UI as a number.
+Agreement stops improving after depth 4, and with a weaker evaluation it
+falls instead of plateauing. A deeper search optimises harder for
+whatever the evaluation says is good, so a weak evaluation gets worse
+with depth. Confirmed independently in games: depth 5 over depth 4 is
++60 +/- 70, depth 6 over depth 5 is +38 +/- 69, at 3.8x the time.
 
-Also noted: the depth-4 iterative search converts K+R vs K only 22/25 of
-the time. That is a real endgame weakness, unrelated to futility pruning
-(21/25 with it on).
+**More search is not the lever. Evaluation quality is.**
 
-Current state (round-robin, max-likelihood fit, random = 0 Elo, all measured on this machine):
+## What has been tried, and what it measured
 
-| Engine | Elo |
-|---|---|
-| depth 5 FULL | +1712 |
-| depth 4 FULL | +1506 |
-| depth 3 FULL | +1302 |
-| depth 2 +PST +quiescence | +1090 |
-| **depth 2 (baseline)** | **+745** |
-| depth 1 | +324 |
-| random | 0 |
+| Change | Result | Verdict |
+|---|---|---|
+| Futility pruning (Heinz 1998) | +55 +/- 63, 25% fewer nodes | kept as a speed win |
+| Texel tuning on game outcomes | -16 +/- 48 (200 games) | rejected |
+| Texel tuning on Stockfish scores | +20 +/- 26 (700 games) | kept, unconfirmed |
+| NNUE, full replacement, sigmoid target | -700 +/- 112 | rejected |
+| NNUE, residual on depth-12 search | -338 +/- 76 | rejected |
+| NNUE, residual on static eval | -308 +/- 70 | rejected |
+| Castling | +19 +/- 39 (300 games) | kept, it is a rule |
+| Disabling LMR | +23 +/- 39 | worth retesting at power |
+| Quiescence cap 4 -> 12 | +23 +/- 39 | worth retesting at power |
+| Quiescence cap 4 -> 24 | +6 +/- 39 | no |
+| Disabling null-move | -13 +/- 39 | no |
 
-"FULL" = iterative deepening + PVS + killers + history + LMR + null move + TT + quiescence + tapered PST.
+Nothing here is confirmed at 1%. Several land around +20, which is
+exactly the size that 300 games cannot resolve.
 
----
+## Do these next, in this order
 
-## 1. Evaluation tuning (biggest expected win, and replaces the genetic algorithm)
+### 1. Confirm the +20s at power, then stack them
 
-- [ ] **Texel tuning of the piece-square tables and piece values.** Generate a few hundred thousand
-      positions from self-play, label each with the game's final result, then fit all evaluation
-      parameters by logistic regression against those labels. This optimises ~400 numbers from a
-      static dataset with no games in the loop. The genetic algorithm optimises 5 numbers and needs
-      a noisy match per candidate. Expected: this is where classical engines got most of their eval
-      strength.
-- [ ] **Retire the genetic algorithm** once Texel tuning works, or keep it only as a baseline to
-      measure against. It has produced no measurable Elo in this project.
-- [ ] Add the eval terms that are cheap and known to be worth real Elo: passed pawns, doubled and
-      isolated pawns, rook on open file, king-safety pawn shield, mobility.
+`-no-lmr` and `-qply 12` each measured +23 +/- 39. If both are real, the
+pair is worth ~45 Elo, which 1500 games can see. Run each alone at 1500
+games, then together. This is the cheapest available Elo in the
+repository right now and needs no new code.
 
-## 2. Search
+### 2. Fix why the network failed, rather than abandoning it
 
-- [ ] **Aspiration windows** around the previous iteration's score in iterative deepening; re-search
-      wider on fail-high/low. Cheap, standard, straightforward given ID is already in.
-- [ ] **Static exchange evaluation (SEE)** to prune losing captures in quiescence, because quiescence
-      currently searches every capture including obviously bad ones.
-- [ ] **Futility / reverse futility pruning** near the leaves.
-- [ ] **Check extensions**: extend the search by a ply when in check, so forced sequences are not
-      cut off mid-way.
-- [ ] Tune the LMR reduction formula (currently a flat 1 ply after the 3rd move); depth- and
-      move-index-dependent reductions are standard.
+The failures were informative and none of them was "neural evaluation
+does not work here":
 
-## 3. Measurement (protect against fooling ourselves)
+- The sigmoid target saturated, so the network read "a rook down" as
+  -1.38 instead of -5. Fixed by regressing on the score in pawns.
+- Fitting a *static* function to a *search* score asks it to predict
+  tactics. Fixed by using Stockfish's static eval, which is 180x cheaper
+  to label anyway (37,780 positions/sec against 210).
+- 64 hidden units could not fit even the training set. 256 units cut
+  training error from 3.13 to 1.29 pawns squared, which moved the
+  constraint from capacity to data.
 
-- [ ] **Report confidence intervals on every rating**, not just the point estimate. Several
-      "improvements" in this project turned out to be inside the noise band.
-- [ ] **Fixed opening book / varied start positions.** Every game currently starts from the initial
-      position, so games between similar engines correlate heavily and the draw rate is inflated.
-      Standard practice is a set of balanced opening positions, each played twice with colours
-      reversed.
-- [ ] **Time-controlled matches** rather than fixed depth. Fixed depth flatters slow techniques: a
-      change that makes the search 2x slower for +20 Elo at equal depth is a loss in real play.
-      This is the honest way to value TT / LMR / null-move.
-- [ ] Add a regression suite of tactical positions (mate-in-N, known best moves) so search bugs are
-      caught without a full match.
+That leaves the actual blocker: **the training set is too small**. At 256
+units, held-out error is 2.95 against a training error of 1.29, which is
+overfitting. Labelling is nearly free now, so generate a few million
+positions rather than 60,000. Held-out error needs to be well under 0.5
+pawns before a network is worth putting in a game: at ~2 pawns it hangs
+pieces, which is what -300 Elo looks like.
 
-## 4. Performance (more nodes = more depth = more Elo)
+### 3. En passant
 
-- [ ] **Make/unmake moves instead of copying the board.** Every node currently copies a 144-byte
-      board; an undo stack removes that entirely.
-- [ ] **Incremental evaluation and Zobrist hashing**: update material/PST/hash on each move rather
-      than recomputing from scratch per node.
-- [ ] **Bitboards.** A significant rewrite, but it makes move generation and attack detection near
-      free compared to the current square-by-square scanning.
-- [ ] **Lazy SMP** (multiple search threads sharing a transposition table). The machine has 10
-      cores; the search currently uses one per game, not per search.
+The only chess rule still missing. Worth little Elo directly, but it is a
+rule, and its absence means FEN cannot describe some positions the
+opponent can reach.
 
-## 5. Bigger swings (different algorithm class)
+### 4. Tune the tables entry by entry
 
-- [ ] **NNUE-style evaluation**: small neural net evaluating positions, trained on self-play labels,
-      run with int8 SIMD on CPU. This is what replaced hand-tuned evaluation in strong engines.
-- [ ] **MCTS + policy/value network** (AlphaZero-style). This is the only direction where the
-      machine's GPU would actually help. Alpha-beta is sequential and branch-divergent, so a GPU
-      makes it slower, but MCTS batches thousands of positions through a network, which is exactly
-      what a GPU is for.
+The tuner currently fits 6 piece-square scalars. With enough positions it
+should fit all 768 entries. Do this after the data set is bigger, and
+only against Stockfish scores, never against game outcomes.
 
-## Deliberately not doing
+### 5. King safety that counts attackers
 
-- **GPU-accelerated alpha-beta.** Structural mismatch: pruning is inherently sequential, branches
-  diverge per thread, and per-node work is far too small to amortise kernel launches. Documented in
-  the literature as losing to CPU implementations.
+Every fit so far has pushed the king-shelter term around without
+conviction, because counting shelter pawns is too crude to be worth
+weight. The standard form counts attacking pieces near the king and
+weights by attacker value. This is also the term most likely to matter
+now that castling exists and kings actually reach safety.
+
+## Ideas that look attractive and are not
+
+- **Lazy SMP / parallel search.** Ten cores are idle during search, so
+  this looks like free strength. It is not: every measurement here is at
+  fixed depth, where more nodes per second buys nothing, and the
+  depth-to-Elo slope is only ~40 Elo per ply. Worth doing only after a
+  time-controlled measurement setup exists and the evaluation ceiling is
+  lifted.
+- **Bitboards.** A large rewrite for speed, and speed is not the
+  constraint: see the whole first section.
+- **Deeper search.** Same reason.
+
+## Loose ends, not on the critical path
+
+- The legacy alpha-beta path agrees with Stockfish less at depth 2
+  (26.7%) than at depth 1 (42.3%). That path is not used in matches.
+- Aspiration windows once measured 20 points of agreement better than a
+  full-window search, which they should not affect at all. On the current
+  build the gap is gone (39.5% against 41.1%), so it was probably a
+  property of the old position set, but it was never explained.
+- The depth-4 iterative search converts K+R vs K only 22/25 of the time.
+- `maxQuiescePly` is 4, which is low; raising it to 12 measured +23 +/- 39
+  and is item 1 above.
+
+## How to run things
+
+```bash
+go test ./...                                    # includes Stockfish rule validation
+./gauntlet-bin -games 1500 -depth 4 -no-lmr      # A/B one change
+./calibrate-bin2 -games 30 -depth 5              # absolute Elo, ~140s
+./agree-bin -positions 300 -oracle-depth 14      # search vs evaluation
+./play-bin -port 8765                            # UI and play against the engine
+```

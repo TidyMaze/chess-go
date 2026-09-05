@@ -130,6 +130,20 @@ type Eval struct {
 	// means use the defaults.
 	PSTScale   *[6]float64
 	StructureW *StructureWeights
+	// NoLMR disables late move reductions. They assume the move ordering
+	// is good enough that anything after the first few is not worth full
+	// depth, which is a much bigger assumption at depth 4 than at 20.
+	NoLMR bool
+	// NoCastle is a measurement instrument, never a playing mode. Castling
+	// is a rule of chess and is implemented; this flag exists only so one
+	// side of an A/B can decline it, which is the only way to price the
+	// rule without maintaining a second engine. It defaults to false and
+	// nothing that plays a real game sets it.
+	//
+	// It lives here rather than on the position because both players share
+	// one Game, and it is applied to the root move list because that is
+	// where the played move is chosen.
+	NoCastle bool
 	// Net replaces the hand-written evaluation with a trained network.
 	// When set, the material, table and structure terms are not used at
 	// all: the network was fitted to the same target they were and is a

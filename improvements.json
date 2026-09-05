@@ -1,6 +1,6 @@
 {
   "target": 2750,
-  "target_name": "Deep Blue 1997",
+  "target_name": "Deep Blue",
   "current": 1909,
   "current_low": 1781,
   "current_high": 2037,
@@ -75,7 +75,8 @@
   ],
   "tech": {
     "nps": "1.44M",
-    "depth": 5
+    "depth": 5,
+    "reference": "Deep Blue, which beat Kasparov in 1997, searched about 200M positions/sec on 480 custom chips"
   },
   "caveat": "The three builds' 95% intervals overlap almost entirely, so this measurement cannot tell them apart. Head-to-head matches between two builds are far more sensitive (identical engines, one flag different) and did show gains; those gains have not been confirmed against an outside opponent. Treat the current figure as roughly 1900, not as a precise rating.",
   "agreement": {
