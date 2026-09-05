@@ -797,8 +797,8 @@ async function pollTraining() {
         `<td>${h.generation}</td>` +
         `<td class="num">${h.positions.toLocaleString()}</td>` +
         `<td class="num">${h.test_loss.toFixed(3)}</td>` +
-        `<td class="num">${h.elo >= 0 ? "+" : ""}${h.elo} &plusmn; ${h.elo_margin}</td>` +
-        `<td class="${h.accepted ? "kept" : "rejected"}">${h.accepted ? "kept" : "rejected"}</td>`;
+        `<td class="num">${h.tested ? (h.elo >= 0 ? "+" : "") + h.elo + " &plusmn; " + h.elo_margin : "&mdash;"}</td>` +
+        `<td class="${h.accepted ? "kept" : "rejected"}">${h.tested ? (h.accepted ? "kept" : "rejected") : "not tested"}</td>`;
       body.appendChild(tr);
     }
 
@@ -922,8 +922,8 @@ async function pollNNUE() {
         `<td class="num">${h.test_loss.toFixed(5)}</td>` +
         `<td class="num">${h.baseline.toFixed(5)}</td>` +
         `<td class="num">${explains.toFixed(0)}%</td>` +
-        `<td class="num">${h.elo >= 0 ? "+" : ""}${h.elo} &plusmn; ${h.elo_margin}</td>` +
-        `<td class="${h.accepted ? "kept" : "rejected"}">${h.accepted ? "kept" : "rejected"}</td>`;
+        `<td class="num">${h.tested ? (h.elo >= 0 ? "+" : "") + h.elo + " &plusmn; " + h.elo_margin : "&mdash;"}</td>` +
+        `<td class="${h.accepted ? "kept" : "rejected"}">${h.tested ? (h.accepted ? "kept" : "rejected") : "not tested"}</td>`;
       body.appendChild(tr);
     }
 
@@ -933,7 +933,7 @@ async function pollNNUE() {
         {label: "explains % of held-out variance",
          data: hist.map(h => 100 * (1 - h.test_loss / h.baseline)),
          borderColor: "#4ade80", backgroundColor: "#4ade80", yAxisID: "y", tension: 0.2},
-        {label: "Elo vs champion", data: hist.map(h => h.elo),
+        {label: "Elo vs champion", data: hist.map(h => h.tested ? h.elo : null), spanGaps: true,
          borderColor: "#fbbf24", backgroundColor: "#fbbf24", yAxisID: "y1", tension: 0.2},
       ],
     };

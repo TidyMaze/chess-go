@@ -352,6 +352,7 @@ type genRecord struct {
 	Elo        int     `json:"elo"`
 	EloMargin  int     `json:"elo_margin"`
 	Accepted   bool    `json:"accepted"`
+	Tested     bool    `json:"tested"`
 	CumElo     int     `json:"cum_elo"`
 	Seconds    int     `json:"seconds"`
 }
@@ -362,6 +363,12 @@ func main() {
 	playDepth := flag.Int("play-depth", 2, "search depth while generating games")
 	labelDepth := flag.Int("label-depth", 4, "shallow search used to label positions")
 	evalGames := flag.Int("eval-games", 400, "games to test a new network")
+	// The test match costs about as much as generating a whole
+	// generation, and early networks have no chance of being adopted, so
+	// running it every time roughly halves the rate at which data
+	// accumulates. Data is the measured constraint, so the match is run
+	// periodically instead.
+	evalEvery := flag.Int("eval-every", 5, "run the test match every N generations")
 	evalDepth := flag.Int("eval-depth", 4, "depth for the test match")
 	epochs := flag.Int("epochs", 6, "training epochs per generation")
 	lr := flag.Float64("lr", 0.01, "learning rate")
@@ -506,33 +513,37 @@ func main() {
 		fmt.Printf("  train %.5f  held out %.5f  (constant guess %.5f, explains %.0f%%)\n",
 			lastTrain, lastTest, baseline, 100*(1-lastTest/baseline))
 
-		writeJSON("nnue_status.json", map[string]any{
-			"phase": "evaluating", "generation": gen, "generations": *generations,
-			"pool": len(pool), "cum_elo": cumElo, "eval_games": *evalGames,
-		})
 		exported := n.export()
 		_ = exported.Save("halfkp_latest.json")
 
-		challenger := champion
-		challenger.HalfKP = exported
-		challenger.Depth = *evalDepth
-		ref := champion
-		ref.Depth = *evalDepth
-		res := engine.PlayMatch(challenger, ref, *evalGames, 250)
-		elo, margin := res.Elo(), res.EloMargin()
-		accepted := elo > margin
-		if accepted {
-			champion.HalfKP = exported
-			cumElo += elo
-			_ = exported.Save("halfkp_best.json")
+		elo, margin, accepted := 0, 0, false
+		tested := gen%*evalEvery == 0 || gen == *generations
+		if tested {
+			writeJSON("nnue_status.json", map[string]any{
+				"phase": "evaluating", "generation": gen, "generations": *generations,
+				"pool": len(pool), "cum_elo": cumElo, "eval_games": *evalGames,
+			})
+			challenger := champion
+			challenger.HalfKP = exported
+			challenger.Depth = *evalDepth
+			ref := champion
+			ref.Depth = *evalDepth
+			res := engine.PlayMatch(challenger, ref, *evalGames, 250)
+			elo, margin = res.Elo(), res.EloMargin()
+			accepted = elo > margin
+			if accepted {
+				champion.HalfKP = exported
+				cumElo += elo
+				_ = exported.Save("halfkp_best.json")
+			}
+			fmt.Printf("  vs champion: W-D-L %d-%d-%d  %+d +/- %d  accepted=%v\n",
+				res.Wins, res.Draws, res.Losses, elo, margin, accepted)
 		}
-		fmt.Printf("  vs champion: W-D-L %d-%d-%d  %+d +/- %d  accepted=%v\n",
-			res.Wins, res.Draws, res.Losses, elo, margin, accepted)
 
 		history = append(history, genRecord{
 			Generation: gen, Positions: len(pool),
 			TrainLoss: lastTrain, TestLoss: lastTest, Baseline: baseline,
-			Elo: elo, EloMargin: margin, Accepted: accepted,
+			Elo: elo, EloMargin: margin, Accepted: accepted, Tested: tested,
 			CumElo: cumElo, Seconds: int(time.Since(t0).Seconds()),
 		})
 		writeJSON("nnue.json", history)
