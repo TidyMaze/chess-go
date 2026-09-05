@@ -1,9 +1,9 @@
 {
   "target": 2750,
   "target_name": "Deep Blue",
-  "current": 1866,
-  "current_low": 1750,
-  "current_high": 1980,
+  "current": 1955,
+  "current_low": 1840,
+  "current_high": 2070,
   "milestones": [
     {
       "name": "Club",
@@ -58,6 +58,15 @@
       "gain": -43,
       "pct": -2.3,
       "note": "depth 6. Castling measured +19 +/- 39, futility +55 +/- 63, speed converts to zero Elo at fixed depth"
+    },
+    {
+      "name": "+ mobility and attacker-counting king safety",
+      "elo": 1955,
+      "low": 1840,
+      "high": 2070,
+      "gain": 89,
+      "pct": 4.8,
+      "note": "confirmed head-to-head at +16 +/- 12 over 3000 games; the calibration jump is larger than that and is within calibration noise"
     }
   ],
   "external": [
@@ -84,8 +93,8 @@
   ],
   "tech": {
     "nps": "1.8M",
-    "depth": 6,
+    "depth": 5,
     "reference": "Deep Blue, which beat Kasparov in 1997, searched about 200M positions/sec on 480 custom chips."
   },
-  "caveat": "Repeated calibrations of near-identical builds returned 1892, 1909, 1840, 1823, 1866 and 1786. That +/- 65 spread is the measurement, not the engine, so this figure cannot resolve a 1% change (19 Elo) and none of the steps above are distinguishable from each other. Read it as roughly 1850. Changes are judged by head-to-head matches instead, where 1500 games resolve +/- 17."
+  "caveat": "Calibrations of near-identical builds have returned 1786 to 1955, a spread of about +/- 65, so this figure cannot resolve a small change and the jump to 1955 should not be read as a 100-point gain. The defensible number for the last change is the head-to-head one: +16 +/- 12 over 3000 games, which is 0.85%. Changes are judged that way and calibration only places the result on a public scale."
 }
