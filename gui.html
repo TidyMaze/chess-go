@@ -65,9 +65,18 @@
   #milestones span::before { content: ""; display: block; width: 1px; height: 0.5em; background: #555; margin: 0 auto 2px; }
   /* The play board reuses the .sq styling from the self-play viewer; only
      the interaction affordances are new. */
-  #playPanel { max-width: 640px; margin: 0 auto 2.2rem; }
-  #playBoard { display: grid; grid-template-columns: repeat(8, 1fr); aspect-ratio: 1;
+  /* Sized off the same variables as the self-play board rather than
+     percentages: 1fr columns with content-sized rows gave rectangular
+     cells, because a row with no explicit height is only as tall as the
+     glyph in it. */
+  :root { --pboard: min(90vw, 70vh, 560px); --psq: calc(var(--pboard) / 8); }
+  #playPanel { width: var(--pboard); margin: 0 auto 2.2rem; }
+  #playBoard { display: grid;
+               grid-template-columns: repeat(8, var(--psq));
+               grid-template-rows: repeat(8, var(--psq));
+               width: var(--pboard); height: var(--pboard);
                border: 2px solid #555; user-select: none; }
+  #playBoard .sq { font-size: calc(var(--psq) * 0.65); }
   #playBoard .sq { cursor: pointer; }
   #playBoard .sel { outline: 3px solid #facc15; outline-offset: -3px; }
   #playBoard .target::after { content: ""; position: absolute; inset: 38%;
