@@ -1,0 +1,7 @@
+chess-train
+*.test
+live_game.json
+training_curve.json
+training_status.json
+game_record.json
+champion_weights.json
