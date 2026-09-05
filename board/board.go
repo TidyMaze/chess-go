@@ -42,23 +42,31 @@ type Sq struct {
 const pad = 2
 const width = 8 + 2*pad
 
-type cellState uint8
+// Cells are encoded in a single byte: 0 = off-board, 1 = empty, and
+// 2+ = an occupied square (colour*6 + type + 2). A struct-per-cell
+// representation made Board 3.4KB, and the search copies a Board per
+// node -- one byte per cell makes it 144 bytes instead.
+type cellCode uint8
 
 const (
-	stateOffBoard cellState = iota
-	stateEmpty
-	stateOccupied
+	codeOffBoard cellCode = 0
+	codeEmpty    cellCode = 1
+	codePieceMin cellCode = 2
 )
 
-type cell struct {
-	state cellState
-	piece Piece
+func encodePiece(p Piece) cellCode {
+	return codePieceMin + cellCode(int(p.Color)*6+int(p.Type))
+}
+
+func decodePiece(c cellCode) Piece {
+	v := int(c - codePieceMin)
+	return Piece{Color: Color(v / 6), Type: PieceType(v % 6)}
 }
 
 // Board is a value type: copying it (Clone) is a plain array copy, no
 // allocation or per-piece work, unlike a map-keyed representation.
 type Board struct {
-	cells [width * width]cell
+	cells [width * width]cellCode
 	kings [2]Sq
 }
 
@@ -70,7 +78,7 @@ func Initial() Board {
 	var b Board
 	for rank := 0; rank < 8; rank++ {
 		for file := 0; file < 8; file++ {
-			b.cells[index(Sq{file, rank})] = cell{state: stateEmpty}
+			b.cells[index(Sq{file, rank})] = codeEmpty
 		}
 	}
 	backRank := [8]PieceType{Rook, Knight, Bishop, Queen, King, Bishop, Knight, Rook}
@@ -89,7 +97,7 @@ func NewEmpty() Board {
 	var b Board
 	for rank := 0; rank < 8; rank++ {
 		for file := 0; file < 8; file++ {
-			b.cells[index(Sq{file, rank})] = cell{state: stateEmpty}
+			b.cells[index(Sq{file, rank})] = codeEmpty
 		}
 	}
 	return b
@@ -100,7 +108,7 @@ func (b *Board) Place(s Sq, p Piece) {
 }
 
 func (b *Board) setPiece(s Sq, p Piece) {
-	b.cells[index(s)] = cell{state: stateOccupied, piece: p}
+	b.cells[index(s)] = encodePiece(p)
 	if p.Type == King {
 		b.kings[p.Color] = s
 	}
@@ -112,19 +120,25 @@ func (b *Board) PieceAt(s Sq) (Piece, bool) {
 		return Piece{}, false
 	}
 	c := b.cells[index(s)]
-	return c.piece, c.state == stateOccupied
+	if c < codePieceMin {
+		return Piece{}, false
+	}
+	return decodePiece(c), true
 }
 
 // CellOffBoard/CellPiece: fast unchecked accessors for move generation.
 // Safe for any square reachable by one offset (up to 2 squares) from an
 // on-board square; not safe for arbitrary external input.
 func (b *Board) CellOffBoard(s Sq) bool {
-	return b.cells[index(s)].state == stateOffBoard
+	return b.cells[index(s)] == codeOffBoard
 }
 
 func (b *Board) CellPiece(s Sq) (Piece, bool) {
 	c := b.cells[index(s)]
-	return c.piece, c.state == stateOccupied
+	if c < codePieceMin {
+		return Piece{}, false
+	}
+	return decodePiece(c), true
 }
 
 func (b *Board) KingSquare(c Color) Sq {
@@ -134,10 +148,12 @@ func (b *Board) KingSquare(c Color) Sq {
 func (b *Board) Move(from, to Sq) {
 	fromIdx, toIdx := index(from), index(to)
 	moved := b.cells[fromIdx]
-	b.cells[fromIdx] = cell{state: stateEmpty}
+	b.cells[fromIdx] = codeEmpty
 	b.cells[toIdx] = moved
-	if moved.piece.Type == King {
-		b.kings[moved.piece.Color] = to
+	if moved >= codePieceMin {
+		if p := decodePiece(moved); p.Type == King {
+			b.kings[p.Color] = to
+		}
 	}
 }
 
@@ -156,13 +172,21 @@ type PieceAtSquare struct {
 // PiecesOf returns (square, type) pairs for every piece of color c --
 // the form move generation needs (it must know where each piece is).
 func (b *Board) PiecesOf(c Color) []PieceAtSquare {
-	result := make([]PieceAtSquare, 0, 16)
+	return b.AppendPiecesOf(nil, c)
+}
+
+// AppendPiecesOf is the non-allocating form: the caller supplies the
+// buffer (a stack array is enough -- there are at most 16 pieces per
+// side), which matters because this runs once per search node.
+func (b *Board) AppendPiecesOf(dst []PieceAtSquare, c Color) []PieceAtSquare {
+	result := dst
 	for rank := 0; rank < 8; rank++ {
 		for file := 0; file < 8; file++ {
-			s := Sq{file, rank}
-			cl := b.cells[index(s)]
-			if cl.state == stateOccupied && cl.piece.Color == c {
-				result = append(result, PieceAtSquare{s, cl.piece.Type})
+			cl := b.cells[index(Sq{file, rank})]
+			if cl >= codePieceMin {
+				if p := decodePiece(cl); p.Color == c {
+					result = append(result, PieceAtSquare{Sq{file, rank}, p.Type})
+				}
 			}
 		}
 	}

@@ -29,8 +29,13 @@ func New() *Game {
 	return g
 }
 
+// From builds a game without repetition tracking. The positionCounts map
+// is deliberately left nil: the search allocates one Game per node
+// (hundreds of thousands per move), and allocating a map for each one --
+// when only the real game-playing loops ever record positions -- was
+// pure GC pressure. recordPosition creates it on demand.
 func From(b board.Board, turn board.Color) *Game {
-	return &Game{Board: b, Turn: turn, positionCounts: map[string]int{}}
+	return &Game{Board: b, Turn: turn}
 }
 
 // EnableRepetitionTracking turns on threefold-repetition tracking and
@@ -50,12 +55,16 @@ func (g *Game) EnableRepetitionTracking() {
 func (g *Game) AllLegalMoves(color board.Color) []Move {
 	inCheck := moves.IsInCheck(&g.Board, color)
 	pinned := moves.PinnedSquares(&g.Board, color)
-	pieces := g.Board.PiecesOf(color)
-	result := make([]Move, 0, 32)
+	var pieceBuf [16]board.PieceAtSquare
+	pieces := g.Board.AppendPiecesOf(pieceBuf[:0], color)
+	result := make([]Move, 0, 40)
 
+	// One target buffer reused across every piece, rather than a fresh
+	// slice per piece.
+	var targetBuf [28]board.Sq
 	for _, ps := range pieces {
-		needsCheckTest := inCheck || ps.Type == board.King || pinned[ps.Sq]
-		for _, target := range moves.LegalTargets(&g.Board, ps.Sq, color, ps.Type) {
+		needsCheckTest := inCheck || ps.Type == board.King || pinned.Has(ps.Sq)
+		for _, target := range moves.AppendLegalTargets(targetBuf[:0], &g.Board, ps.Sq, color, ps.Type) {
 			if needsCheckTest {
 				trial := g.Board.Clone()
 				trial.Move(ps.Sq, target)
@@ -159,5 +168,8 @@ func sortPieces(pieces []board.PieceAtSquare) {
 }
 
 func (g *Game) recordPosition() {
+	if g.positionCounts == nil {
+		g.positionCounts = map[string]int{}
+	}
 	g.positionCounts[g.positionKey()]++
 }

@@ -49,7 +49,8 @@ func abs(x float64) float64 {
 // of two separate scans, since PiecesOf is non-trivial cost at the node
 // counts search reaches.
 func materialAndCentralization(b *board.Board, color board.Color, weights Weights) (material, center float64) {
-	for _, ps := range b.PiecesOf(color) {
+	var buf [16]board.PieceAtSquare
+	for _, ps := range b.AppendPiecesOf(buf[:0], color) {
 		material += weights[ps.Type]
 		if bonus, ok := centerBonus[ps.Type]; ok {
 			center += bonus * (3.5 - centerDistance(ps.Sq))

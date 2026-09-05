@@ -63,9 +63,13 @@ func Minimax(g *game.Game, color, maximizingFor board.Color, depth int, alpha, b
 		best = posInf
 	}
 	for _, m := range ordered(g, legalMoves) {
-		next := game.From(g.Board.Clone(), color)
+		// Stack value, not game.From's heap pointer: the search builds one
+		// child position per node, and heap-allocating a Game (which holds
+		// the whole 144-cell board array) for each was the single largest
+		// source of allocated bytes in the profile.
+		next := game.Game{Board: g.Board, Turn: color}
 		next.ApplyMove(m.From, m.To)
-		value := Minimax(next, color.Other(), maximizingFor, depth-1, alpha, beta, weights)
+		value := Minimax(&next, color.Other(), maximizingFor, depth-1, alpha, beta, weights)
 		if maximizing {
 			if value > best {
 				best = value
@@ -105,9 +109,9 @@ func ChooseMove(g *game.Game, color board.Color, depth int, weights Weights) (ga
 	bestScore := negInf
 	best := make([]game.Move, 0, len(legalMoves))
 	for _, m := range legalMoves {
-		next := game.From(g.Board.Clone(), color)
+		next := game.Game{Board: g.Board, Turn: color}
 		next.ApplyMove(m.From, m.To)
-		score := Minimax(next, color.Other(), color, depth-1, negInf, posInf, weights)
+		score := Minimax(&next, color.Other(), color, depth-1, negInf, posInf, weights)
 		if score > bestScore {
 			bestScore = score
 			best = best[:0]

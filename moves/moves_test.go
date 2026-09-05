@@ -92,7 +92,7 @@ func TestPinnedSquaresFindsPinnedPawn(t *testing.T) {
 	}
 	b := boardFrom(squares)
 	pinned := PinnedSquares(&b, board.White)
-	if len(pinned) != 1 || pinned[board.Sq{4, 3}] != true {
+	if pinned.Len() != 1 || !pinned.Has(board.Sq{4, 3}) {
 		t.Errorf("expected {4,3} pinned, got %v", pinned)
 	}
 }

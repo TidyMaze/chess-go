@@ -12,8 +12,8 @@ var kingOffsets = [8][2]int{{-1, -1}, {-1, 0}, {-1, 1}, {0, -1}, {0, 1}, {1, -1}
 var bishopDirs = [4][2]int{{1, 1}, {1, -1}, {-1, 1}, {-1, -1}}
 var rookDirs = [4][2]int{{1, 0}, {-1, 0}, {0, 1}, {0, -1}}
 
-func stepMoves(b *board.Board, sq board.Sq, color board.Color, offsets [][2]int) []board.Sq {
-	moves := make([]board.Sq, 0, len(offsets))
+func stepMoves(dst []board.Sq, b *board.Board, sq board.Sq, color board.Color, offsets [][2]int) []board.Sq {
+	moves := dst
 	for _, d := range offsets {
 		target := board.Sq{File: sq.File + d[0], Rank: sq.Rank + d[1]}
 		if b.CellOffBoard(target) {
@@ -27,8 +27,8 @@ func stepMoves(b *board.Board, sq board.Sq, color board.Color, offsets [][2]int)
 	return moves
 }
 
-func slideMoves(b *board.Board, sq board.Sq, color board.Color, dirs [][2]int) []board.Sq {
-	moves := make([]board.Sq, 0, 8)
+func slideMoves(dst []board.Sq, b *board.Board, sq board.Sq, color board.Color, dirs [][2]int) []board.Sq {
+	moves := dst
 	for _, d := range dirs {
 		f, r := sq.File+d[0], sq.Rank+d[1]
 		for {
@@ -51,9 +51,9 @@ func slideMoves(b *board.Board, sq board.Sq, color board.Color, dirs [][2]int) [
 	return moves
 }
 
-func pawnMoves(b *board.Board, sq board.Sq, color board.Color) []board.Sq {
+func pawnMoves(dst []board.Sq, b *board.Board, sq board.Sq, color board.Color) []board.Sq {
 	dir := direction[color]
-	moves := make([]board.Sq, 0, 4)
+	moves := dst
 
 	oneAhead := board.Sq{File: sq.File, Rank: sq.Rank + dir}
 	if _, occupied := b.CellPiece(oneAhead); !occupied {
@@ -78,36 +78,44 @@ func pawnMoves(b *board.Board, sq board.Sq, color board.Color) []board.Sq {
 	return moves
 }
 
-func dirsAsSlice(dirs [4][2]int) [][2]int {
-	out := make([][2]int, 4)
-	copy(out, dirs[:])
-	return out
-}
+// Precomputed once: these were being rebuilt on every LegalTargets call,
+// allocating a fresh slice per move-generation call purely to convert an
+// array to a slice.
+var (
+	knightOffsetSlice = knightOffsets[:]
+	kingOffsetSlice   = kingOffsets[:]
+	bishopDirSlice    = bishopDirs[:]
+	rookDirSlice      = rookDirs[:]
+	queenDirSlice     = append(append([][2]int{}, bishopDirs[:]...), rookDirs[:]...)
+)
 
-func offsetsAsSlice8(offsets [8][2]int) [][2]int {
-	out := make([][2]int, 8)
-	copy(out, offsets[:])
-	return out
-}
-
-// LegalTargets returns pseudo-legal target squares (not yet filtered for
-// leaving your own king in check -- that's game.AllLegalMoves's job).
-func LegalTargets(b *board.Board, sq board.Sq, color board.Color, pt board.PieceType) []board.Sq {
+// AppendLegalTargets appends pseudo-legal target squares (not yet filtered
+// for leaving your own king in check -- that's game.AllLegalMoves's job)
+// to dst. Taking a destination buffer lets the caller reuse one slice
+// across every piece instead of allocating a fresh one per piece, which
+// was the largest remaining allocation source in the search.
+func AppendLegalTargets(dst []board.Sq, b *board.Board, sq board.Sq, color board.Color, pt board.PieceType) []board.Sq {
 	switch pt {
 	case board.Pawn:
-		return pawnMoves(b, sq, color)
+		return pawnMoves(dst, b, sq, color)
 	case board.Knight:
-		return stepMoves(b, sq, color, offsetsAsSlice8(knightOffsets))
+		return stepMoves(dst, b, sq, color, knightOffsetSlice)
 	case board.King:
-		return stepMoves(b, sq, color, offsetsAsSlice8(kingOffsets))
+		return stepMoves(dst, b, sq, color, kingOffsetSlice)
 	case board.Bishop:
-		return slideMoves(b, sq, color, dirsAsSlice(bishopDirs))
+		return slideMoves(dst, b, sq, color, bishopDirSlice)
 	case board.Rook:
-		return slideMoves(b, sq, color, dirsAsSlice(rookDirs))
+		return slideMoves(dst, b, sq, color, rookDirSlice)
 	case board.Queen:
-		return slideMoves(b, sq, color, append(dirsAsSlice(bishopDirs), dirsAsSlice(rookDirs)...))
+		return slideMoves(dst, b, sq, color, queenDirSlice)
 	}
 	panic("unknown piece type")
+}
+
+// LegalTargets is the allocating convenience form, for tests and callers
+// outside the search hot path.
+func LegalTargets(b *board.Board, sq board.Sq, color board.Color, pt board.PieceType) []board.Sq {
+	return AppendLegalTargets(nil, b, sq, color, pt)
 }
 
 // IsInCheck probes outward from the king (knight/king offsets, rook/bishop
@@ -177,23 +185,58 @@ func hitsSlider(b *board.Board, from board.Sq, d [2]int, enemy board.Color, type
 // the expensive per-move self-check test. Computed once per position
 // instead of once per candidate move -- this is what makes legal move
 // generation fast.
-func PinnedSquares(b *board.Board, color board.Color) map[board.Sq]bool {
-	king := b.KingSquare(color)
-	pinned := map[board.Sq]bool{}
+type pinRay struct {
+	d       [2]int
+	slider  board.PieceType
+	slider2 board.PieceType
+}
 
-	type ray struct {
-		d     [2]int
-		types []board.PieceType
-	}
-	rays := make([]ray, 0, 8)
+// Precomputed once: this was rebuilt (with two slice allocations per
+// direction) on every call, and PinnedSquares runs once per search node.
+var pinRays = func() [8]pinRay {
+	var out [8]pinRay
+	i := 0
 	for _, d := range rookDirs {
-		rays = append(rays, ray{d, []board.PieceType{board.Rook, board.Queen}})
+		out[i] = pinRay{d, board.Rook, board.Queen}
+		i++
 	}
 	for _, d := range bishopDirs {
-		rays = append(rays, ray{d, []board.PieceType{board.Bishop, board.Queen}})
+		out[i] = pinRay{d, board.Bishop, board.Queen}
+		i++
 	}
+	return out
+}()
 
-	for _, ry := range rays {
+// PinnedSet is a fixed-size set of pinned squares: at most one piece can
+// be pinned along each of the 8 rays from the king, so this never needs a
+// map (which was the single biggest allocator in the search -- one map
+// per node, almost always ending up empty).
+type PinnedSet struct {
+	squares [8]board.Sq
+	count   int
+}
+
+func (p *PinnedSet) Has(s board.Sq) bool {
+	for i := 0; i < p.count; i++ {
+		if p.squares[i] == s {
+			return true
+		}
+	}
+	return false
+}
+
+func (p *PinnedSet) Len() int { return p.count }
+
+func (p *PinnedSet) add(s board.Sq) {
+	p.squares[p.count] = s
+	p.count++
+}
+
+func PinnedSquares(b *board.Board, color board.Color) PinnedSet {
+	king := b.KingSquare(color)
+	var pinned PinnedSet
+
+	for _, ry := range pinRays {
 		f, r := king.File+ry.d[0], king.Rank+ry.d[1]
 		var ownSq board.Sq
 		foundOwn := false
@@ -211,12 +254,8 @@ func PinnedSquares(b *board.Board, color board.Color) map[board.Sq]bool {
 					foundOwn = true
 					ownSq = target
 				} else {
-					if foundOwn {
-						for _, t := range ry.types {
-							if p.Type == t {
-								pinned[ownSq] = true
-							}
-						}
+					if foundOwn && (p.Type == ry.slider || p.Type == ry.slider2) {
+						pinned.add(ownSq)
 					}
 					break
 				}
