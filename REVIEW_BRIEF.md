@@ -134,10 +134,34 @@ enormously, see section 5.
 **Adoption.** Every 8th generation the candidate plays 400 games against
 the champion and is adopted only if Elo exceeds its margin.
 
-**Current state.** Held-out error 1.79 against the hand-written
-evaluation's 7.16 on the same positions, so the network is roughly 4x
-more accurate. Jump per move 0.582 against the hand evaluation's 0.379,
-so it is still about 1.5x jumpier. No network has yet won its match.
+**Current state.** Held-out error 1.52 against the hand-written
+evaluation's 7.07, so roughly 4.6x more accurate. Jump per move 0.414
+against 0.376, so 1.10x jumpier, down from 3.7x when smoothness was first
+measured. No network has yet won its match, so none has been adopted and
+the engine's playing strength is unchanged.
+
+Progress of the test match through the session, each measured over 400 to
+800 games against the champion:
+
+| stage | Elo |
+|---|---|
+| first network (units bug) | -798 |
+| units fixed | -490 |
+| king buckets and Adam | -187 |
+| smoothing prior, more data | -102 |
+| best blend with the hand evaluation | **-30 +/- 24** |
+
+The blend curve is flat at its optimum: 70% network -40, 60% network -31,
+50% network -30, all +/- 24 over 800 games, against -118 for the network
+alone. So the last 30 Elo is not a weighting problem. No blend of this
+network beats the hand-written evaluation, and finding a better one will
+not change that; it needs a better network.
+
+**What changed the picture.** Smoothness, not accuracy. Accuracy passed
+the hand-written evaluation early and kept improving without moving the
+Elo. Every point of Elo since has tracked the jumpiness falling, and the
+blend optimum moved with it: when the network jumped 0.97 pawns per move
+the best use of it was 10%, and at 0.41 the best use is 60%.
 
 ---
 
