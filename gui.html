@@ -2,656 +2,156 @@
 <html>
 <head>
 <meta charset="utf-8">
-<title>Chess self-play viewer</title>
+<title>Chess engine: self-play training</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <style>
-  :root { --board: min(90vw, 80vh, 720px); --sq: calc(var(--board) / 8); }
-  html, body { height: 100%; }
-  body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; background: #1e1e1e; color: #eee; margin: 0; padding: 2vh 2vw; box-sizing: border-box; }
-  h2 { font-size: clamp(1rem, 2.2vw, 1.5rem); text-align: center; margin: 0 0 1rem; }
-  #board { display: grid; grid-template-columns: repeat(8, var(--sq)); grid-template-rows: repeat(8, var(--sq)); width: var(--board); height: var(--board); border: 3px solid #444; flex: none; }
-  .sq { display: flex; align-items: center; justify-content: center; font-size: calc(var(--sq) * 0.65); user-select: none; }
-  .light { background: #eeeed2; }
-  .dark { background: #769656; }
-  .wpiece { color: #fbfbfb; text-shadow: 0 0 2px #000, 0 0 3px #000; }
+  :root { --psq: 58px; }
+  * { box-sizing: border-box; }
+  body { background: #16181c; color: #e6e6e6; margin: 0; padding: 2rem 1rem 5rem;
+         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; line-height: 1.5; }
+  .wrap { max-width: 1000px; margin: 0 auto; }
+  h1 { font-size: 1.45rem; margin: 0 0 0.2rem; }
+  h2 { font-size: 1.05rem; margin: 2rem 0 0.6rem; color: #cfcfcf;
+       border-bottom: 1px solid #2c2f36; padding-bottom: 0.35rem; }
+  .sub { color: #8b919b; font-size: 0.9rem; margin-bottom: 1.4rem; }
+  .note { color: #8b919b; font-size: 0.86rem; }
+
+  /* Headline cards: the three numbers that decide everything. */
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 0.7rem; }
+  .card { background: #1d2026; border: 1px solid #2c2f36; border-radius: 8px; padding: 0.8rem 0.9rem; }
+  .card .k { font-size: 0.73rem; text-transform: uppercase; letter-spacing: 0.05em; color: #7d838d; }
+  .card .v { font-size: 1.5rem; font-weight: 700; margin: 0.2rem 0 0.1rem; }
+  .card .n { font-size: 0.8rem; color: #8b919b; }
+  .pass { color: #4ade80; } .fail { color: #fbbf24; } .neutral { color: #9aa0aa; }
+
+  .bar { position: relative; height: 1.6rem; background: #22252b; border-radius: 5px;
+         overflow: hidden; margin: 1rem 0 0.35rem; }
+  .fill { height: 100%; width: 0; background: #2f6b2f; transition: width 0.4s; }
+  .barlabel { position: absolute; inset: 0; display: flex; align-items: center;
+              justify-content: center; font-size: 0.83rem; font-weight: 600; }
+
+  .row { display: flex; gap: 1.2rem; align-items: flex-start; flex-wrap: wrap; margin-top: 1rem; }
+  .chartbox { position: relative; height: 260px; }
+
+  table { border-collapse: collapse; width: 100%; font-size: 0.86rem; margin-top: 0.8rem; }
+  th, td { padding: 0.35rem 0.5rem; border-bottom: 1px solid #262a31; text-align: left; }
+  th { color: #8b919b; font-weight: 600; font-size: 0.78rem; text-transform: uppercase;
+       letter-spacing: 0.03em; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+  details { border: 1px solid #2c2f36; border-radius: 8px; background: #1a1d22; margin-top: 0.6rem; }
+  details > summary { cursor: pointer; padding: 0.7rem 0.9rem; font-weight: 600; color: #c9ced6;
+                      list-style: none; user-select: none; }
+  details > summary::before { content: "\25B8"; display: inline-block; width: 1.1em; color: #7d838d; }
+  details[open] > summary::before { transform: rotate(90deg); }
+  details > *:not(summary) { padding: 0 0.9rem 0.9rem; }
+
+  /* Boards */
+  .board { display: grid; grid-template-columns: repeat(8, var(--psq));
+           grid-template-rows: repeat(8, var(--psq)); border: 1px solid #3a3f47; }
+  .board.small { --psq: 30px; }
+  .sq { display: flex; align-items: center; justify-content: center;
+        font-size: calc(var(--psq) * 0.68); user-select: none; position: relative; }
+  .light { background: #eeeed2; } .dark { background: #769656; }
+  .wpiece { color: #fff; text-shadow: 0 0 2px #000, 0 0 3px #000; }
   .bpiece { color: #101010; text-shadow: 0 0 2px #fff; }
-  .highlight { outline: 4px solid #ffd54f; outline-offset: -4px; }
-  #controls { margin-top: 1rem; display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; justify-content: center; width: var(--board); }
-  button { font-size: clamp(14px, 1.6vw, 18px); padding: 0.4rem 0.8rem; cursor: pointer; }
-  #status { margin-top: 0.8rem; font-size: clamp(14px, 1.8vw, 18px); min-height: 1.4em; text-align: center; }
-  #badge { display: flex; gap: 0.5rem; margin-bottom: 0.6rem; font-size: clamp(13px, 1.5vw, 16px); }
-  #badge span { background: #333; border-radius: 4px; padding: 0.2rem 0.6rem; }
-  #slider { flex: 1 1 auto; min-width: 120px; }
-  #training { width: min(90vw, 900px); margin-top: 2.5rem; }
-  #training h2 { text-align: left; margin-bottom: 0.3rem; }
-  #genProgress { min-height: 1.4em; margin-bottom: 0.6rem; }
-  #modelBanner { min-height: 1.6em; margin-bottom: 0.8rem; padding: 0.5rem 0.9rem; border-radius: 6px; font-weight: 600; }
-  #modelBanner.promoted { background: #16341f; border: 1px solid #16a34a; color: #86efac; }
-  #modelBanner.holding { background: #2a2a2a; border: 1px solid #444; color: #999; font-weight: 400; }
-  #curveWrap { background: #2a2a2a; border-radius: 6px; padding: 1rem; }
-  #curveLegend { font-size: 0.85em; margin-top: 0.6rem; opacity: 0.85; }
-  #arena { width: min(90vw, 900px); margin-top: 2rem; }
-  #arena h2 { text-align: left; margin-bottom: 0.3rem; }
-  #arenaStatus { min-height: 1.4em; margin-bottom: 0.7rem; color: #9ca3af; }
-  table.ratings { width: 100%; border-collapse: collapse; font-size: 0.95em; }
-  table.ratings th { text-align: left; color: #9ca3af; font-weight: 600; padding: 0.3rem 0.5rem; }
-  table.ratings td { padding: 0.3rem 0.5rem; border-top: 1px solid #333; }
-  table.ratings td.elo { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
-  .bar { display: inline-block; height: 0.65em; background: #f59e0b; border-radius: 2px; vertical-align: middle; }
-  tr.baseline td { color: #86efac; }
-  #matchLog { margin-top: 1rem; font-size: 0.85em; color: #bbb; max-height: 12em; overflow-y: auto; }
-  #matchLog div { padding: 0.15rem 0; border-top: 1px solid #2a2a2a; }
-  #improve { width: min(90vw, 900px); margin-top: 2rem; }
-  #improve h2 { text-align: left; margin-bottom: 0.3rem; }
-  #progressOuter { background: #2a2a2a; border-radius: 6px; height: 1.6em; position: relative; overflow: hidden; margin-bottom: 0.8rem; }
-  #progressFill { background: linear-gradient(90deg,#16a34a,#f59e0b); height: 100%; }
-  #progressLabel { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 0.9em; }
-  table.steps { width: 100%; border-collapse: collapse; font-size: 0.92em; }
-  table.steps th { text-align: left; color: #9ca3af; padding: 0.3rem 0.5rem; }
-  table.steps td { padding: 0.35rem 0.5rem; border-top: 1px solid #333; vertical-align: top; }
-  table.steps td.num { text-align: right; font-variant-numeric: tabular-nums; }
-  .gain { color: #86efac; font-weight: 600; }
-  .note { color: #8b8b8b; font-size: 0.88em; }
-  #external { margin-top: 0.8rem; font-size: 0.9em; color: #bbb; }
-  #tech { margin-top: 0.5rem; font-size: 0.9em; color: #bbb; }
-  #trainPanel { max-width: 950px; margin: 0 auto 2.4rem; }
-  #nnuePanel { max-width: 950px; margin: 0 auto 2.4rem; }
-  #nnueVerdict { display: flex; gap: 0.6rem; flex-wrap: wrap; margin: 0.7rem 0; }
-  #nnueVerdict div { flex: 1 1 220px; border: 1px solid #333; border-radius: 6px;
-                     padding: 0.6rem 0.8rem; background: #202020; text-align: left; }
-  #nnueVerdict .k { font-size: 0.78em; color: #999; text-transform: uppercase;
-                    letter-spacing: 0.04em; }
-  #nnueVerdict .v { font-size: 1.25em; font-weight: 700; margin: 0.15rem 0; }
-  #nnueVerdict .n { font-size: 0.8em; color: #999; }
-  .pass { color: #4ade80; } .fail { color: #fbbf24; } .neutral { color: #9ca3af; }
-  #nnueArch { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
-              gap: 0.4rem 1rem; background: #202020; border: 1px solid #333; border-radius: 6px;
-              padding: 0.7rem 0.9rem; margin: 0.6rem 0; font-size: 0.85em; text-align: left; }
-  #nnueArch div { color: #bbb; }
-  #nnueArch b { color: #e5e5e5; font-weight: 600; }
-  #genProgressOuter { position: relative; height: 1.5rem; background: #2a2a2a; border-radius: 4px;
-                      overflow: hidden; margin: 0.7rem 0; }
-  #genProgressFill { height: 100%; width: 0; background: #3f6212; transition: width 0.4s; }
-  #genProgressLabel { position: absolute; inset: 0; display: flex; align-items: center;
-                      justify-content: center; font-size: 0.82em; font-weight: 600; }
-  #phaseExplain { margin: 0.3rem 0 0.6rem; text-align: left; }
-  #metricLegend { margin-top: 0.7rem; text-align: left; font-size: 0.85em; color: #999;
-                  border-top: 1px solid #333; padding-top: 0.7rem; }
-  #metricLegend b { color: #ccc; }
-  #nnueLive { display: flex; gap: 1rem; align-items: center; justify-content: center;
-              flex-wrap: wrap; margin: 0.8rem 0; }
-  #nnueBoard { display: grid; grid-template-columns: repeat(8, 26px);
-               grid-template-rows: repeat(8, 26px); border: 1px solid #555; }
-  #nnueBoard .sq { font-size: 18px; }
-  /* width:100% because the page centres its text, which otherwise shrinks
-     each fold to the width of its own summary. */
-  .fold { width: 100%; max-width: 950px; margin: 0 auto 0.6rem; border: 1px solid #333;
-          border-radius: 6px; background: #202020; text-align: left; box-sizing: border-box; }
-  .fold > summary { cursor: pointer; padding: 0.7rem 1rem; font-weight: 600;
-                    font-size: 1.02em; color: #cfcfcf; list-style: none; user-select: none; }
-  .fold > summary::before { content: "\25B8"; display: inline-block; width: 1.1em;
-                            color: #888; transition: transform 0.15s; }
-  .fold[open] > summary::before { transform: rotate(90deg); }
-  .fold > summary:hover { color: #fff; }
-  .fold > *:not(summary) { padding: 0 1rem 1rem; }
-  #nnueWrap { position: relative; height: 250px; margin: 0.8rem 0; }
-  #nnueBars { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.5rem; }
-  #nnueBars span { background: #333; border-radius: 4px; padding: 0.2rem 0.6rem; font-size: 0.85em; }
-  #spsaPanel { max-width: 950px; margin: 0 auto 2.4rem; }
-  #spsaWrap { position: relative; height: 260px; margin: 0.8rem 0; }
-  #spsaBars { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.5rem; }
-  #spsaBars span { background: #333; border-radius: 4px; padding: 0.2rem 0.6rem; font-size: 0.85em; }
-  #trainWrap { position: relative; height: 240px; margin: 0.8rem 0; }
-  #trainBars { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.5rem; }
-  #trainBars span { background: #333; border-radius: 4px; padding: 0.2rem 0.6rem; font-size: 0.85em; }
-  .kept { color: #4ade80; font-weight: 600; }
-  .rejected { color: #9ca3af; }
-  #caveat { margin-top: 0.8rem; padding: 0.6rem 0.8rem; border-left: 3px solid #b45309;
-            background: #2a2118; font-size: 0.85em; color: #d6c9b4; line-height: 1.5; }
-  .loss { color: #f87171; }
-  /* Chart.js with maintainAspectRatio:false sizes itself to its parent,
-     so the parent needs an explicit height or the canvas grows forever. */
-  #agreeWrap { position: relative; height: 240px; }
-  #milestones { position: relative; height: 2.4em; margin-bottom: 0.9rem; font-size: 0.78em; color: #9ca3af; }
-  #milestones span { position: absolute; transform: translateX(-50%); white-space: nowrap; }
-  #milestones span::before { content: ""; display: block; width: 1px; height: 0.5em; background: #555; margin: 0 auto 2px; }
-  /* The play board reuses the .sq styling from the self-play viewer; only
-     the interaction affordances are new. */
-  /* Sized off the same variables as the self-play board rather than
-     percentages: 1fr columns with content-sized rows gave rectangular
-     cells, because a row with no explicit height is only as tall as the
-     glyph in it. */
-  :root { --pboard: min(90vw, 70vh, 560px); --psq: calc(var(--pboard) / 8); }
-  #playPanel { width: var(--pboard); margin: 0 auto 2.2rem; }
-  #playBoard { display: grid;
-               grid-template-columns: repeat(8, var(--psq));
-               grid-template-rows: repeat(8, var(--psq));
-               width: var(--pboard); height: var(--pboard);
-               border: 2px solid #555; user-select: none; }
-  #playBoard .sq { font-size: calc(var(--psq) * 0.65); }
+  .highlight { outline: 3px solid #ffd54f; outline-offset: -3px; }
+  .sel { outline: 3px solid #facc15; outline-offset: -3px; }
+  .target::after { content: ""; position: absolute; inset: 38%; border-radius: 50%;
+                   background: rgba(250,204,21,0.75); }
   #playBoard .sq { cursor: pointer; }
-  #playBoard .sel { outline: 3px solid #facc15; outline-offset: -3px; }
-  #playBoard .target::after { content: ""; position: absolute; inset: 38%;
-                              border-radius: 50%; background: rgba(250,204,21,0.75); }
-  #playBoard .sq { position: relative; }
-  #playControls { display: flex; gap: 0.5rem; align-items: center; margin-top: 0.6rem; flex-wrap: wrap; }
-  #playStatus { margin-left: 0.4rem; font-weight: 600; }
-  #playStatus.bad { color: #f87171; }
-  #playStatus.good { color: #4ade80; }
-  #playMeta { margin-bottom: 0.5rem; }
+  button { font-size: 0.9rem; padding: 0.4rem 0.8rem; cursor: pointer; border-radius: 5px;
+           border: 1px solid #3a3f47; background: #262a31; color: #e6e6e6; }
+  button:hover { background: #30353d; }
+  .controls { display: flex; gap: 0.5rem; align-items: center; margin-top: 0.7rem; flex-wrap: wrap; }
+  .kv { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 0.3rem 1rem; font-size: 0.84rem; color: #8b919b; margin-top: 0.6rem; }
+  .kv b { color: #d8dce2; }
 </style>
 </head>
 <body>
-<!-- NNUE training is the active work and stays open. Everything else
-     still runs and still updates; it is folded so the page leads with
-     one thing instead of six. -->
-<div id="nnuePanel">
-  <h2>NNUE training (live)</h2>
-  <div id="nnueNote" class="note">HalfKP features (40,960 king-conditioned inputs per side), blended target of search score and game result, shallow high-volume self-play. Green is the network's error on games it has never seen, red dashed is the hand-written evaluation's error on the same positions: green below red means the network is more accurate. Purple is how much each evaluation moves between positions one move apart, and it matters just as much: the search prunes on pawn thresholds, so an evaluation that jumps a pawn per move makes them all misfire. A network needs to be both more accurate and about as smooth before it can win a game.</div>
-  <div id="nnueVerdict"></div>
-  <div id="nnueArch"></div>
-  <div id="nnueBars"></div>
-  <div id="genProgressOuter"><div id="genProgressFill"></div><div id="genProgressLabel"></div></div>
-  <div id="phaseExplain" class="note"></div>
-  <div id="nnueLive">
-    <div id="nnueBoard"></div>
-    <div id="nnueLiveLabel" class="note"></div>
-  </div>
-  <div id="nnueWrap"><canvas id="nnueChart"></canvas></div>
-  <div id="metricLegend">
-    <b>Net error</b> and <b>Hand error</b>: mean squared difference, in pawns squared, between each evaluation and the depth-3 search score it is trying to predict, measured only on games the network never trained on. Lower is better and the network needs to be below the hand-written evaluation.
-    <b>Jump/move</b> and <b>Hand jump</b>: how many pawns the evaluation changes between two positions one move apart. The search prunes on pawn-sized thresholds, so an evaluation that jumps makes those thresholds misfire however accurate it is. This is currently the blocker.
-    <b>Elo</b>: measured over 400 games against the champion, shown only for generations that were tested.
-  </div>
-  <table class="steps"><thead><tr><th>Gen</th><th class="num">Pool</th><th class="num">Net error</th><th class="num">Hand error</th><th class="num">Jump/move</th><th class="num">Hand jump</th><th class="num">Elo</th><th>Kept?</th></tr></thead>
-    <tbody id="nnueBody"></tbody></table>
-</div>
+<div class="wrap">
 
+<h1>Self-play training</h1>
+<div class="sub">The engine plays itself, learns to predict what its own deeper search concludes, and every network must beat the current champion in a match before it is used.</div>
 
-<details class="fold"><summary>Play the engine</summary>
-<div id="playPanel">
-  <h2>Play the engine</h2>
-  <div id="playMeta" class="note"></div>
-  <div id="playBoard"></div>
-  <div id="playControls">
-    <button id="playNew">New game</button>
-    <button id="playHint">Hint</button>
-    <button id="playFlip">Play as Black</button>
-    <span id="playStatus"></span>
+<div class="cards" id="cards"></div>
+
+<div class="bar"><div class="fill" id="fill"></div><div class="barlabel" id="barlabel"></div></div>
+<div class="note" id="phase"></div>
+
+<div class="row">
+  <div class="board small" id="nnueBoard"></div>
+  <div style="flex:1 1 320px">
+    <div class="note" id="liveLabel"></div>
+    <div class="kv" id="arch"></div>
   </div>
 </div>
 
+<h2>Accuracy and smoothness, last 10 generations</h2>
+<div class="chartbox"><canvas id="nnueChart"></canvas></div>
+<div class="note">Green is the network's error on games it never trained on; red dashed is the hand-written evaluation on the same positions. Purple is how many pawns each evaluation moves between positions one move apart: the search prunes on pawn-sized thresholds, so a jumpy evaluation breaks them however accurate it is.</div>
+
+<table>
+  <thead><tr><th>Gen</th><th class="num">Pool</th><th class="num">Net error</th><th class="num">Hand error</th>
+  <th class="num">Jump</th><th class="num">Hand jump</th><th class="num">Elo</th><th>Result</th></tr></thead>
+  <tbody id="nnueBody"></tbody>
+</table>
+
+<details>
+  <summary>Play the engine</summary>
+  <div>
+    <div class="note" id="playMeta"></div>
+    <div class="board" id="playBoard"></div>
+    <div class="controls">
+      <button id="playNew">New game</button>
+      <button id="playHint">Hint</button>
+      <button id="playFlip">Play as Black</button>
+      <span id="playStatus"></span>
+    </div>
+  </div>
 </details>
 
-<details class="fold"><summary>Engine strength against Stockfish</summary>
-<div id="improve">
-  <h2>Engine strength (Stockfish-calibrated Elo)</h2>
-  <div id="progressOuter"><div id="progressFill" style="width:0%"></div><div id="progressLabel"></div></div>
-  <div id="milestones"></div>
-  <table class="steps"><thead><tr><th>Change</th><th class="num">Calibrated Elo</th><th class="num">Gain</th></tr></thead>
-    <tbody id="stepsBody"></tbody></table>
-  <div id="external"></div>
-  <div id="tech"></div>
-  <div id="caveat"></div>
-  <h2 style="margin-top:1.4rem">Where the strength is limited</h2>
-  <div id="agreeWrap"><canvas id="agreeChart"></canvas></div>
-  <div id="agreeNote" class="note" style="margin-top:0.5rem"></div>
+<details>
+  <summary>Strength against Stockfish</summary>
+  <div>
+    <div class="bar"><div class="fill" id="progressFill"></div><div class="barlabel" id="progressLabel"></div></div>
+    <table><thead><tr><th>Change</th><th class="num">Calibrated Elo</th><th class="num">Gain</th></tr></thead>
+      <tbody id="stepsBody"></tbody></table>
+    <div class="note" id="external"></div>
+    <div class="note" id="tech"></div>
+    <div class="note" id="caveat" style="margin-top:0.7rem; border-left:3px solid #b45309; padding-left:0.7rem"></div>
+  </div>
+</details>
+
 </div>
-
-</details>
-
-<details class="fold"><summary>SPSA weight tuning</summary>
-<div id="spsaPanel">
-  <h2>SPSA tuning (live)</h2>
-  <div id="spsaNote" class="note">Tuning evaluation weights against game results rather than against a prediction target. Each iteration perturbs every weight at once and plays the two versions against each other.</div>
-  <div id="spsaBars"></div>
-  <div id="spsaWrap"><canvas id="spsaChart"></canvas></div>
-</div>
-
-</details>
-
-<details class="fold"><summary>Self-play viewer (live board)</summary>
-<h2 id="title">Self-play: WHITE vs BLACK (depth-2 engine)</h2>
-<div id="badge"></div>
-<div id="board"></div>
-<div id="controls">
-  <button id="first">|&lt;</button>
-  <button id="prev">&lt;</button>
-  <button id="play">Play</button>
-  <button id="next">&gt;</button>
-  <button id="last">&gt;|</button>
-  <input type="range" id="slider" min="0" value="0">
-  <button id="live">&#9679; Live</button>
-</div>
-<div id="status"></div>
-
-
-</details>
-
-<details class="fold"><summary>Earlier self-play training run</summary>
-<div id="trainPanel">
-  <h2>Self-play training (live)</h2>
-  <div id="trainStatus" class="note">waiting for a training run...</div>
-  <div id="trainBars"></div>
-  <div id="trainWrap"><canvas id="trainChart"></canvas></div>
-  <table class="steps"><thead><tr><th>Gen</th><th class="num">Positions</th><th class="num">Held-out loss</th><th class="num">Elo vs champion</th><th>Kept?</th></tr></thead>
-    <tbody id="trainBody"></tbody></table>
-</div>
-
-</details>
-
-<details class="fold"><summary>Engine arena (round robin)</summary>
-<div id="arena">
-  <h2>Go engine arena</h2>
-  <div id="arenaStatus">Waiting for the arena to start&hellip;</div>
-  <table class="ratings"><thead><tr><th>Engine</th><th>Elo</th><th style="width:45%"></th></tr></thead>
-    <tbody id="ratingsBody"></tbody></table>
-  <div id="matchLog"></div>
-</div>
-
-</details>
-
-<details class="fold"><summary>Genetic-algorithm training (historical)</summary>
-<div id="training">
-  <h2>Training progress</h2>
-  <div id="modelBanner" class="holding">Waiting for the first result&hellip;</div>
-  <div id="genProgress">Waiting for training to start&hellip;</div>
-  <div id="curveWrap"><canvas id="curve" height="90"></canvas></div>
-  <div id="curveLegend">Blue: challenger vs champion win rate (green = promoted, red = rejected) &mdash; noisy, relative.
-  Gray dashed: Elo vs a random-move baseline &mdash; saturates at 100% win rate almost immediately, stops being useful once flat.
-  Orange: champion's best-ever Elo vs a fixed equal-depth bot (default weights) &mdash; a ratchet, not a raw reading: a
-  promotion only sticks if it doesn't score worse here than the best champion seen so far, so this line can only go up.</div>
-</div>
-
-</details>
-
 <script>
 const SYMBOLS = {
-  wK: "♔", wQ: "♕", wR: "♖", wB: "♗", wN: "♘", wP: "♙",
-  bK: "♚", bQ: "♛", bR: "♜", bB: "♝", bN: "♞", bP: "♟",
+  wK: "\u2654", wQ: "\u2655", wR: "\u2656", wB: "\u2657", wN: "\u2658", wP: "\u2659",
+  bK: "\u265A", bQ: "\u265B", bR: "\u265C", bB: "\u265D", bN: "\u265E", bP: "\u265F",
 };
 const files = "abcdefgh";
-
-let data = null;
-let frameIdx = 0;
-let playing = false;
-let timer = null;
-let followLive = true;
-let lastGeneration = null;
-let lastLiveKey = null;
-
-function squareEl(file, rank) {
-  return document.getElementById(`sq-${files[file]}${rank + 1}`);
+const chartSignatures = {};
+function updateChart(key, chart, data) {
+  const sig = JSON.stringify(data.datasets.map(d => d.data)) + "|" + JSON.stringify(data.labels);
+  if (chartSignatures[key] === sig) return;
+  chartSignatures[key] = sig;
+  chart.data = data;
+  chart.update("none");
+}
+async function post(path, body) {
+  const r = await fetch(path, {method: "POST", body: JSON.stringify(body || {})});
+  return r.json();
 }
 
-function buildBoard() {
-  const boardEl = document.getElementById("board");
-  boardEl.innerHTML = "";
-  for (let rank = 7; rank >= 0; rank--) {
-    for (let file = 0; file < 8; file++) {
-      const div = document.createElement("div");
-      div.id = `sq-${files[file]}${rank + 1}`;
-      div.className = "sq " + ((file + rank) % 2 === 0 ? "dark" : "light");
-      boardEl.appendChild(div);
-    }
-  }
-}
-
-function renderBoard(boardMap, fromSq, toSq) {
-  for (let rank = 0; rank < 8; rank++) {
-    for (let file = 0; file < 8; file++) {
-      const name = files[file] + (rank + 1);
-      const el = squareEl(file, rank);
-      const code = boardMap[name];
-      el.textContent = code ? SYMBOLS[code] : "";
-      el.classList.remove("highlight", "wpiece", "bpiece");
-      if (code) el.classList.add(code[0] === "w" ? "wpiece" : "bpiece");
-    }
-  }
-  if (fromSq) squareEl(files.indexOf(fromSq[0]), parseInt(fromSq[1]) - 1).classList.add("highlight");
-  if (toSq) squareEl(files.indexOf(toSq[0]), parseInt(toSq[1]) - 1).classList.add("highlight");
-}
-
-function updateBadge(gen, game, gamesPerGen, turn) {
-  const el = document.getElementById("badge");
-  el.innerHTML = "";
-  const parts = [
-    gen != null ? `Gen ${gen}` : null,
-    game != null ? `Game ${game}${gamesPerGen ? "/" + gamesPerGen : ""}` : null,
-    turn != null ? `Turn ${turn}` : null,
-  ].filter(Boolean);
-  for (const p of parts) {
-    const span = document.createElement("span");
-    span.textContent = p;
-    el.appendChild(span);
-  }
-}
-
-// Live labels look like "Gen 3, game 2/5: CHALLENGER(white) vs CHAMPION(black)"
-function parseLiveLabel(label) {
-  const m = label.match(/Gen (\d+), game (\d+)\/(\d+)/);
-  return m ? { gen: m[1], game: m[2], gamesPerGen: m[3] } : { gen: null, game: null, gamesPerGen: null };
-}
-
-function render() {
-  const frame = data.frames[frameIdx];
-  renderBoard(frame.board, frame.from, frame.to);
-  document.getElementById("slider").value = frameIdx;
-  const moveText = frame.move_no === 0 ? "Starting position" : `Move ${frame.move_no}: ${frame.mover} ${frame.from}${frame.to}`;
-  const resultText = frameIdx === data.frames.length - 1 ? `, ${data.result}` : "";
-  document.getElementById("status").textContent = moveText + resultText;
-  document.getElementById("title").textContent = data.generation != null
-    ? `Generation ${data.generation}: ${data.result}` : "Self-play (recorded game)";
-  updateBadge(data.generation, data.game, data.games_per_gen, frame.move_no);
-}
-
-function goTo(i) {
-  frameIdx = Math.max(0, Math.min(data.frames.length - 1, i));
-  render();
-}
-
-function stopPlay() {
-  playing = false;
-  clearInterval(timer);
-  document.getElementById("play").textContent = "Play";
-}
-
-function setFollowLive(on) {
-  followLive = on;
-  document.getElementById("live").style.opacity = on ? "1" : "0.5";
-  if (on) stopPlay();
-}
-
-function manualControl(fn) {
-  // No recorded game loaded yet (data is null): nothing to scrub to, and
-  // touching data.frames here would throw. Observed live: a stray earlier
-  // click left followLive permanently false with data still null, which
-  // silently broke both live-follow pollers (they both bail early when
-  // !followLive) and crashed Play's own timer every tick trying to read
-  // null.frames -- the board just stayed blank with no visible error to
-  // the user watching the page (only in the console).
-  return () => { if (!data) return; setFollowLive(false); stopPlay(); fn(); };
-}
-
-document.getElementById("first").onclick = manualControl(() => goTo(0));
-document.getElementById("prev").onclick = manualControl(() => goTo(frameIdx - 1));
-document.getElementById("next").onclick = manualControl(() => goTo(frameIdx + 1));
-document.getElementById("last").onclick = manualControl(() => goTo(data.frames.length - 1));
-document.getElementById("slider").oninput = (e) => manualControl(() => goTo(parseInt(e.target.value)))();
-document.getElementById("play").onclick = () => {
-  if (!data) return;
-  setFollowLive(false);
-  if (playing) { stopPlay(); return; }
-  playing = true;
-  document.getElementById("play").textContent = "Pause";
-  timer = setInterval(() => {
-    if (!data || frameIdx >= data.frames.length - 1) { stopPlay(); return; }
-    goTo(frameIdx + 1);
-  }, 400);
-};
-document.getElementById("live").onclick = () => setFollowLive(true);
-
-function loadGame(d) {
-  data = d;
-  document.getElementById("slider").max = data.frames.length - 1;
-  buildBoard();
-  goTo(data.frames.length - 1);
-}
-
-async function pollForNewGeneration() {
-  try {
-    const d = await fetch("game_record.json?_=" + Date.now()).then(r => r.json());
-    if (d.generation !== lastGeneration) {
-      lastGeneration = d.generation;
-      data = d;
-      document.getElementById("slider").max = data.frames.length - 1;
-      if (!followLive) return; // user is reviewing a past game; don't yank it away
-      buildBoard();
-      goTo(data.frames.length - 1);
-    }
-  } catch (e) {}
-}
-
-async function pollLiveGame() {
-  if (!followLive) return;
-  try {
-    const state = await fetch("live_game.json?_=" + Date.now()).then(r => r.json());
-    const key = `${state.label}#${state.move_no}`;
-    if (key === lastLiveKey) return;
-    lastLiveKey = key;
-    if (!document.getElementById("board").childElementCount) buildBoard();
-    renderBoard(state.board, state.from, state.to);
-    document.getElementById("slider").value = 0;
-    document.getElementById("title").textContent = state.label;
-    document.getElementById("status").textContent =
-      `LIVE, move ${state.move_no}: ${state.mover} ${state.from}${state.to}`;
-    const { gen, game, gamesPerGen } = parseLiveLabel(state.label);
-    updateBadge(gen, game, gamesPerGen, state.move_no);
-  } catch (e) {}
-}
-
-pollForNewGeneration();
-pollLiveGame();
-setInterval(pollForNewGeneration, 3000);
-setInterval(pollLiveGame, 1000);
-
-let curveChart = null;
-
-function refreshGenProgress(status) {
-  const el = document.getElementById("genProgress");
-  if (status.phase === "done") {
-    el.textContent = "Training finished.";
-    return;
-  }
-  if (status.phase === "stalled") {
-    el.textContent = `Gen ${status.generation}: stopped early -- no improvement for several generations in a row.`;
-    return;
-  }
-  const candidateText = status.population_size > 1 ? ` candidate ${status.candidate}/${status.population_size},` : "";
-  const phaseText = status.phase === "benchmarking"
-    ? "benchmarking best candidate vs the fixed bot…"
-    : `game ${status.game}/${status.games_per_gen} in progress`;
-  const outcomesText = status.outcomes.length ? `, so far: ${status.outcomes.join(", ")}` : "";
-  el.textContent = `Gen ${status.generation},${candidateText} ${phaseText}, running score ${status.running_score}/${status.games_per_gen}${outcomesText}`;
-}
-
-function refreshModelBanner(fullHistory) {
-  const el = document.getElementById("modelBanner");
-  if (!fullHistory.length) return;
-  const last = fullHistory[fullHistory.length - 1];
-  if (last.promoted) {
-    const prevElo = fullHistory.length > 1 ? fullHistory[fullHistory.length - 2].vs_fixed_bot_elo : null;
-    el.className = "promoted";
-    el.textContent = `New best model: Gen ${last.generation}, elo ${last.vs_fixed_bot_elo >= 0 ? "+" : ""}${last.vs_fixed_bot_elo}` +
-      (prevElo != null ? ` (up from ${prevElo >= 0 ? "+" : ""}${prevElo})` : "");
-  } else {
-    el.className = "holding";
-    el.textContent = `Still champion from an earlier generation -- best-ever elo ${last.vs_fixed_bot_elo >= 0 ? "+" : ""}${last.vs_fixed_bot_elo} not beaten yet (Gen ${last.generation} rejected)`;
-  }
-}
-
-function refreshCurve(fullHistory) {
-  refreshModelBanner(fullHistory);
-  const history = fullHistory.slice(-10);
-  const gens = history.map(h => h.generation);
-  const winRates = history.map(h => Math.round(h.win_rate * 1000) / 10);
-  const promoted = history.map(h => h.promoted ? "#16a34a" : "#dc2626");
-  const randomEloPoints = history.filter(h => "vs_random_elo" in h).map(h => ({x: h.generation, y: h.vs_random_elo}));
-  const fixedBotEloPoints = history.filter(h => "vs_fixed_bot_elo" in h).map(h => ({x: h.generation, y: h.vs_fixed_bot_elo}));
-  if (!curveChart) {
-    curveChart = new Chart(document.getElementById('curve'), {
-      type: 'line',
-      data: { labels: gens, datasets: [
-        { label: 'Challenger win rate vs champion (%)', data: winRates, borderColor: '#2563eb',
-          pointBackgroundColor: promoted, pointRadius: 5, tension: 0.2, yAxisID: 'y' },
-        { label: 'Champion Elo vs random-move (saturates fast)', data: randomEloPoints, borderColor: '#6b7280',
-          pointBackgroundColor: '#6b7280', pointRadius: 3, tension: 0.2, yAxisID: 'y1', borderDash: [4, 3] },
-        { label: "Champion's best-ever Elo vs fixed bot (ratchet)", data: fixedBotEloPoints, borderColor: '#f59e0b',
-          pointBackgroundColor: '#f59e0b', pointRadius: 4, tension: 0.2, yAxisID: 'y1' },
-      ] },
-      options: { animation: false, scales: {
-        y: { min: 0, max: 100, position: 'left', title: { display: true, text: 'Win rate %' } },
-        y1: { position: 'right', title: { display: true, text: 'Elo vs baseline' }, grid: { drawOnChartArea: false } },
-        x: { title: { display: true, text: 'Generation' } }
-      } }
-    });
-  } else {
-    const sig = JSON.stringify([gens, winRates, randomEloPoints, fixedBotEloPoints]);
-    if (chartSignatures.curve !== sig) {
-      chartSignatures.curve = sig;
-      curveChart.data.labels = gens;
-      curveChart.data.datasets[0].data = winRates;
-      curveChart.data.datasets[0].pointBackgroundColor = promoted;
-      curveChart.data.datasets[1].data = randomEloPoints;
-      curveChart.data.datasets[2].data = fixedBotEloPoints;
-      curveChart.update("none");
-    }
-  }
-}
-
-async function pollTrainingProgress() {
-  try {
-    const status = await fetch("training_status.json?_=" + Date.now()).then(r => r.json());
-    refreshGenProgress(status);
-  } catch (e) {}
-  try {
-    const history = await fetch("training_curve.json?_=" + Date.now()).then(r => r.json());
-    if (history.length) refreshCurve(history);
-  } catch (e) {}
-}
-
-pollTrainingProgress();
-setInterval(pollTrainingProgress, 1000);
-
-function refreshRatings(rows) {
-  const body = document.getElementById("ratingsBody");
-  const max = Math.max(1, ...rows.map(r => r.elo));
-  const sorted = [...rows].sort((a, b) => b.elo - a.elo);
-  body.innerHTML = "";
-  for (const r of sorted) {
-    const tr = document.createElement("tr");
-    if (r.name.includes("BASELINE")) tr.className = "baseline";
-    const width = Math.max(0, r.elo / max * 100);
-    tr.innerHTML = `<td>${r.name}</td><td class="elo">${r.elo >= 0 ? "+" : ""}${Math.round(r.elo)}</td>` +
-      `<td><span class="bar" style="width:${width}%"></span></td>`;
-    body.appendChild(tr);
-  }
-}
-
-function refreshMatchLog(matches) {
-  const el = document.getElementById("matchLog");
-  el.innerHTML = "";
-  for (const m of [...matches].reverse()) {
-    const d = document.createElement("div");
-    const gap = m.elo_gap >= 0 ? `+${m.elo_gap}` : `${m.elo_gap}`;
-    d.textContent = `${m.a} vs ${m.b}: ${m.wins}-${m.draws}-${m.losses} (${gap} Elo, ${m.seconds}s)`;
-    el.appendChild(d);
-  }
-}
-
-async function pollArena() {
-  try {
-    const st = await fetch("arena_status.json?_=" + Date.now()).then(r => r.json());
-    const el = document.getElementById("arenaStatus");
-    el.textContent = st.phase === "done"
-      ? `Arena complete: ${st.total_matches} matches played.`
-      : `Match ${st.match}/${st.total_matches}: ${st.label} (${st.games_per_pair} games)`;
-  } catch (e) {}
-  try {
-    const rows = await fetch("arena_ratings.json?_=" + Date.now()).then(r => r.json());
-    if (rows.length) refreshRatings(rows);
-  } catch (e) {}
-  try {
-    const matches = await fetch("arena_matches.json?_=" + Date.now()).then(r => r.json());
-    if (matches.length) refreshMatchLog(matches);
-  } catch (e) {}
-}
-
-pollArena();
-setInterval(pollArena, 1000);
-
-async function pollImprovements() {
-  try {
-    const d = await fetch("improvements.json?_=" + Date.now()).then(r => r.json());
-    // Scale runs from 0 to the Deep Blue target so the milestones below
-    // sit at their true positions on the same axis.
-    const pct = Math.max(0, Math.min(100, d.current / d.target * 100));
-    document.getElementById("progressFill").style.width = pct + "%";
-    const ci = (d.current_low && d.current_high) ? ` (${d.current_low}-${d.current_high})` : "";
-    document.getElementById("progressLabel").textContent =
-      `${d.current} Elo${ci}, ${pct.toFixed(0)}% of the way to ${d.target} (${d.target_name})`;
-
-    const ms = document.getElementById("milestones");
-    ms.innerHTML = "";
-    for (const m of (d.milestones || [])) {
-      const sp = document.createElement("span");
-      sp.style.left = Math.min(97, m.elo / d.target * 100) + "%";
-      sp.style.top = (ms.childElementCount % 2) ? "0.75em" : "0";
-      sp.textContent = `${m.name} ${m.elo}`;
-      ms.appendChild(sp);
-    }
-
-    const body = document.getElementById("stepsBody");
-    body.innerHTML = "";
-    for (const s of d.steps) {
-      const tr = document.createElement("tr");
-      let gain = "&mdash;";
-      if (s.gain > 0) gain = `<span class="gain">+${s.gain} (+${s.pct}%)</span>`;
-      else if (s.gain < 0) gain = `<span class="loss">${s.gain} (${s.pct}%)</span>`;
-      const range = (s.low && s.high) ? `<div class="note">${s.low}-${s.high}</div>` : "";
-      tr.innerHTML = `<td>${s.name}<div class="note">${s.note || ""}</div></td>` +
-        `<td class="num">${s.elo}${range}</td><td class="num">${gain}</td>`;
-      body.appendChild(tr);
-    }
-    document.getElementById("external").innerHTML =
-      "Calibrated against Stockfish at its own Elo-limited settings: " + d.external.map(e =>
-        `${e.opponent} &rarr; score ${e.score.toFixed(2)}`).join(" &middot; ");
-    if (d.tech) {
-      document.getElementById("tech").innerHTML =
-        `Throughput: <b>${d.tech.nps}</b> positions/sec (single-threaded), depth ${d.tech.depth}. ` +
-        `${d.tech.reference || ""}`;
-    }
-    document.getElementById("caveat").textContent = d.caveat || "";
-    if (d.agreement) drawAgreement(d.agreement);
-  } catch (e) {}
-}
-
-let agreeChart = null;
-function drawAgreement(a) {
-  document.getElementById("agreeNote").textContent = a.note + " Oracle: " + a.oracle + ".";
-  const labels = a.full.map(p => "depth " + p[0]);
-  const data = {
-    labels,
-    datasets: [
-      {label: "full evaluation", data: a.full.map(p => p[1]),
-       borderColor: "#4ade80", backgroundColor: "#4ade80", tension: 0.25},
-      {label: "material only", data: a.material.map(p => p[1]),
-       borderColor: "#f87171", backgroundColor: "#f87171", tension: 0.25},
-    ],
-  };
-  if (agreeChart) { updateChart("agree", agreeChart, data); return; }
-  agreeChart = new Chart(document.getElementById("agreeChart"), {
-    type: "line", data,
-    options: {
-      responsive: true, maintainAspectRatio: false, animation: false,
-      plugins: {legend: {labels: {color: "#ddd"}}},
-      scales: {
-        y: {title: {display: true, text: "agrees with Stockfish (%)", color: "#bbb"},
-            ticks: {color: "#bbb"}, grid: {color: "#333"}},
-        x: {ticks: {color: "#bbb"}, grid: {color: "#333"}},
-      },
-    },
-  });
-}
-
-// ---- Play against the engine -------------------------------------------
-// The position lives here as a FEN and is sent with every request, so the
-// server stays stateless and a reload cannot desynchronise the game.
+// Play-panel state. The position lives here as a FEN and is sent with
+// every request, so the server stays stateless.
 let playFEN = null;
 let playLegal = [];
 let playSel = null;
 let humanWhite = true;
 let playBusy = false;
+let nnueBoardBuilt = false;
 
 function playSquareEl(file, rank) {
   return document.getElementById(`pq-${files[file]}${rank + 1}`);
@@ -797,142 +297,9 @@ fetch("/api/engine").then(r => r.json()).then(d => {
   document.getElementById("playMeta").textContent =
     "Engine API not reachable: start ./play-bin instead of a static file server.";
 });
+
 newGame();
 
-// ---- live self-play training ------------------------------------------
-let trainChart = null;
-
-async function pollTraining() {
-  try {
-    const st = await fetch("train_status.json?_=" + Date.now()).then(r => r.json());
-    const bars = document.getElementById("trainBars");
-    bars.innerHTML = "";
-    const chips = [];
-    if (st.generation) chips.push(`Gen ${st.generation}/${st.generations}`);
-    if (st.phase) chips.push(st.phase);
-    if (st.phase === "self-play" && st.games_total)
-      chips.push(`game ${st.games}/${st.games_total}`);
-    if (st.phase === "training" && st.epochs)
-      chips.push(`epoch ${st.epoch}/${st.epochs}`);
-    if (st.phase === "evaluating" && st.eval_games)
-      chips.push(`${st.eval_games} test games`);
-    if (st.positions) chips.push(`${st.positions.toLocaleString()} positions`);
-    chips.push(`cumulative ${st.cum_elo >= 0 ? "+" : ""}${st.cum_elo || 0} Elo`);
-    for (const c of chips) {
-      const el = document.createElement("span");
-      el.textContent = c;
-      bars.appendChild(el);
-    }
-    document.getElementById("trainStatus").textContent =
-      st.phase === "done"
-        ? "Training finished."
-        : "The engine plays itself, learns to predict its own deeper search, and each new network must win a match against the current champion to be kept.";
-  } catch (e) {}
-
-  try {
-    const hist = await fetch("training.json?_=" + Date.now()).then(r => r.json());
-    if (!Array.isArray(hist) || !hist.length) return;
-
-    const body = document.getElementById("trainBody");
-    body.innerHTML = "";
-    for (const h of hist.slice().reverse()) {
-      const tr = document.createElement("tr");
-      tr.innerHTML =
-        `<td>${h.generation}</td>` +
-        `<td class="num">${h.positions.toLocaleString()}</td>` +
-        `<td class="num">${h.test_loss.toFixed(3)}</td>` +
-        `<td class="num">${h.tested ? (h.elo >= 0 ? "+" : "") + h.elo + " &plusmn; " + h.elo_margin : "&mdash;"}</td>` +
-        `<td class="${h.accepted ? "kept" : "rejected"}">${h.tested ? (h.accepted ? "kept" : "rejected") : "not tested"}</td>`;
-      body.appendChild(tr);
-    }
-
-    const data = {
-      labels: hist.map(h => "gen " + h.generation),
-      datasets: [
-        {label: "cumulative Elo gain", data: hist.map(h => h.cum_elo),
-         borderColor: "#4ade80", backgroundColor: "#4ade80", yAxisID: "y", tension: 0.2},
-        {label: "held-out loss (pawns squared)", data: hist.map(h => h.test_loss),
-         borderColor: "#60a5fa", backgroundColor: "#60a5fa", yAxisID: "y1", tension: 0.2},
-      ],
-    };
-    if (trainChart) { updateChart("train", trainChart, data); return; }
-    trainChart = new Chart(document.getElementById("trainChart"), {
-      type: "line", data,
-      options: {
-        responsive: true, maintainAspectRatio: false, animation: false, animation: false,
-        plugins: {legend: {labels: {color: "#ddd"}}},
-        scales: {
-          y: {position: "left", title: {display: true, text: "cumulative Elo", color: "#4ade80"},
-              ticks: {color: "#bbb"}, grid: {color: "#333"}},
-          y1: {position: "right", title: {display: true, text: "held-out loss", color: "#60a5fa"},
-               ticks: {color: "#bbb"}, grid: {drawOnChartArea: false}},
-          x: {ticks: {color: "#bbb"}, grid: {color: "#333"}},
-        },
-      },
-    });
-  } catch (e) {}
-}
-
-pollTraining();
-setInterval(pollTraining, 1500);
-
-// ---- live SPSA tuning ---------------------------------------------------
-const SPSA_COLOURS = ["#4ade80","#60a5fa","#f472b6","#fbbf24","#a78bfa","#34d399","#fb923c"];
-let spsaChart = null;
-
-async function pollSPSA() {
-  try {
-    const d = await fetch("spsa.json?_=" + Date.now()).then(r => r.json());
-    if (!d.history || !d.history.length) return;
-    const last = d.history[d.history.length - 1];
-
-    const bars = document.getElementById("spsaBars");
-    bars.innerHTML = "";
-    const chips = [`iteration ${last.iteration}/${d.iterations}`,
-                   `${Math.round(d.elapsed / 60)} min elapsed`];
-    d.names.forEach((n, i) => chips.push(`${n} ${last.values[i].toFixed(3)}`));
-    for (const c of chips) {
-      const el = document.createElement("span");
-      el.textContent = c;
-      bars.appendChild(el);
-    }
-
-    // Each weight is drawn relative to where it started, so seven very
-    // different scales can share one axis and what matters (which way
-    // each one is drifting) stays readable.
-    const first = d.history[0].values;
-    const data = {
-      labels: d.history.map(h => h.iteration),
-      datasets: d.names.map((n, i) => ({
-        label: n,
-        data: d.history.map(h => h.values[i] / (first[i] || 1)),
-        borderColor: SPSA_COLOURS[i % SPSA_COLOURS.length],
-        backgroundColor: SPSA_COLOURS[i % SPSA_COLOURS.length],
-        tension: 0.2, pointRadius: 0,
-      })),
-    };
-    if (spsaChart) { updateChart("spsa", spsaChart, data); return; }
-    spsaChart = new Chart(document.getElementById("spsaChart"), {
-      type: "line", data,
-      options: {
-        responsive: true, maintainAspectRatio: false, animation: false, animation: false,
-        plugins: {legend: {labels: {color: "#ddd", boxWidth: 12}}},
-        scales: {
-          y: {title: {display: true, text: "weight, relative to its starting value", color: "#bbb"},
-              ticks: {color: "#bbb"}, grid: {color: "#333"}},
-          x: {title: {display: true, text: "iteration", color: "#bbb"},
-              ticks: {color: "#bbb"}, grid: {color: "#333"}},
-        },
-      },
-    });
-  } catch (e) {}
-}
-
-// Charts re-render on a timer, and Chart.js animates every update even
-// when the numbers are identical, which reads as the page twitching every
-// two seconds. So: animation off, and the data is only pushed when its
-// signature has actually changed.
-const chartSignatures = {};
 function updateChart(key, chart, data) {
   const sig = JSON.stringify(data.datasets.map(d => d.data)) + "|" + JSON.stringify(data.labels);
   if (chartSignatures[key] === sig) return;
@@ -943,7 +310,6 @@ function updateChart(key, chart, data) {
 
 // ---- live NNUE training -------------------------------------------------
 let nnueChart = null;
-let nnueBoardBuilt = false;
 
 function buildNNUEBoard() {
   const el = document.getElementById("nnueBoard");
@@ -978,7 +344,7 @@ async function pollNNUELive() {
         if (name === st.from || name === st.to) el.classList.add("highlight");
       }
     }
-    document.getElementById("nnueLiveLabel").textContent =
+    document.getElementById("liveLabel").textContent =
       `${st.label}: move ${st.move_no}, ${st.mover} played ${st.from}${st.to}`;
   } catch (e) {}
 }
@@ -986,8 +352,8 @@ async function pollNNUELive() {
 async function pollNNUE() {
   try {
     const st = await fetch("nnue_status.json?_=" + Date.now()).then(r => r.json());
-    const bars = document.getElementById("nnueBars");
-    bars.innerHTML = "";
+    const bars = document.getElementById("__unused_bars");
+    if (bars) bars.innerHTML = "";
     const chips = [];
     if (st.generation) chips.push(`Gen ${st.generation}/${st.generations}`);
     if (st.phase) chips.push(st.phase);
@@ -999,7 +365,7 @@ async function pollNNUE() {
     for (const c of chips) {
       const el = document.createElement("span");
       el.textContent = c;
-      bars.appendChild(el);
+      if (bars) bars.appendChild(el);
     }
 
     if (st.arch) {
@@ -1014,7 +380,7 @@ async function pollNNUE() {
         ["Tested every", `${a.eval_every} generations, ${a.eval_games} games`],
         ["Next test", `generation ${st.next_eval}`],
       ];
-      document.getElementById("nnueArch").innerHTML =
+      document.getElementById("arch").innerHTML =
         rows.map(([k, v]) => `<div>${k}: <b>${v}</b></div>`).join("");
     }
 
@@ -1045,9 +411,9 @@ async function pollNNUE() {
       pct = 100;
       label = "finished";
     }
-    document.getElementById("genProgressFill").style.width = pct + "%";
-    document.getElementById("genProgressLabel").textContent = label;
-    document.getElementById("phaseExplain").textContent = explain;
+    document.getElementById("fill").style.width = pct + "%";
+    document.getElementById("barlabel").textContent = label;
+    document.getElementById("phase").textContent = explain;
   } catch (e) {}
 
   try {
@@ -1064,14 +430,14 @@ async function pollNNUE() {
     const accRatio = last.hand_mse ? (last.hand_mse / last.test_loss) : 0;
     const jumpRatio = last.hand_jump ? (last.jump / last.hand_jump) : 0;
     const smoothOK = jumpRatio > 0 && jumpRatio < 1.25;
-    document.getElementById("nnueVerdict").innerHTML = `
-      <div><div class="k">Accuracy (leading)</div>
+    document.getElementById("cards").innerHTML = `
+      <div class="card"><div class="k">Accuracy (leading)</div>
         <div class="v ${accOK ? "pass" : "fail"}">${accOK ? accRatio.toFixed(1) + "x better" : "behind"}</div>
         <div class="n">network ${last.test_loss.toFixed(2)} vs hand ${(last.hand_mse || 0).toFixed(2)}</div></div>
-      <div><div class="k">Smoothness (the blocker)</div>
+      <div class="card"><div class="k">Smoothness (the blocker)</div>
         <div class="v ${smoothOK ? "pass" : "fail"}">${jumpRatio ? jumpRatio.toFixed(2) + "x jumpier" : "&mdash;"}</div>
         <div class="n">${last.jump ? last.jump.toFixed(3) : "?"} vs ${last.hand_jump ? last.hand_jump.toFixed(3) : "?"} pawns per move</div></div>
-      <div><div class="k">Elo vs champion (verdict)</div>
+      <div class="card"><div class="k">Elo vs champion (verdict)</div>
         <div class="v ${lastTested ? (lastTested.accepted ? "pass" : "fail") : "neutral"}">${
           lastTested ? (lastTested.elo >= 0 ? "+" : "") + lastTested.elo + " &plusmn; " + lastTested.elo_margin : "not tested yet"}</div>
         <div class="n">${lastTested ? "generation " + lastTested.generation : "first test at generation " + (last.generation - last.generation % 8 + 8)}</div></div>`;
@@ -1136,16 +502,53 @@ async function pollNNUE() {
   } catch (e) {}
 }
 
+
 pollNNUE();
 setInterval(pollNNUE, 2000);
 pollNNUELive();
 setInterval(pollNNUELive, 900);
 
-pollSPSA();
-setInterval(pollSPSA, 3000);
+async function pollImprovements() {
+  try {
+    const d = await fetch("improvements.json?_=" + Date.now()).then(r => r.json());
+    // Scale runs from 0 to the Deep Blue target so the milestones below
+    // sit at their true positions on the same axis.
+    const pct = Math.max(0, Math.min(100, d.current / d.target * 100));
+    document.getElementById("progressFill").style.width = pct + "%";
+    const ci = (d.current_low && d.current_high) ? ` (${d.current_low}-${d.current_high})` : "";
+    document.getElementById("progressLabel").textContent =
+      `${d.current} Elo${ci}, ${pct.toFixed(0)}% of the way to ${d.target} (${d.target_name})`;
+
+
+    const body = document.getElementById("stepsBody");
+    body.innerHTML = "";
+    for (const s of d.steps) {
+      const tr = document.createElement("tr");
+      let gain = "&mdash;";
+      if (s.gain > 0) gain = `<span class="gain">+${s.gain} (+${s.pct}%)</span>`;
+      else if (s.gain < 0) gain = `<span class="loss">${s.gain} (${s.pct}%)</span>`;
+      const range = (s.low && s.high) ? `<div class="note">${s.low}-${s.high}</div>` : "";
+      tr.innerHTML = `<td>${s.name}<div class="note">${s.note || ""}</div></td>` +
+        `<td class="num">${s.elo}${range}</td><td class="num">${gain}</td>`;
+      body.appendChild(tr);
+    }
+    document.getElementById("external").innerHTML =
+      "Calibrated against Stockfish at its own Elo-limited settings: " + d.external.map(e =>
+        `${e.opponent} &rarr; score ${e.score.toFixed(2)}`).join(" &middot; ");
+    if (d.tech) {
+      document.getElementById("tech").innerHTML =
+        `Throughput: <b>${d.tech.nps}</b> positions/sec (single-threaded), depth ${d.tech.depth}. ` +
+        `${d.tech.reference || ""}`;
+    }
+    document.getElementById("caveat").textContent = d.caveat || "";
+    if (d.agreement) drawAgreement(d.agreement);
+  } catch (e) {}
+}
+
+let agreeChart = null;
 
 pollImprovements();
-setInterval(pollImprovements, 2000);
+setInterval(pollImprovements, 5000);
 </script>
 </body>
 </html>
