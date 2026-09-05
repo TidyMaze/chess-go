@@ -546,6 +546,9 @@ func main() {
 	// tactical noise in the target, which a static evaluation cannot
 	// learn anyway.
 	quietTol := flag.Float64("quiet", 0.35, "pawns of allowed static/quiescence disagreement")
+	poolFile := flag.String("pool-file", "nnue_pool.bin", "append-only positions, reloaded on restart")
+	netFile := flag.String("net-file", "nnue_net.gob", "network and optimiser checkpoint")
+	fresh := flag.Bool("fresh", false, "ignore any checkpoint and start over")
 	lambda := flag.Float64("lambda", 0.8, "weight on the search score against the game result")
 	k := flag.Float64("k", 0.30, "pawns-to-win-probability scale")
 	hidden := flag.Int("hidden", 32, "hidden units per perspective")
@@ -556,6 +559,26 @@ func main() {
 	useSigmoid := *target == "sigmoid"
 	rng := rand.New(rand.NewSource(23))
 	n := newNet(*hidden, rng)
+
+	// Resume rather than restart. A generation is a minute of ten cores,
+	// so a pool of two million positions is over half an hour of compute,
+	// and Adam's state is worth more still because it records how far
+	// each weight has already been tuned. Both used to be discarded on
+	// every restart.
+	startGen, cumElo := 1, 0
+	var pool []sample
+	if !*fresh {
+		if loaded, g, e, err := loadNet(*netFile, *hidden); err == nil {
+			n, startGen, cumElo = loaded, g+1, e
+			fmt.Printf("resumed from %s at generation %d (cumulative %+d Elo)\n", *netFile, g, e)
+		} else if !os.IsNotExist(err) {
+			fmt.Printf("not resuming: %v\n", err)
+		}
+		if p, err := loadPool(*poolFile, *poolCap); err == nil && len(p) > 0 {
+			pool = p
+			fmt.Printf("loaded %d positions from %s\n", len(pool), *poolFile)
+		}
+	}
 	workers := runtime.NumCPU()
 
 	champion := engine.Player{
@@ -582,10 +605,11 @@ func main() {
 		engine.HalfKPInputs, *hidden, params, workers)
 
 	var history []genRecord
-	var pool []sample
-	cumElo := 0
+	if data, err := os.ReadFile("nnue.json"); err == nil && !*fresh {
+		_ = json.Unmarshal(data, &history)
+	}
 
-	for gen := 1; gen <= *generations; gen++ {
+	for gen := startGen; gen < startGen+*generations; gen++ {
 		t0 := time.Now()
 		stats := &genStats{}
 
@@ -607,7 +631,7 @@ func main() {
 			}
 		}()
 
-		fresh := generate(champion, *gamesPerGen, *playDepth, *labelDepth, *maxPlies,
+		freshSamples := generate(champion, *gamesPerGen, *playDepth, *labelDepth, *maxPlies,
 			*lambda, *k, *quietTol, useSigmoid, gen, stats,
 			func(g *game.Game, ply int, from, to board.Sq) {
 				writeJSON("live_game.json", map[string]any{
@@ -619,12 +643,18 @@ func main() {
 			})
 		close(done)
 
-		pool = append(pool, fresh...)
+		// Appended before anything else touches it: the file is the
+		// resume marker, so positions are on disk before the generation
+		// that produced them can be lost.
+		if err := appendPool(*poolFile, freshSamples); err != nil {
+			fmt.Println("append pool:", err)
+		}
+		pool = append(pool, freshSamples...)
 		if len(pool) > *poolCap {
 			pool = pool[len(pool)-*poolCap:]
 		}
 		fmt.Printf("gen %d: %d new positions, pool %d (%.0fs generating)\n",
-			gen, len(fresh), len(pool), time.Since(t0).Seconds())
+			gen, len(freshSamples), len(pool), time.Since(t0).Seconds())
 
 		// Split by game, never by position: consecutive positions in a
 		// game differ by one move, so a random split leaks near-copies
@@ -782,6 +812,9 @@ func main() {
 			CumElo: cumElo, Seconds: int(time.Since(t0).Seconds()),
 		})
 		writeJSON("nnue.json", history)
+		if err := saveNet(*netFile, n, gen, cumElo); err != nil {
+			fmt.Println("save net:", err)
+		}
 	}
 	writeJSON("nnue_status.json", map[string]any{"phase": "done", "cum_elo": cumElo})
 }
