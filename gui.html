@@ -56,6 +56,17 @@
   #tech { margin-top: 0.5rem; font-size: 0.9em; color: #bbb; }
   #trainPanel { max-width: 950px; margin: 0 auto 2.4rem; }
   #nnuePanel { max-width: 950px; margin: 0 auto 2.4rem; }
+  /* width:100% because the page centres its text, which otherwise shrinks
+     each fold to the width of its own summary. */
+  .fold { width: 100%; max-width: 950px; margin: 0 auto 0.6rem; border: 1px solid #333;
+          border-radius: 6px; background: #202020; text-align: left; box-sizing: border-box; }
+  .fold > summary { cursor: pointer; padding: 0.7rem 1rem; font-weight: 600;
+                    font-size: 1.02em; color: #cfcfcf; list-style: none; user-select: none; }
+  .fold > summary::before { content: "\25B8"; display: inline-block; width: 1.1em;
+                            color: #888; transition: transform 0.15s; }
+  .fold[open] > summary::before { transform: rotate(90deg); }
+  .fold > summary:hover { color: #fff; }
+  .fold > *:not(summary) { padding: 0 1rem 1rem; }
   #nnueWrap { position: relative; height: 250px; margin: 0.8rem 0; }
   #nnueBars { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.5rem; }
   #nnueBars span { background: #333; border-radius: 4px; padding: 0.2rem 0.6rem; font-size: 0.85em; }
@@ -104,7 +115,20 @@
 </style>
 </head>
 <body>
+<!-- NNUE training is the active work and stays open. Everything else
+     still runs and still updates; it is folded so the page leads with
+     one thing instead of six. -->
+<div id="nnuePanel">
+  <h2>NNUE training (live)</h2>
+  <div id="nnueNote" class="note">HalfKP features (40,960 king-conditioned inputs per side), blended target of search score and game result, shallow high-volume self-play. Each network must win a match against the champion to be adopted.</div>
+  <div id="nnueBars"></div>
+  <div id="nnueWrap"><canvas id="nnueChart"></canvas></div>
+  <table class="steps"><thead><tr><th>Gen</th><th class="num">Pool</th><th class="num">Held-out</th><th class="num">Constant guess</th><th class="num">Explains</th><th class="num">Elo</th><th>Kept?</th></tr></thead>
+    <tbody id="nnueBody"></tbody></table>
+</div>
 
+
+<details class="fold"><summary>Play the engine</summary>
 <div id="playPanel">
   <h2>Play the engine</h2>
   <div id="playMeta" class="note"></div>
@@ -117,45 +141,9 @@
   </div>
 </div>
 
-<div id="trainPanel">
-  <h2>Self-play training (live)</h2>
-  <div id="trainStatus" class="note">waiting for a training run...</div>
-  <div id="trainBars"></div>
-  <div id="trainWrap"><canvas id="trainChart"></canvas></div>
-  <table class="steps"><thead><tr><th>Gen</th><th class="num">Positions</th><th class="num">Held-out loss</th><th class="num">Elo vs champion</th><th>Kept?</th></tr></thead>
-    <tbody id="trainBody"></tbody></table>
-</div>
+</details>
 
-<div id="nnuePanel">
-  <h2>NNUE training (live)</h2>
-  <div id="nnueNote" class="note">HalfKP features (40,960 king-conditioned inputs per side), blended target of search score and game result, shallow high-volume self-play. Each network must win a match against the champion to be adopted.</div>
-  <div id="nnueBars"></div>
-  <div id="nnueWrap"><canvas id="nnueChart"></canvas></div>
-  <table class="steps"><thead><tr><th>Gen</th><th class="num">Pool</th><th class="num">Held-out</th><th class="num">Constant guess</th><th class="num">Explains</th><th class="num">Elo</th><th>Kept?</th></tr></thead>
-    <tbody id="nnueBody"></tbody></table>
-</div>
-
-<div id="spsaPanel">
-  <h2>SPSA tuning (live)</h2>
-  <div id="spsaNote" class="note">Tuning evaluation weights against game results rather than against a prediction target. Each iteration perturbs every weight at once and plays the two versions against each other.</div>
-  <div id="spsaBars"></div>
-  <div id="spsaWrap"><canvas id="spsaChart"></canvas></div>
-</div>
-
-<h2 id="title">Self-play: WHITE vs BLACK (depth-2 engine)</h2>
-<div id="badge"></div>
-<div id="board"></div>
-<div id="controls">
-  <button id="first">|&lt;</button>
-  <button id="prev">&lt;</button>
-  <button id="play">Play</button>
-  <button id="next">&gt;</button>
-  <button id="last">&gt;|</button>
-  <input type="range" id="slider" min="0" value="0">
-  <button id="live">&#9679; Live</button>
-</div>
-<div id="status"></div>
-
+<details class="fold"><summary>Engine strength against Stockfish</summary>
 <div id="improve">
   <h2>Engine strength (Stockfish-calibrated Elo)</h2>
   <div id="progressOuter"><div id="progressFill" style="width:0%"></div><div id="progressLabel"></div></div>
@@ -170,6 +158,49 @@
   <div id="agreeNote" class="note" style="margin-top:0.5rem"></div>
 </div>
 
+</details>
+
+<details class="fold"><summary>SPSA weight tuning</summary>
+<div id="spsaPanel">
+  <h2>SPSA tuning (live)</h2>
+  <div id="spsaNote" class="note">Tuning evaluation weights against game results rather than against a prediction target. Each iteration perturbs every weight at once and plays the two versions against each other.</div>
+  <div id="spsaBars"></div>
+  <div id="spsaWrap"><canvas id="spsaChart"></canvas></div>
+</div>
+
+</details>
+
+<details class="fold"><summary>Self-play viewer (live board)</summary>
+<h2 id="title">Self-play: WHITE vs BLACK (depth-2 engine)</h2>
+<div id="badge"></div>
+<div id="board"></div>
+<div id="controls">
+  <button id="first">|&lt;</button>
+  <button id="prev">&lt;</button>
+  <button id="play">Play</button>
+  <button id="next">&gt;</button>
+  <button id="last">&gt;|</button>
+  <input type="range" id="slider" min="0" value="0">
+  <button id="live">&#9679; Live</button>
+</div>
+<div id="status"></div>
+
+
+</details>
+
+<details class="fold"><summary>Earlier self-play training run</summary>
+<div id="trainPanel">
+  <h2>Self-play training (live)</h2>
+  <div id="trainStatus" class="note">waiting for a training run...</div>
+  <div id="trainBars"></div>
+  <div id="trainWrap"><canvas id="trainChart"></canvas></div>
+  <table class="steps"><thead><tr><th>Gen</th><th class="num">Positions</th><th class="num">Held-out loss</th><th class="num">Elo vs champion</th><th>Kept?</th></tr></thead>
+    <tbody id="trainBody"></tbody></table>
+</div>
+
+</details>
+
+<details class="fold"><summary>Engine arena (round robin)</summary>
 <div id="arena">
   <h2>Go engine arena</h2>
   <div id="arenaStatus">Waiting for the arena to start&hellip;</div>
@@ -178,6 +209,9 @@
   <div id="matchLog"></div>
 </div>
 
+</details>
+
+<details class="fold"><summary>Genetic-algorithm training (historical)</summary>
 <div id="training">
   <h2>Training progress</h2>
   <div id="modelBanner" class="holding">Waiting for the first result&hellip;</div>
@@ -188,6 +222,8 @@
   Orange: champion's best-ever Elo vs a fixed equal-depth bot (default weights) &mdash; a ratchet, not a raw reading: a
   promotion only sticks if it doesn't score worse here than the best champion seen so far, so this line can only go up.</div>
 </div>
+
+</details>
 
 <script>
 const SYMBOLS = {
