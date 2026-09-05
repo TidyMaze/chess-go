@@ -74,6 +74,10 @@
   #genProgressFill { height: 100%; width: 0; background: #3f6212; transition: width 0.4s; }
   #genProgressLabel { position: absolute; inset: 0; display: flex; align-items: center;
                       justify-content: center; font-size: 0.82em; font-weight: 600; }
+  #phaseExplain { margin: 0.3rem 0 0.6rem; text-align: left; }
+  #metricLegend { margin-top: 0.7rem; text-align: left; font-size: 0.85em; color: #999;
+                  border-top: 1px solid #333; padding-top: 0.7rem; }
+  #metricLegend b { color: #ccc; }
   #nnueLive { display: flex; gap: 1rem; align-items: center; justify-content: center;
               flex-wrap: wrap; margin: 0.8rem 0; }
   #nnueBoard { display: grid; grid-template-columns: repeat(8, 26px);
@@ -148,11 +152,17 @@
   <div id="nnueArch"></div>
   <div id="nnueBars"></div>
   <div id="genProgressOuter"><div id="genProgressFill"></div><div id="genProgressLabel"></div></div>
+  <div id="phaseExplain" class="note"></div>
   <div id="nnueLive">
     <div id="nnueBoard"></div>
     <div id="nnueLiveLabel" class="note"></div>
   </div>
   <div id="nnueWrap"><canvas id="nnueChart"></canvas></div>
+  <div id="metricLegend">
+    <b>Net error</b> and <b>Hand error</b>: mean squared difference, in pawns squared, between each evaluation and the depth-3 search score it is trying to predict, measured only on games the network never trained on. Lower is better and the network needs to be below the hand-written evaluation.
+    <b>Jump/move</b> and <b>Hand jump</b>: how many pawns the evaluation changes between two positions one move apart. The search prunes on pawn-sized thresholds, so an evaluation that jumps makes those thresholds misfire however accurate it is. This is currently the blocker.
+    <b>Elo</b>: measured over 400 games against the champion, shown only for generations that were tested.
+  </div>
   <table class="steps"><thead><tr><th>Gen</th><th class="num">Pool</th><th class="num">Net error</th><th class="num">Hand error</th><th class="num">Jump/move</th><th class="num">Hand jump</th><th class="num">Elo</th><th>Kept?</th></tr></thead>
     <tbody id="nnueBody"></tbody></table>
 </div>
@@ -1008,23 +1018,36 @@ async function pollNNUE() {
         rows.map(([k, v]) => `<div>${k}: <b>${v}</b></div>`).join("");
     }
 
-    // Progress inside the generation, not just between generations.
-    let pct = 0, label = st.phase || "";
+    // Progress inside the generation, and an explanation of what the
+    // machine is actually doing during it. A generation runs for minutes
+    // in three quite different phases and the bar alone does not say
+    // which work is happening.
+    const a2 = st.arch || {};
+    let pct = 0, label = st.phase || "", explain = "";
     if (st.phase === "self-play" && st.games_total) {
       pct = 100 * st.games / st.games_total;
-      label = `self-play: game ${st.games} of ${st.games_total} (${st.positions || 0} positions)`;
+      label = `1/3 self-play: game ${st.games} of ${st.games_total}, ${(st.positions || 0).toLocaleString()} positions kept`;
+      explain = `The champion plays itself at depth ${a2.play_depth}, from 10 random opening moves so the games differ. ` +
+        `After each move the position is kept only if it is quiet (nobody in check, no capture sequence pending), ` +
+        `then scored by a depth-${a2.label_depth} search of the same engine. That score, blended with the eventual game result, is what the network learns to predict.`;
     } else if (st.phase === "training" && st.epochs) {
       pct = 100 * st.epoch / st.epochs;
-      label = `training: epoch ${st.epoch} of ${st.epochs}`;
+      label = `2/3 training: epoch ${st.epoch} of ${st.epochs} over ${(st.pool || 0).toLocaleString()} positions`;
+      explain = `Adam, all ten cores updating shared weights without locking (safe here because each position touches only about 30 of ${(a2.inputs || 0).toLocaleString()} inputs). ` +
+        `Fifteen percent of games are held out entirely, never split by position, because consecutive positions in one game are near-copies and splitting them leaks. ` +
+        `After each epoch every square's weights are pulled slightly toward its neighbours, which is what keeps the evaluation smooth.`;
     } else if (st.phase === "evaluating") {
       pct = 100;
-      label = `playing ${st.eval_games} games against the champion`;
+      label = `3/3 testing: ${st.eval_games} games against the current champion`;
+      explain = `The only measurement that counts. The new network replaces the champion's evaluation and plays it at depth ${a2.eval_depth || 4}, ` +
+        `colours alternating from paired random openings. It is adopted only if the measured Elo exceeds its own error margin, never on a positive result that could be noise.`;
     } else if (st.phase === "done") {
       pct = 100;
       label = "finished";
     }
     document.getElementById("genProgressFill").style.width = pct + "%";
     document.getElementById("genProgressLabel").textContent = label;
+    document.getElementById("phaseExplain").textContent = explain;
   } catch (e) {}
 
   try {

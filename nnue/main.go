@@ -174,11 +174,15 @@ func (n *net) forward(s *sample, acc, act []float32) float32 {
 // So the target is converted into pawns instead and regressed directly.
 // The optimiser is the one that demonstrably works, and the output is in
 // the units the search actually consumes.
-func (n *net) loss(data []sample, k float64) float64 {
+func (n *net) loss(data []sample, k float64, useSigmoid bool) float64 {
 	acc, act := make([]float32, 2*n.h), make([]float32, 2*n.h)
 	total := 0.0
 	for i := range data {
-		d := float64(n.forward(&data[i], acc, act)) - data[i].target
+		out := float64(n.forward(&data[i], acc, act))
+		if useSigmoid {
+			out = sigmoid(out, k)
+		}
+		d := out - data[i].target
 		total += d * d
 	}
 	return total / float64(len(data))
@@ -197,7 +201,7 @@ func (n *net) loss(data []sample, k float64) float64 {
 //
 // Single-threaded training was the bottleneck in the previous loop: data
 // generation used every core and then training used one.
-func (n *net) trainEpoch(data []sample, order []int32, lr, decay float32, k float64, workers int) {
+func (n *net) trainEpoch(data []sample, order []int32, lr, decay float32, k float64, useSigmoid bool, workers int) {
 	var wg sync.WaitGroup
 	chunk := (len(order) + workers - 1) / workers
 	h := n.h
@@ -256,13 +260,66 @@ func (n *net) trainEpoch(data []sample, order []int32, lr, decay float32, k floa
 // export. The network's output is already an evaluation in pawns,
 // because the sigmoid is applied in the loss rather than in the network,
 // so no conversion is needed here.
-func (n *net) export(k float64) *engine.HalfKPNet {
+// smooth blends each feature's weights toward those of the same piece on
+// neighbouring squares.
+//
+// This attacks the measured blocker directly. The network is accurate but
+// jumpy: it moves 0.58 pawns between positions one move apart against the
+// hand-written evaluation's 0.38, and a blend sweep showed the damage is
+// proportional to how much network is used. The jumpiness comes from
+// adjacent squares learning independent weights, so a piece stepping one
+// square swaps in a completely unrelated weight column.
+//
+// Chess evaluations are spatially smooth almost everywhere: a knight on
+// e4 and one on e5 are worth nearly the same, and the exceptions (a pawn
+// on the seventh rank) remain learnable, because this is a prior pulling
+// weights together rather than a constraint forcing them equal.
+//
+// The same idea as a smoothness penalty in an image model, applied to the
+// board instead of to pixels. One pass over 82k weights per epoch, which
+// is nothing beside the epoch itself.
+func (n *net) smooth(alpha float32) {
+	if alpha <= 0 {
+		return
+	}
+	h := n.h
+	orig := append([]float32(nil), n.w1...)
+	for feat := 0; feat < engine.HalfKPInputs; feat++ {
+		sq := feat % 64
+		base := feat - sq
+		file, rank := sq%8, sq/8
+		for i := 0; i < h; i++ {
+			var sum float32
+			count := 0
+			for df := -1; df <= 1; df++ {
+				for dr := -1; dr <= 1; dr++ {
+					if df == 0 && dr == 0 {
+						continue
+					}
+					f, r := file+df, rank+dr
+					if f < 0 || f > 7 || r < 0 || r > 7 {
+						continue
+					}
+					sum += orig[(base+r*8+f)*h+i]
+					count++
+				}
+			}
+			if count == 0 {
+				continue
+			}
+			idx := feat*h + i
+			n.w1[idx] = (1-alpha)*orig[idx] + alpha*(sum/float32(count))
+		}
+	}
+}
+
+func (n *net) export(k float64, sigmoidOut bool) *engine.HalfKPNet {
 	return &engine.HalfKPNet{
 		H:  n.h,
 		W1: append([]float32(nil), n.w1...),
 		B1: append([]float32(nil), n.b1...),
 		W2: append([]float32(nil), n.w2...),
-		B2: n.b2, Scale: 1,
+		B2: n.b2, Scale: 1, Sigmoid: sigmoidOut, K: k,
 	}
 }
 
@@ -314,7 +371,7 @@ type genStats struct {
 // only when nothing tactical is pending, since a static network cannot
 // predict a capture sequence and training on those teaches noise.
 func generate(champion engine.Player, games, playDepth, labelDepth, maxPlies int,
-	lambda, k float64, gen int, stats *genStats,
+	lambda, k, quietTol float64, useSigmoidTarget bool, gen int, stats *genStats,
 	live func(*game.Game, int, board.Sq, board.Sq)) []sample {
 
 	var mu sync.Mutex
@@ -388,7 +445,7 @@ func generate(champion engine.Player, games, playDepth, labelDepth, maxPlies int
 				if g.Turn == board.Black {
 					staticSTM = -static
 				}
-				if math.Abs(engine.QuiescenceScore(labeler, g)-staticSTM) > 0.35 {
+				if math.Abs(engine.QuiescenceScore(labeler, g)-staticSTM) > quietTol {
 					continue
 				}
 				score, ok := engine.PlayerScoreWith(labeler, g, labelTT)
@@ -411,9 +468,16 @@ func generate(champion engine.Player, games, playDepth, labelDepth, maxPlies int
 
 			local := make([]sample, 0, len(kept))
 			for _, p := range kept {
+				tgt := blendedTarget(p.score, result, lambda)
+				if useSigmoidTarget {
+					// Win probability: the search score through a sigmoid,
+					// blended with the game outcome, which is already a
+					// probability (0, 0.5 or 1).
+					tgt = lambda*sigmoid(p.score, k) + (1-lambda)*result
+				}
 				local = append(local, sample{
 					own: p.own, opp: p.opp, game: int32(gi), static: p.static,
-					target: blendedTarget(p.score, result, lambda),
+					target: tgt,
 				})
 			}
 			mu.Lock()
@@ -468,6 +532,20 @@ func main() {
 	// positions than that, the network memorises: generation 1 showed a
 	// training loss of 0.0017 against a held-out 0.0473, a 28x gap.
 	decay := flag.Float64("decay", 1e-4, "L2 weight decay on touched columns")
+	smoothing := flag.Float64("smooth", 0.05, "pull each square's weights toward its neighbours")
+	// "pawns" regresses directly on a pawn-valued target. "sigmoid" is
+	// what Stockfish does: the network outputs a score, the loss applies
+	// a sigmoid, and alpha-beta inverts it. The sigmoid version failed
+	// once here (11% of variance) but that was under plain SGD, whose
+	// single learning rate could not follow a gradient twenty times
+	// smaller. Adam rescales per parameter, which is exactly that
+	// problem, so it is worth retrying.
+	target := flag.String("target", "pawns", "training target: pawns | sigmoid")
+	// How close the quiescence score must be to the static score for a
+	// position to count as quiet. Tighter means fewer positions but less
+	// tactical noise in the target, which a static evaluation cannot
+	// learn anyway.
+	quietTol := flag.Float64("quiet", 0.35, "pawns of allowed static/quiescence disagreement")
 	lambda := flag.Float64("lambda", 0.8, "weight on the search score against the game result")
 	k := flag.Float64("k", 0.30, "pawns-to-win-probability scale")
 	hidden := flag.Int("hidden", 32, "hidden units per perspective")
@@ -475,6 +553,7 @@ func main() {
 	maxPlies := flag.Int("max-plies", 160, "ply cap in self-play")
 	flag.Parse()
 
+	useSigmoid := *target == "sigmoid"
 	rng := rand.New(rand.NewSource(23))
 	n := newNet(*hidden, rng)
 	workers := runtime.NumCPU()
@@ -529,7 +608,7 @@ func main() {
 		}()
 
 		fresh := generate(champion, *gamesPerGen, *playDepth, *labelDepth, *maxPlies,
-			*lambda, *k, gen, stats,
+			*lambda, *k, *quietTol, useSigmoid, gen, stats,
 			func(g *game.Game, ply int, from, to board.Sq) {
 				writeJSON("live_game.json", map[string]any{
 					"label": fmt.Sprintf("Generation %d self-play", gen), "move_no": ply,
@@ -583,8 +662,9 @@ func main() {
 			rng.Shuffle(len(trainIdx), func(i, j int) {
 				trainIdx[i], trainIdx[j] = trainIdx[j], trainIdx[i]
 			})
-			n.trainEpoch(pool, trainIdx, float32(*lr), float32(*decay), *k, workers)
-			lastTest = n.loss(testSet, *k)
+			n.trainEpoch(pool, trainIdx, float32(*lr), float32(*decay), *k, useSigmoid, workers)
+			n.smooth(float32(*smoothing))
+			lastTest = n.loss(testSet, *k, useSigmoid)
 			writeJSON("nnue_status.json", map[string]any{
 				"phase": "training", "generation": gen, "generations": *generations,
 				"epoch": e, "epochs": *epochs, "test_loss": lastTest,
@@ -601,7 +681,7 @@ func main() {
 		for _, i := range trainIdx[:sampleN] {
 			sub = append(sub, pool[i])
 		}
-		lastTrain = n.loss(sub, *k)
+		lastTrain = n.loss(sub, *k, useSigmoid)
 
 		// What a constant prediction would score. A held-out loss near
 		// this means nothing has been learned, which the loss alone does
@@ -666,7 +746,7 @@ func main() {
 		handMSE = handErr
 		_ = handSmoothness
 
-		exported := n.export(*k)
+		exported := n.export(*k, useSigmoid)
 		_ = exported.Save("halfkp_latest.json")
 
 		elo, margin, accepted := 0, 0, false
