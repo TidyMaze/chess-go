@@ -53,11 +53,17 @@ func (g *Game) EnableRepetitionTracking() {
 // legal by construction. This is the same optimization validated in the
 // Python engine this session (removed ~90% of the expensive checks).
 func (g *Game) AllLegalMoves(color board.Color) []Move {
+	return g.AppendLegalMoves(nil, color)
+}
+
+// AppendLegalMoves is the non-allocating form: the search reuses one
+// buffer per node instead of allocating a fresh move slice each time.
+func (g *Game) AppendLegalMoves(dst []Move, color board.Color) []Move {
 	inCheck := moves.IsInCheck(&g.Board, color)
 	pinned := moves.PinnedSquares(&g.Board, color)
 	var pieceBuf [16]board.PieceAtSquare
 	pieces := g.Board.AppendPiecesOf(pieceBuf[:0], color)
-	result := make([]Move, 0, 40)
+	result := dst
 
 	// One target buffer reused across every piece, rather than a fresh
 	// slice per piece.

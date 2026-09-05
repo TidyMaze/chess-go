@@ -25,11 +25,10 @@ func terminalScore(g *game.Game, color, maximizingFor board.Color, depthLeft int
 	return 0
 }
 
-// ordered: try captures first, a cheap move-ordering heuristic that lets
-// alpha-beta prune more.
-func ordered(g *game.Game, ms []game.Move) []game.Move {
-	out := make([]game.Move, len(ms))
-	copy(out, ms)
+// orderInPlace: try captures first, a cheap move-ordering heuristic that
+// lets alpha-beta prune more. Sorts the caller's slice in place -- it
+// used to copy, which allocated once per search node.
+func orderInPlace(g *game.Game, out []game.Move) []game.Move {
 	captureFirst := func(m game.Move) int {
 		if _, occupied := g.Board.PieceAt(m.To); occupied {
 			return 0
@@ -49,7 +48,8 @@ func ordered(g *game.Game, ms []game.Move) []game.Move {
 }
 
 func Minimax(g *game.Game, color, maximizingFor board.Color, depth int, alpha, beta float64, weights Weights) float64 {
-	legalMoves := g.AllLegalMoves(color)
+	var moveBuf [48]game.Move
+	legalMoves := g.AppendLegalMoves(moveBuf[:0], color)
 	if len(legalMoves) == 0 {
 		return terminalScore(g, color, maximizingFor, depth)
 	}
@@ -62,7 +62,7 @@ func Minimax(g *game.Game, color, maximizingFor board.Color, depth int, alpha, b
 	if !maximizing {
 		best = posInf
 	}
-	for _, m := range ordered(g, legalMoves) {
+	for _, m := range orderInPlace(g, legalMoves) {
 		// Stack value, not game.From's heap pointer: the search builds one
 		// child position per node, and heap-allocating a Game (which holds
 		// the whole 144-cell board array) for each was the single largest
@@ -101,7 +101,7 @@ const posInf = 1e18
 // champion in training) evaluate similarly and, without this, replay the
 // literal same game and repeat into an instant draw every time.
 func ChooseMove(g *game.Game, color board.Color, depth int, weights Weights) (game.Move, bool) {
-	legalMoves := ordered(g, g.AllLegalMoves(color))
+	legalMoves := orderInPlace(g, g.AllLegalMoves(color))
 	if len(legalMoves) == 0 {
 		return game.Move{}, false
 	}

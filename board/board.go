@@ -66,8 +66,10 @@ func decodePiece(c cellCode) Piece {
 // Board is a value type: copying it (Clone) is a plain array copy, no
 // allocation or per-piece work, unlike a map-keyed representation.
 type Board struct {
-	cells [width * width]cellCode
-	kings [2]Sq
+	cells         [width * width]cellCode
+	kings         [2]Sq
+	occupied      [32]Sq
+	occupiedCount int
 }
 
 func index(s Sq) int {
@@ -108,9 +110,14 @@ func (b *Board) Place(s Sq, p Piece) {
 }
 
 func (b *Board) setPiece(s Sq, p Piece) {
+	wasEmpty := b.cells[index(s)] < codePieceMin
 	b.cells[index(s)] = encodePiece(p)
 	if p.Type == King {
 		b.kings[p.Color] = s
+	}
+	if wasEmpty {
+		b.occupied[b.occupiedCount] = s
+		b.occupiedCount++
 	}
 }
 
@@ -148,11 +155,31 @@ func (b *Board) KingSquare(c Color) Sq {
 func (b *Board) Move(from, to Sq) {
 	fromIdx, toIdx := index(from), index(to)
 	moved := b.cells[fromIdx]
+	captured := b.cells[toIdx] >= codePieceMin
 	b.cells[fromIdx] = codeEmpty
 	b.cells[toIdx] = moved
 	if moved >= codePieceMin {
 		if p := decodePiece(moved); p.Type == King {
 			b.kings[p.Color] = to
+		}
+	}
+
+	// Keep the occupied list in step. Order matters: drop the captured
+	// piece's entry for `to` first, then move the mover's entry from
+	// `from` to `to` -- otherwise the two entries collide.
+	if captured {
+		for i := 0; i < b.occupiedCount; i++ {
+			if b.occupied[i] == to {
+				b.occupied[i] = b.occupied[b.occupiedCount-1]
+				b.occupiedCount--
+				break
+			}
+		}
+	}
+	for i := 0; i < b.occupiedCount; i++ {
+		if b.occupied[i] == from {
+			b.occupied[i] = to
+			break
 		}
 	}
 }
@@ -178,17 +205,21 @@ func (b *Board) PiecesOf(c Color) []PieceAtSquare {
 // AppendPiecesOf is the non-allocating form: the caller supplies the
 // buffer (a stack array is enough -- there are at most 16 pieces per
 // side), which matters because this runs once per search node.
+//
+// It walks only the occupied squares recorded in occupied[], not all 64:
+// a full-board scan was ~18% of search CPU, and by the endgame most of
+// those squares are empty.
 func (b *Board) AppendPiecesOf(dst []PieceAtSquare, c Color) []PieceAtSquare {
 	result := dst
-	for rank := 0; rank < 8; rank++ {
-		for file := 0; file < 8; file++ {
-			cl := b.cells[index(Sq{file, rank})]
-			if cl >= codePieceMin {
-				if p := decodePiece(cl); p.Color == c {
-					result = append(result, PieceAtSquare{Sq{file, rank}, p.Type})
-				}
+	for i := 0; i < b.occupiedCount; i++ {
+		s := b.occupied[i]
+		cl := b.cells[index(s)]
+		if cl >= codePieceMin {
+			if p := decodePiece(cl); p.Color == c {
+				result = append(result, PieceAtSquare{s, p.Type})
 			}
 		}
 	}
 	return result
 }
+

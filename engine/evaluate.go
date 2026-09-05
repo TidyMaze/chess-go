@@ -4,21 +4,21 @@ package engine
 
 import "chess/board"
 
-type Weights map[board.PieceType]float64
+// Weights is indexed by PieceType rather than keyed by it: this is read
+// for every piece at every evaluated node, and a map lookup there showed
+// up as ~10% of total CPU in the profile.
+type Weights *[6]float64
 
 func DefaultWeights() Weights {
-	return Weights{
+	return &[6]float64{
 		board.Pawn: 1, board.Knight: 3, board.Bishop: 3,
 		board.Rook: 5, board.Queen: 9, board.King: 0,
 	}
 }
 
 func CloneWeights(w Weights) Weights {
-	out := make(Weights, len(w))
-	for k, v := range w {
-		out[k] = v
-	}
-	return out
+	out := *w
+	return &out
 }
 
 var defaultWeights = DefaultWeights()
@@ -26,7 +26,7 @@ var defaultWeights = DefaultWeights()
 // centerBonus: fixed (non-evolving) positional nudge. Pure material
 // evaluation can't tell a knight on a rim square from one commanding the
 // center; small relative to material so it only breaks ties.
-var centerBonus = map[board.PieceType]float64{board.Knight: 0.1, board.Bishop: 0.05, board.Pawn: 0.02}
+var centerBonus = [6]float64{board.Knight: 0.1, board.Bishop: 0.05, board.Pawn: 0.02}
 
 func centerDistance(s board.Sq) float64 {
 	df := abs(float64(s.File) - 3.5)
@@ -52,7 +52,7 @@ func materialAndCentralization(b *board.Board, color board.Color, weights Weight
 	var buf [16]board.PieceAtSquare
 	for _, ps := range b.AppendPiecesOf(buf[:0], color) {
 		material += weights[ps.Type]
-		if bonus, ok := centerBonus[ps.Type]; ok {
+		if bonus := centerBonus[ps.Type]; bonus != 0 {
 			center += bonus * (3.5 - centerDistance(ps.Sq))
 		}
 	}

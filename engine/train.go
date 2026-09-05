@@ -29,7 +29,7 @@ var namePieces = func() map[string]board.PieceType {
 func MutateWeights(w Weights, rate float64) Weights {
 	out := CloneWeights(w)
 	for pt := range out {
-		if pt == board.King {
+		if board.PieceType(pt) == board.King {
 			continue
 		}
 		delta := (rand.Float64()*2 - 1) * rate * out[pt]
@@ -112,7 +112,7 @@ type championFile struct {
 func SaveChampion(w Weights, elo int, path string) error {
 	out := championFile{Elo: elo, Weights: map[string]float64{}}
 	for pt, v := range w {
-		out.Weights[pieceNames[pt]] = v
+		out.Weights[pieceNames[board.PieceType(pt)]] = v
 	}
 	data, err := json.MarshalIndent(out, "", "  ")
 	if err != nil {
@@ -135,11 +135,11 @@ func LoadChampion(path string) (Weights, int, error) {
 	if err := json.Unmarshal(data, &parsed); err != nil {
 		return nil, 0, err
 	}
-	w := Weights{}
+	var arr [6]float64
 	for name, v := range parsed.Weights {
-		w[namePieces[name]] = v
+		arr[namePieces[name]] = v
 	}
-	return w, parsed.Elo, nil
+	return Weights(&arr), parsed.Elo, nil
 }
 
 // playMatch runs `games` games between two weight sets concurrently --

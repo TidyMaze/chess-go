@@ -4,8 +4,9 @@ package moves
 
 import "chess/board"
 
-var startRank = map[board.Color]int{board.White: 1, board.Black: 6}
-var direction = map[board.Color]int{board.White: 1, board.Black: -1}
+// Indexed by Color, not keyed by it: read in every move-generation call.
+var startRank = [2]int{board.White: 1, board.Black: 6}
+var direction = [2]int{board.White: 1, board.Black: -1}
 
 var knightOffsets = [8][2]int{{1, 2}, {1, -2}, {-1, 2}, {-1, -2}, {2, 1}, {2, -1}, {-2, 1}, {-2, -1}}
 var kingOffsets = [8][2]int{{-1, -1}, {-1, 0}, {-1, 1}, {0, -1}, {0, 1}, {1, -1}, {1, 0}, {1, 1}}

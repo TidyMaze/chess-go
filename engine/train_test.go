@@ -17,7 +17,7 @@ func TestMutateWeightsKeepsKingAtZero(t *testing.T) {
 func TestMutateWeightsStaysPositive(t *testing.T) {
 	w := MutateWeights(DefaultWeights(), 0.5)
 	for pt, v := range w {
-		if pt == board.King {
+		if board.PieceType(pt) == board.King {
 			continue
 		}
 		if v <= 0 {
