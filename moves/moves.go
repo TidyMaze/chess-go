@@ -56,8 +56,12 @@ func pawnMoves(dst []board.Sq, b *board.Board, sq board.Sq, color board.Color) [
 	dir := direction[color]
 	moves := dst
 
+	// The off-board check matters: without it a pawn on the last rank
+	// generates a move into the padding (CellPiece reports padding as
+	// "not occupied"), silently corrupting the board and crashing several
+	// plies later when a probe from there runs past the array.
 	oneAhead := board.Sq{File: sq.File, Rank: sq.Rank + dir}
-	if _, occupied := b.CellPiece(oneAhead); !occupied {
+	if _, occupied := b.CellPiece(oneAhead); !occupied && !b.CellOffBoard(oneAhead) {
 		moves = append(moves, oneAhead)
 		if sq.Rank == startRank[color] {
 			twoAhead := board.Sq{File: sq.File, Rank: sq.Rank + 2*dir}

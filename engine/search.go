@@ -8,6 +8,8 @@ import (
 	"chess/moves"
 )
 
+func randIntn(n int) int { return rand.Intn(n) }
+
 const mateScore = 1000
 
 func terminalScore(g *game.Game, color, maximizingFor board.Color, depthLeft int) float64 {
@@ -48,12 +50,24 @@ func orderInPlace(g *game.Game, out []game.Move) []game.Move {
 }
 
 func Minimax(g *game.Game, color, maximizingFor board.Color, depth int, alpha, beta float64, weights Weights) float64 {
+	return minimaxOpts(g, color, maximizingFor, depth, alpha, beta, weights, false)
+}
+
+// minimaxOpts adds quiescence: at the search horizon, keep following
+// captures until the position is quiet. Without it the engine happily
+// stops mid-exchange and scores a position it has only half-evaluated
+// (the horizon effect) -- e.g. counting a queen it just "won" without
+// seeing the recapture on the very next ply.
+func minimaxOpts(g *game.Game, color, maximizingFor board.Color, depth int, alpha, beta float64, weights Weights, useQuiescence bool) float64 {
 	var moveBuf [48]game.Move
 	legalMoves := g.AppendLegalMoves(moveBuf[:0], color)
 	if len(legalMoves) == 0 {
 		return terminalScore(g, color, maximizingFor, depth)
 	}
 	if depth == 0 {
+		if useQuiescence {
+			return quiesce(g, color, maximizingFor, alpha, beta, weights, 0)
+		}
 		return PositionScore(&g.Board, maximizingFor, weights)
 	}
 
@@ -69,7 +83,7 @@ func Minimax(g *game.Game, color, maximizingFor board.Color, depth int, alpha, b
 		// source of allocated bytes in the profile.
 		next := game.Game{Board: g.Board, Turn: color}
 		next.ApplyMove(m.From, m.To)
-		value := Minimax(&next, color.Other(), maximizingFor, depth-1, alpha, beta, weights)
+		value := minimaxOpts(&next, color.Other(), maximizingFor, depth-1, alpha, beta, weights, useQuiescence)
 		if maximizing {
 			if value > best {
 				best = value
@@ -95,12 +109,78 @@ func Minimax(g *game.Game, color, maximizingFor board.Color, depth int, alpha, b
 const negInf = -1e18
 const posInf = 1e18
 
+// quiesce searches only captures from a leaf position, so the evaluation
+// is taken from a position where no immediate material swing is pending.
+// maxQuiescePly caps it: a long forced capture sequence is possible but
+// rare, and an unbounded extension can blow up the node count.
+const maxQuiescePly = 4
+
+func quiesce(g *game.Game, color, maximizingFor board.Color, alpha, beta float64, weights Weights, ply int) float64 {
+	standPat := PositionScore(&g.Board, maximizingFor, weights)
+	if ply >= maxQuiescePly {
+		return standPat
+	}
+	maximizing := color == maximizingFor
+
+	// Stand-pat: the side to move can decline to capture, so a quiet
+	// evaluation is a lower bound for the maximizer (upper for minimizer).
+	if maximizing {
+		if standPat >= beta {
+			return standPat
+		}
+		if standPat > alpha {
+			alpha = standPat
+		}
+	} else {
+		if standPat <= alpha {
+			return standPat
+		}
+		if standPat < beta {
+			beta = standPat
+		}
+	}
+
+	var moveBuf [48]game.Move
+	best := standPat
+	for _, m := range g.AppendLegalMoves(moveBuf[:0], color) {
+		if _, isCapture := g.Board.PieceAt(m.To); !isCapture {
+			continue
+		}
+		next := game.Game{Board: g.Board, Turn: color}
+		next.ApplyMove(m.From, m.To)
+		value := quiesce(&next, color.Other(), maximizingFor, alpha, beta, weights, ply+1)
+		if maximizing {
+			if value > best {
+				best = value
+			}
+			if best > alpha {
+				alpha = best
+			}
+		} else {
+			if value < best {
+				best = value
+			}
+			if best < beta {
+				beta = best
+			}
+		}
+		if beta <= alpha {
+			break
+		}
+	}
+	return best
+}
+
 // ChooseMove picks the best move for color at the given depth. Ties for
 // the best score are broken randomly instead of always the first move:
 // two near-identical engines (e.g. a mutated challenger vs its parent
 // champion in training) evaluate similarly and, without this, replay the
 // literal same game and repeat into an instant draw every time.
 func ChooseMove(g *game.Game, color board.Color, depth int, weights Weights) (game.Move, bool) {
+	return chooseMoveOpts(g, color, depth, weights, false)
+}
+
+func chooseMoveOpts(g *game.Game, color board.Color, depth int, weights Weights, useQuiescence bool) (game.Move, bool) {
 	legalMoves := orderInPlace(g, g.AllLegalMoves(color))
 	if len(legalMoves) == 0 {
 		return game.Move{}, false
@@ -111,7 +191,7 @@ func ChooseMove(g *game.Game, color board.Color, depth int, weights Weights) (ga
 	for _, m := range legalMoves {
 		next := game.Game{Board: g.Board, Turn: color}
 		next.ApplyMove(m.From, m.To)
-		score := Minimax(&next, color.Other(), color, depth-1, negInf, posInf, weights)
+		score := minimaxOpts(&next, color.Other(), color, depth-1, negInf, posInf, weights, useQuiescence)
 		if score > bestScore {
 			bestScore = score
 			best = best[:0]

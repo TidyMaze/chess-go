@@ -120,6 +120,18 @@ func (g *Game) ApplyMove(from, to board.Sq) {
 	}
 
 	g.Board.Move(from, to)
+
+	// Auto-promote to a queen. Underpromotion is legal but is the right
+	// choice so rarely that always taking a queen is the standard
+	// simplification; without any promotion at all a pawn reaching the
+	// last rank would simply have no moves.
+	if movingPiece.Type == board.Pawn {
+		if (movingPiece.Color == board.White && to.Rank == 7) ||
+			(movingPiece.Color == board.Black && to.Rank == 0) {
+			g.Board.Place(to, board.Piece{Color: movingPiece.Color, Type: board.Queen})
+		}
+	}
+
 	g.Turn = g.Turn.Other()
 
 	if g.TrackRepetition {

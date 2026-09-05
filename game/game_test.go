@@ -130,3 +130,47 @@ func TestFiftyMoveRule(t *testing.T) {
 		t.Errorf("expected fifty-move draw at 100 halfmoves")
 	}
 }
+
+func TestPawnPromotesToQueenOnLastRank(t *testing.T) {
+	b := board.NewEmpty()
+	b.Place(board.Sq{0, 0}, board.Piece{board.White, board.King})
+	b.Place(board.Sq{7, 7}, board.Piece{board.Black, board.King})
+	b.Place(board.Sq{3, 6}, board.Piece{board.White, board.Pawn})
+	g := From(b, board.White)
+	g.ApplyMove(board.Sq{3, 6}, board.Sq{3, 7})
+	p, ok := g.Board.PieceAt(board.Sq{3, 7})
+	if !ok || p.Type != board.Queen || p.Color != board.White {
+		t.Errorf("expected a white queen on promotion square, got %+v ok=%v", p, ok)
+	}
+}
+
+func TestBlackPawnPromotesOnRankZero(t *testing.T) {
+	b := board.NewEmpty()
+	b.Place(board.Sq{0, 0}, board.Piece{board.White, board.King})
+	b.Place(board.Sq{7, 7}, board.Piece{board.Black, board.King})
+	b.Place(board.Sq{3, 1}, board.Piece{board.Black, board.Pawn})
+	g := From(b, board.Black)
+	g.ApplyMove(board.Sq{3, 1}, board.Sq{3, 0})
+	p, ok := g.Board.PieceAt(board.Sq{3, 0})
+	if !ok || p.Type != board.Queen || p.Color != board.Black {
+		t.Errorf("expected a black queen on promotion square, got %+v ok=%v", p, ok)
+	}
+}
+
+// A pawn on the last rank must not generate a move off the board. The
+// padded-array board makes an off-board square addressable rather than a
+// crash at the point of the bad move, so it corrupts silently and blows
+// up later, several plies deep, when a knight/king probe from there runs
+// past the end of the array.
+func TestPawnOnLastRankGeneratesNoForwardMove(t *testing.T) {
+	b := board.NewEmpty()
+	b.Place(board.Sq{0, 0}, board.Piece{board.White, board.King})
+	b.Place(board.Sq{7, 7}, board.Piece{board.Black, board.King})
+	b.Place(board.Sq{3, 7}, board.Piece{board.White, board.Pawn})
+	g := From(b, board.White)
+	for _, m := range g.AllLegalMoves(board.White) {
+		if m.From == (board.Sq{3, 7}) {
+			t.Errorf("pawn on last rank should have no moves, got %+v", m)
+		}
+	}
+}

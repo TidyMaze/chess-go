@@ -52,12 +52,20 @@ func materialAndCentralization(b *board.Board, color board.Color, weights Weight
 	var buf [16]board.PieceAtSquare
 	for _, ps := range b.AppendPiecesOf(buf[:0], color) {
 		material += weights[ps.Type]
-		if bonus := centerBonus[ps.Type]; bonus != 0 {
+		if UsePST {
+			center += pstValue(ps.Type, ps.Sq, color)
+		} else if bonus := centerBonus[ps.Type]; bonus != 0 {
 			center += bonus * (3.5 - centerDistance(ps.Sq))
 		}
 	}
 	return
 }
+
+// UsePST swaps the simple centralization nudge for full piece-square
+// tables. A package-level switch rather than a parameter so it doesn't
+// have to be threaded through every search call site; set once at
+// startup.
+var UsePST = false
 
 func MaterialScore(b *board.Board, color board.Color, weights Weights) float64 {
 	if weights == nil {
