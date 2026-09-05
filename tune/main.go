@@ -57,6 +57,7 @@ type params struct {
 	material  [6]float64
 	pstScale  [6]float64
 	structure engine.StructureWeights
+	mobility  [6]float64
 }
 
 type knob struct {
@@ -72,6 +73,10 @@ func knobs() []knob {
 	pieceKnob := func(name string, pt board.PieceType, lo, hi, step float64) knob {
 		return knob{name, func(p *params) float64 { return p.material[pt] },
 			func(p *params, v float64) { p.material[pt] = v }, lo, hi, step}
+	}
+	mobKnob := func(name string, pt board.PieceType) knob {
+		return knob{name, func(p *params) float64 { return p.mobility[pt] },
+			func(p *params, v float64) { p.mobility[pt] = v }, 0, 0.3, 0.005}
 	}
 	scaleKnob := func(name string, pt board.PieceType) knob {
 		return knob{name, func(p *params) float64 { return p.pstScale[pt] },
@@ -102,15 +107,19 @@ func knobs() []knob {
 			func(p *params, v float64) { p.structure.PassedPerRank = v }, 0, 0.5, 0.01},
 		{"kingShield", func(p *params) float64 { return p.structure.KingShield },
 			func(p *params, v float64) { p.structure.KingShield = v }, 0, 0.5, 0.01},
+		mobKnob("mob:knight", board.Knight),
+		mobKnob("mob:bishop", board.Bishop),
+		mobKnob("mob:rook", board.Rook),
+		mobKnob("mob:queen", board.Queen),
 	}
 }
 
 // apply builds the Eval for a candidate parameter vector. Everything
 // travels on the Eval, so evaluating two candidates concurrently is safe.
 func apply(p *params) *engine.Eval {
-	w, scale, sw := p.material, p.pstScale, p.structure
+	w, scale, sw, mob := p.material, p.pstScale, p.structure, p.mobility
 	return &engine.Eval{Weights: &w, UsePST: true, Tapered: true, Structure: true,
-		PSTScale: &scale, StructureW: &sw}
+		PSTScale: &scale, StructureW: &sw, Mobility: true, MobilityW: &mob}
 }
 
 // meanSquaredError is the quantity being minimised: how far the sigmoid
@@ -291,6 +300,7 @@ func main() {
 		material:  *engine.DefaultWeights(),
 		pstScale:  engine.DefaultPSTScale(),
 		structure: engine.DefaultStructureWeights(),
+		mobility:  engine.DefaultMobilityWeights(),
 	}
 	cur := *start
 
@@ -361,7 +371,7 @@ func main() {
 		"k": k, "positions": len(all),
 		"train_error_before": startTrain, "train_error_after": trainErr,
 		"test_error_before": startTest, "test_error_after": testErr,
-		"material": cur.material, "pst_scale": cur.pstScale,
+		"material": cur.material, "pst_scale": cur.pstScale, "mobility": cur.mobility,
 		"structure": map[string]float64{
 			"PassedBase": cur.structure.PassedBase, "PassedPerRank": cur.structure.PassedPerRank,
 			"Isolated": cur.structure.Isolated, "Doubled": cur.structure.Doubled,

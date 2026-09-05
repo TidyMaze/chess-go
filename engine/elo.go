@@ -65,6 +65,8 @@ type Player struct {
 	NoCastle bool
 	// NoLMR disables late move reductions.
 	NoLMR bool
+	// Mobility adds the mobility evaluation term.
+	Mobility bool
 	// UCI delegates move choice to an external engine (Stockfish), giving
 	// an externally-calibrated reference point rather than only measuring
 	// against this engine's own ancestors.
@@ -115,13 +117,19 @@ func (p Player) pickWith(g *game.Game, reuse *TranspositionTable) (game.Move, bo
 	ev.Net = p.Net
 	ev.NoCastle = p.NoCastle
 	ev.NoLMR = p.NoLMR
+	ev.Mobility = p.Mobility
 	if p.Tuned {
 		if p.Weights == nil {
 			ev.Weights = TunedWeights()
 		}
 		scale := TunedPSTScale()
 		sw := TunedStructure()
+		mob := TunedMobility()
 		ev.PSTScale, ev.StructureW = &scale, &sw
+		// The set was fitted with mobility in it, so the values are only
+		// correct together: using them without the term double-counts what
+		// mobility was absorbing.
+		ev.Mobility, ev.MobilityW = true, &mob
 	}
 	switch {
 	case reuse != nil:

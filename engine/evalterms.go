@@ -1,6 +1,9 @@
 package engine
 
-import "chess/board"
+import (
+	"chess/board"
+	"chess/moves"
+)
 
 // Positional evaluation terms beyond material and piece-square tables.
 // Each is cheap (one pass over the pieces plus per-file summaries) and
@@ -201,6 +204,49 @@ func structurePieces(pieces []board.ColoredPiece, color board.Color, own, enemy 
 			}
 			score += float64(shield) * w.KingShield * phase
 		}
+	}
+	return score
+}
+
+// mobilityWeights is the value of one available square, per piece type.
+//
+// Mobility is the most standard evaluation term this engine did not
+// have. It captures something material and piece-square tables cannot:
+// a knight on a good square with every exit covered is worth less than
+// the same knight with somewhere to go, and a rook behind its own pawns
+// is not doing anything wherever it stands.
+//
+// Pawns and kings are excluded. A pawn's mobility is already what the
+// pawn tables and the structure terms describe, and king "mobility" in
+// the middlegame is a liability rather than an asset, so counting it
+// would push the king into the open.
+// DefaultMobilityWeights are the starting values, replaced by the fit.
+func DefaultMobilityWeights() [6]float64 { return defaultMobilityWeights }
+
+// Hand-picked, and deliberately kept that way. Fitting these against
+// Stockfish static evaluations produced 0.055 / 0.100 / 0.085 / 0.065,
+// which fits 14% better and plays 82 Elo worse: -73 +/- 35 against +9 +/-
+// 34 for these values, over 400 games each. See engine/tuned.go for why.
+var defaultMobilityWeights = [6]float64{
+	board.Knight: 0.04, board.Bishop: 0.045, board.Rook: 0.025, board.Queen: 0.015,
+}
+
+// mobilityScore counts the squares each piece can reach, using
+// pseudo-legal targets: whether a move leaves its own king in check is a
+// question for the search, and the extra cost of answering it here would
+// be far larger than the accuracy it buys.
+func mobilityScore(b *board.Board, pieces []board.ColoredPiece, color board.Color, weights *[6]float64) float64 {
+	var buf [28]board.Sq
+	score := 0.0
+	for _, p := range pieces {
+		if p.Color != color {
+			continue
+		}
+		w := weights[p.Type]
+		if w == 0 {
+			continue
+		}
+		score += w * float64(len(moves.AppendLegalTargets(buf[:0], b, p.Sq, color, p.Type)))
 	}
 	return score
 }

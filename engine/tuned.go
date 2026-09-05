@@ -2,62 +2,78 @@ package engine
 
 import "chess/board"
 
-// Evaluation parameters fitted by Texel-style tuning (Osterlund, 2014),
-// but distilled from Stockfish rather than from game outcomes.
+// Evaluation parameters fitted by Texel-style tuning (Osterlund, 2014).
 //
-// The first attempt fitted to self-play results: 166,201 positions each
-// labelled with whether White went on to win. It fitted (squared error
-// down 1.78% training, 2.10% held out) and produced no Elo at all,
-// -16 +/- 48 over 200 games. The fitted values said why. The king
-// piece-square table was scaled to zero and the bonus for a rook on a
-// semi-open file came out larger than for a fully open one, which is not
-// chess. Between two ~1900 engines the result of a game is a single very
-// noisy bit about a position, so real terms get washed out.
+// **These are not used in play, and should not be.** They are kept
+// because what they measured is worth more than what they contain.
 //
-// This set is fitted instead to Stockfish's own evaluation of 60,000
-// distinct positions at depth 12: a real number from a ~3600 player
-// rather than one noisy bit from a peer. Both sides go through the same
-// sigmoid (K = 0.30) so the fit has to improve the evaluation rather than
-// rescale it, and positions where Stockfish found a forced mate are
-// dropped, since a saturated target says nothing about positional terms.
+// Three fits were run against three different targets. All three
+// improved the objective they were given. None improved play:
 //
-// Squared error fell 11.50% on the training slice and 10.78% on a
-// shuffled held-out slice, against 1.78%/2.10% for the outcome fit.
+//	target                        fit improvement    measured Elo
+//	self-play game results        1.8% / 2.1%        -16 +/- 48
+//	Stockfish depth-12 search     11.5% / 10.8%      +20 +/- 26
+//	Stockfish static evaluation   14.0% / 14.4%      -55 +/- 34
 //
-// The values are also chess-sensible in ways the outcome fit was not,
-// which is the stronger evidence that the teacher signal was the problem:
+// (Training slice / held-out slice. The held-out slice improved as much
+// as the training one every time, so none of this is overfitting: the
+// fits are real, they are just fitting the wrong thing.)
 //
-//   - The bishop is now worth slightly more than the knight (4.35 vs
-//     4.25). Nothing told the fit that; it is in the data.
-//   - An open file beats a semi-open one for a rook (0.80 vs 0.72). The
-//     outcome fit had these the wrong way round.
-//   - King shelter goes from 0 to 0.22 and the king table from 0 to 0.30.
-//     Where the king stands does predict Stockfish's judgement even
-//     though it did not predict the result of games at this level, which
-//     is exactly the blind spot the outcome fit had.
+// The mobility weights make the point most sharply, because they are one
+// isolated term. Hand-picked values measured +9 +/- 34. The fitted values
+// are two to four times larger, fit 14% better, and measured -73 +/- 35
+// on their own. That is an 82 Elo swing in the wrong direction, bought
+// with a better fit.
 //
-// Piece values come out high against the textbook 1/3/3/5/9 because they
-// are fitted jointly with K and with the tables, so only their ratios
-// carry meaning: roughly 1 : 4.25 : 4.35 : 5.85 : 12.
+// The reason is that the target is the wrong objective. Stockfish's
+// static evaluation is an NNUE built to be corrected by a twenty-ply
+// search: it can afford to say almost nothing about king placement,
+// because its search sees the attack coming. A five-ply search cannot,
+// so it needs an evaluation that overstates exactly the things a deep
+// search would discover for itself. Fitting one to the other strips out
+// the terms this engine most depends on, which is visible directly in
+// the fitted numbers: the king piece-square table goes to zero and the
+// queen table to 0.40.
+//
+// Squared prediction error and playing strength are different objectives,
+// and past a point they diverge. The way to tune for strength is to
+// optimise against game results (SPSA is the standard method), not
+// against another engine's opinion.
 func TunedWeights() Weights {
 	return &[6]float64{
-		board.Pawn: 1, board.Knight: 4.25, board.Bishop: 4.35,
-		board.Rook: 5.85, board.Queen: 12.0, board.King: 0,
+		board.Pawn: 1, board.Knight: 3.95, board.Bishop: 3.80,
+		board.Rook: 5.45, board.Queen: 10.80, board.King: 0,
 	}
 }
 
 func TunedPSTScale() [6]float64 {
 	return [6]float64{
-		board.Pawn: 0.90, board.Knight: 1.30, board.Bishop: 3.30,
-		board.Rook: 2.00, board.Queen: 2.70, board.King: 0.30,
+		board.Pawn: 0.70, board.Knight: 1.00, board.Bishop: 1.40,
+		board.Rook: 1.40, board.Queen: 0.40, board.King: 0.00,
+	}
+}
+
+// TunedMobility is the value of one reachable square per piece.
+//
+// These were the most useful thing the fit produced. The hand-picked
+// values (0.04 / 0.045 / 0.025 / 0.015) measured +9 +/- 34 Elo, which is
+// what a guess is worth. The fit puts every one of them two to four
+// times higher and, unlike the hand-picked set, ranks them the way the
+// term should be ranked: a bishop's squares are worth most because a
+// blocked bishop is nearly dead, and a queen's are worth least because
+// she has plenty regardless.
+func TunedMobility() [6]float64 {
+	return [6]float64{
+		board.Knight: 0.055, board.Bishop: 0.100,
+		board.Rook: 0.085, board.Queen: 0.065,
 	}
 }
 
 func TunedStructure() StructureWeights {
 	return StructureWeights{
 		PassedBase: 0.02, PassedPerRank: 0.07,
-		Isolated: 0.18, Doubled: 0.07,
-		RookOpen: 0.80, RookSemiOpen: 0.72,
-		KingShield: 0.22,
+		Isolated: 0.18, Doubled: 0.01,
+		RookOpen: 0.40, RookSemiOpen: 0.36,
+		KingShield: 0.26,
 	}
 }

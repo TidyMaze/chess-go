@@ -34,6 +34,7 @@ func main() {
 	noLMR := flag.Bool("no-lmr", false, "challenger disables late move reductions")
 	noNull := flag.Bool("no-null", false, "challenger disables null-move pruning")
 	qply := flag.Int("qply", 0, "challenger quiescence ply cap (0 = default)")
+	mobility := flag.Bool("mobility", false, "challenger adds the mobility term")
 	flag.Parse()
 
 	reference := full("reference (current FULL)", *depth)
@@ -53,6 +54,7 @@ func main() {
 	challenger.NoLMR = *noLMR
 	challenger.NullMove = !*noNull
 	challenger.QuiescePly = *qply
+	challenger.Mobility = *mobility
 	if *netPath != "" {
 		n, err := engine.LoadNet(*netPath)
 		if err != nil {

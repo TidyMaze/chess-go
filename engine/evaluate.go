@@ -125,6 +125,12 @@ type Eval struct {
 	// Futility enables futility and reverse-futility pruning near the
 	// leaves (Heinz, 1998).
 	Futility bool
+	// Mobility adds a bonus per square each piece can reach.
+	Mobility bool
+	// MobilityW overrides the per-piece mobility weights. Nil uses the
+	// defaults. Hand-picked weights measured +9 +/- 34, which is what a
+	// guess is worth; these exist so the tuner can fit them instead.
+	MobilityW *[6]float64
 	// PSTScale and StructureW override the built-in evaluation constants,
 	// so a tuned engine can play an untuned one in the same process. Nil
 	// means use the defaults.
@@ -388,6 +394,14 @@ func PositionScoreEval(b *board.Board, color board.Color, ev *Eval) float64 {
 		sw := ev.structureWeights()
 		score += structurePieces(pieces, color, pawns[color], pawns[other], phase, sw)
 		score -= structurePieces(pieces, other, pawns[other], pawns[color], phase, sw)
+	}
+
+	if ev != nil && ev.Mobility {
+		mw := &defaultMobilityWeights
+		if ev.MobilityW != nil {
+			mw = ev.MobilityW
+		}
+		score += mobilityScore(b, pieces, color, mw) - mobilityScore(b, pieces, other, mw)
 	}
 
 	if score >= 4 {

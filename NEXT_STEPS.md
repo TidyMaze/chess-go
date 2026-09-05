@@ -53,7 +53,7 @@ with depth. Confirmed independently in games: depth 5 over depth 4 is
 |---|---|---|
 | Futility pruning (Heinz 1998) | +55 +/- 63, 25% fewer nodes | kept as a speed win |
 | Texel tuning on game outcomes | -16 +/- 48 (200 games) | rejected |
-| Texel tuning on Stockfish scores | +20 +/- 26 (700 games) | kept, unconfirmed |
+| Texel tuning on Stockfish scores | +20 +/- 26 (700 games) | unconfirmed, not default |
 | NNUE, full replacement, sigmoid target | -700 +/- 112 | rejected |
 | NNUE, residual on depth-12 search | -338 +/- 76 | rejected |
 | NNUE, residual on static eval | -308 +/- 70 | rejected |
@@ -62,6 +62,12 @@ with depth. Confirmed independently in games: depth 5 over depth 4 is
 | Quiescence cap 4 -> 12 | +23 +/- 39 | worth retesting at power |
 | Quiescence cap 4 -> 24 | +6 +/- 39 | no |
 | Disabling null-move | -13 +/- 39 | no |
+| Mobility term, hand-picked weights | +9 +/- 34 (400 games) | neutral, off by default |
+| Mobility term, fitted weights | -73 +/- 35 (400 games) | rejected |
+| Full fitted set incl. mobility | -55 +/- 34 (400 games) | rejected |
+| Fused evaluation, one pass not seven | 1.20x faster, identical output | kept |
+| Table reuse per game, 24-byte entries | ~1.5x faster in matches | kept |
+| Occupied list as indices, no board clone | 1.28x total at depth 7 | kept |
 
 Nothing here is confirmed at 1%. Several land around +20, which is
 exactly the size that 300 games cannot resolve.
@@ -75,7 +81,45 @@ pair is worth ~45 Elo, which 1500 games can see. Run each alone at 1500
 games, then together. This is the cheapest available Elo in the
 repository right now and needs no new code.
 
-### 2. Fix why the network failed, rather than abandoning it
+### 2. Tune against game results (SPSA), not against another engine
+
+This is the biggest lesson of the session and it invalidates most of what
+was tried. Four fits, three targets, all of them improved the objective
+they were given, none improved play:
+
+| target | fit improvement (train / held out) | measured Elo |
+|---|---|---|
+| self-play game results | 1.8% / 2.1% | -16 +/- 48 |
+| Stockfish depth-12 search | 11.5% / 10.8% | +20 +/- 26 |
+| Stockfish static evaluation | 14.0% / 14.4% | -55 +/- 34 |
+| mobility weights alone, fitted | 14.0% / 14.4% | **-73 +/- 35** |
+
+The mobility row is the cleanest evidence, because it is one isolated
+term: hand-picked weights measured +9 +/- 34, the fitted ones measured
+-73 +/- 35. An 82 Elo swing in the wrong direction, bought with a 14%
+better fit.
+
+The reason is that squared prediction error is not playing strength.
+Stockfish's static evaluation is an NNUE designed to be corrected by a
+twenty-ply search, so it can afford to say almost nothing about king
+placement: its search sees the attack coming. A five-ply search cannot,
+and needs an evaluation that overstates precisely what a deep search
+would find for itself. Fitting one to the other strips out the terms
+this engine most depends on, visibly: the fit drove the king table to
+zero and the queen table to 0.40.
+
+So stop fitting to another engine's opinion and optimise the actual
+objective. SPSA (Simultaneous Perturbation Stochastic Approximation) is
+what engines use for this: perturb every parameter at once, play a match,
+step in the direction that won. It needs a few hundred games per
+iteration, which is affordable now that a 400-game match at depth 4 takes
+about two minutes.
+
+Start with fewer than ten parameters (piece values and the mobility
+weights), because the number of games needed grows with the parameter
+count, not with how much each one matters.
+
+### 3. Fix why the network failed, rather than abandoning it
 
 The failures were informative and none of them was "neural evaluation
 does not work here":
@@ -96,19 +140,21 @@ positions rather than 60,000. Held-out error needs to be well under 0.5
 pawns before a network is worth putting in a game: at ~2 pawns it hangs
 pieces, which is what -300 Elo looks like.
 
-### 3. En passant
+### 4. En passant
 
 The only chess rule still missing. Worth little Elo directly, but it is a
 rule, and its absence means FEN cannot describe some positions the
 opponent can reach.
 
-### 4. Tune the tables entry by entry
+### 5. Tune the tables entry by entry
 
-The tuner currently fits 6 piece-square scalars. With enough positions it
-should fit all 768 entries. Do this after the data set is bigger, and
-only against Stockfish scores, never against game outcomes.
+The tuner currently fits 6 piece-square scalars and could fit all 768
+entries given enough positions. Do this only after item 2: fitting more
+parameters against the same wrong objective will just find a worse
+engine faster. If the tables are fitted at all, verify the result in
+games before believing it, the way the mobility weights were.
 
-### 5. King safety that counts attackers
+### 6. King safety that counts attackers
 
 Every fit so far has pushed the king-shelter term around without
 conviction, because counting shelter pawns is too crude to be worth
