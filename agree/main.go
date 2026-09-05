@@ -67,6 +67,8 @@ func main() {
 	futility := flag.Bool("futility", true, "futility pruning")
 	extensions := flag.Bool("extensions", true, "check extensions")
 	iterative := flag.Bool("iterative", true, "iterative deepening search (false = legacy alpha-beta)")
+	material := flag.Bool("material", false, "strip the evaluation down to material only")
+	pst := flag.Bool("pst", true, "piece-square tables")
 	flag.Parse()
 
 	engine.SeedRandom(*seed)
@@ -98,8 +100,9 @@ func main() {
 
 	fmt.Printf("%-7s %-12s %-10s\n", "depth", "agreement", "time")
 	for d := 1; d <= *maxDepth; d++ {
-		p := engine.Player{Depth: d, UsePST: true, Quiescence: true, TTBits: 20,
-			NullMove: *nullMove, Tapered: true, Iterative: *iterative, Extensions: *extensions,
+		p := engine.Player{Depth: d, UsePST: *pst, Quiescence: true, TTBits: 20,
+			MaterialOnly: *material,
+			NullMove:     *nullMove, Tapered: true, Iterative: *iterative, Extensions: *extensions,
 			Aspiration: *aspiration, SEEPruning: true, Structure: true, Futility: *futility}
 		matched, total := 0, 0
 		t := time.Now()

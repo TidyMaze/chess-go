@@ -5,30 +5,133 @@
   "current_low": 1781,
   "current_high": 2037,
   "milestones": [
-    {"name": "Club", "elo": 1600},
-    {"name": "Expert", "elo": 2000},
-    {"name": "Master", "elo": 2200},
-    {"name": "IM", "elo": 2400},
-    {"name": "Deep Blue", "elo": 2750}
+    {
+      "name": "Club",
+      "elo": 1600
+    },
+    {
+      "name": "Expert",
+      "elo": 2000
+    },
+    {
+      "name": "Master",
+      "elo": 2200
+    },
+    {
+      "name": "Deep Blue",
+      "elo": 2750
+    }
   ],
   "steps": [
-    {"name": "Go port baseline (PST, quiescence, TT, null-move, tapered, ID)",
-     "elo": 1879, "low": 1739, "high": 2019, "gain": 0, "pct": 0,
-     "note": "150 games vs Stockfish at 5 Elo-limited settings"},
-    {"name": "+ check extensions, aspiration windows, SEE pruning",
-     "elo": 1855, "low": 1708, "high": 2001, "gain": -24, "pct": -1.3,
-     "note": "head-to-head said +215; not visible against Stockfish"},
-    {"name": "+ pawn structure and rook-file terms",
-     "elo": 1909, "low": 1781, "high": 2037, "gain": 54, "pct": 2.9,
-     "note": "head-to-head said +78 +/- 71; within calibration noise"}
+    {
+      "name": "Go port baseline (PST, quiescence, TT, null-move, tapered, ID)",
+      "elo": 1879,
+      "low": 1739,
+      "high": 2019,
+      "gain": 0,
+      "pct": 0,
+      "note": "150 games vs Stockfish at 5 Elo-limited settings"
+    },
+    {
+      "name": "+ check extensions, aspiration windows, SEE pruning",
+      "elo": 1855,
+      "low": 1708,
+      "high": 2001,
+      "gain": -24,
+      "pct": -1.3,
+      "note": "head-to-head said +215; not visible against Stockfish"
+    },
+    {
+      "name": "+ pawn structure and rook-file terms",
+      "elo": 1909,
+      "low": 1781,
+      "high": 2037,
+      "gain": 54,
+      "pct": 2.9,
+      "note": "head-to-head said +78 +/- 71; within calibration noise"
+    }
   ],
   "external": [
-    {"opponent": "Stockfish UCI_Elo 1600 (depth 4)", "score": 0.75},
-    {"opponent": "Stockfish UCI_Elo 1800 (depth 5)", "score": 0.50},
-    {"opponent": "Stockfish UCI_Elo 2000 (depth 6)", "score": 0.27},
-    {"opponent": "Stockfish UCI_Elo 2200 (depth 7)", "score": 0.35},
-    {"opponent": "Stockfish UCI_Elo 2400 (depth 8)", "score": 0.18}
+    {
+      "opponent": "Stockfish UCI_Elo 1600 (depth 4)",
+      "score": 0.75
+    },
+    {
+      "opponent": "Stockfish UCI_Elo 1800 (depth 5)",
+      "score": 0.5
+    },
+    {
+      "opponent": "Stockfish UCI_Elo 2000 (depth 6)",
+      "score": 0.27
+    },
+    {
+      "opponent": "Stockfish UCI_Elo 2200 (depth 7)",
+      "score": 0.35
+    },
+    {
+      "opponent": "Stockfish UCI_Elo 2400 (depth 8)",
+      "score": 0.18
+    }
   ],
-  "tech": {"nps": "1.44M", "depth": 5},
-  "caveat": "The three builds' 95% intervals overlap almost entirely, so this measurement cannot tell them apart. Head-to-head matches between two builds are far more sensitive (identical engines, one flag different) and did show gains; those gains have not yet been confirmed against an outside opponent. Treat the current figure as roughly 1900, not as a precise rating."
+  "tech": {
+    "nps": "1.44M",
+    "depth": 5
+  },
+  "caveat": "The three builds' 95% intervals overlap almost entirely, so this measurement cannot tell them apart. Head-to-head matches between two builds are far more sensitive (identical engines, one flag different) and did show gains; those gains have not been confirmed against an outside opponent. Treat the current figure as roughly 1900, not as a precise rating.",
+  "agreement": {
+    "oracle": "Stockfish depth 14, 300 self-play positions",
+    "full": [
+      [
+        1,
+        45.0
+      ],
+      [
+        2,
+        48.7
+      ],
+      [
+        3,
+        54.7
+      ],
+      [
+        4,
+        60.4
+      ],
+      [
+        5,
+        59.7
+      ],
+      [
+        6,
+        61.4
+      ]
+    ],
+    "material": [
+      [
+        1,
+        34.9
+      ],
+      [
+        2,
+        37.6
+      ],
+      [
+        3,
+        37.2
+      ],
+      [
+        4,
+        45.6
+      ],
+      [
+        5,
+        43.6
+      ],
+      [
+        6,
+        41.6
+      ]
+    ],
+    "note": "How often the engine picks Stockfish's move. It stops improving after depth 4, so extra search is no longer buying better moves. With a material-only evaluation it falls after depth 4 instead: a deeper search optimises harder for whatever the evaluation says is good, so a weak evaluation gets worse with depth. The evaluation is the ceiling."
+  }
 }

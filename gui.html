@@ -57,7 +57,10 @@
   #caveat { margin-top: 0.8rem; padding: 0.6rem 0.8rem; border-left: 3px solid #b45309;
             background: #2a2118; font-size: 0.85em; color: #d6c9b4; line-height: 1.5; }
   .loss { color: #f87171; }
-  #milestones { position: relative; height: 1.5em; margin-bottom: 0.9rem; font-size: 0.78em; color: #9ca3af; }
+  /* Chart.js with maintainAspectRatio:false sizes itself to its parent,
+     so the parent needs an explicit height or the canvas grows forever. */
+  #agreeWrap { position: relative; height: 240px; }
+  #milestones { position: relative; height: 2.4em; margin-bottom: 0.9rem; font-size: 0.78em; color: #9ca3af; }
   #milestones span { position: absolute; transform: translateX(-50%); white-space: nowrap; }
   #milestones span::before { content: ""; display: block; width: 1px; height: 0.5em; background: #555; margin: 0 auto 2px; }
 </style>
@@ -86,6 +89,9 @@
   <div id="external"></div>
   <div id="tech"></div>
   <div id="caveat"></div>
+  <h2 style="margin-top:1.4rem">Where the strength is limited</h2>
+  <div id="agreeWrap"><canvas id="agreeChart"></canvas></div>
+  <div id="agreeNote" class="note" style="margin-top:0.5rem"></div>
 </div>
 
 <div id="arena">
@@ -423,7 +429,8 @@ async function pollImprovements() {
     ms.innerHTML = "";
     for (const m of (d.milestones || [])) {
       const sp = document.createElement("span");
-      sp.style.left = Math.min(98, m.elo / d.target * 100) + "%";
+      sp.style.left = Math.min(97, m.elo / d.target * 100) + "%";
+      sp.style.top = (ms.childElementCount % 2) ? "0.75em" : "0";
       sp.textContent = `${m.name} ${m.elo}`;
       ms.appendChild(sp);
     }
@@ -449,7 +456,36 @@ async function pollImprovements() {
         `Deep Blue 1997: ~200M/sec on 480 custom chips &middot; depth ${d.tech.depth}`;
     }
     document.getElementById("caveat").textContent = d.caveat || "";
+    if (d.agreement) drawAgreement(d.agreement);
   } catch (e) {}
+}
+
+let agreeChart = null;
+function drawAgreement(a) {
+  document.getElementById("agreeNote").textContent = a.note + " Oracle: " + a.oracle + ".";
+  const labels = a.full.map(p => "depth " + p[0]);
+  const data = {
+    labels,
+    datasets: [
+      {label: "full evaluation", data: a.full.map(p => p[1]),
+       borderColor: "#4ade80", backgroundColor: "#4ade80", tension: 0.25},
+      {label: "material only", data: a.material.map(p => p[1]),
+       borderColor: "#f87171", backgroundColor: "#f87171", tension: 0.25},
+    ],
+  };
+  if (agreeChart) { agreeChart.data = data; agreeChart.update(); return; }
+  agreeChart = new Chart(document.getElementById("agreeChart"), {
+    type: "line", data,
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {legend: {labels: {color: "#ddd"}}},
+      scales: {
+        y: {title: {display: true, text: "agrees with Stockfish (%)", color: "#bbb"},
+            ticks: {color: "#bbb"}, grid: {color: "#333"}},
+        x: {ticks: {color: "#bbb"}, grid: {color: "#333"}},
+      },
+    },
+  });
 }
 
 pollImprovements();

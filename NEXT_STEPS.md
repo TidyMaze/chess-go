@@ -1,53 +1,59 @@
 # Next steps to improve the engine
 
-## Stop: there is a search defect to find first (2026-09-05)
+## The evaluation is the ceiling, not the search (2026-09-05)
 
-Do not tune evaluation or add features until this is resolved. Evidence,
-all from `./agree-bin` (agreement with Stockfish depth 14 on 300 self-play
-positions, same positions in every arm):
+Measured with `./agree-bin`: sample positions from self-play, ask
+Stockfish at depth 14 for the best move in each, and count how often this
+engine picks the same move at each of its own depths. Same 300 positions
+in every arm (`engine.SeedRandom`).
 
-| depth | iterative, all on | iterative, no aspiration | legacy alpha-beta |
-|---|---|---|---|
-| 1 | 45.0% | 31.5% | 42.3% |
-| 2 | 48.7% | 36.6% | **26.7%** |
-| 3 | 54.7% | 40.6% | 27.7% |
-| 4 | 60.4% | 40.3% | 49.7% |
-| 5 | 59.7% | 42.3% | 46.3% |
-| 6 | 61.4% | 38.6% | n/a |
+| depth | full eval | material only | no aspiration | legacy alpha-beta |
+|---|---|---|---|---|
+| 1 | 45.0% | 34.9% | 31.5% | 42.3% |
+| 2 | 48.7% | 37.6% | 36.6% | 26.7% |
+| 3 | 54.7% | 37.2% | 40.6% | 27.7% |
+| 4 | 60.4% | 45.6% | 40.3% | 49.7% |
+| 5 | 59.7% | 43.6% | 42.3% | 46.3% |
+| 6 | 61.4% | 41.6% | 38.6% | n/a |
 
-Three things are wrong here:
+Read the first two columns together, because that comparison is the whole
+finding:
 
-1. **Agreement is not monotonic in depth.** The legacy search agrees with
-   Stockfish *less* at depth 2 (26.7%) than at depth 1 (42.3%). More
-   search returning worse moves is a bug, not a tuning problem. The same
-   dip appears at depth 5 in the iterative search.
-2. **Aspiration windows change move quality by 20 points.** They are a
-   speed optimisation and must not change which move is returned once the
-   fail-high/fail-low re-search is correct. A 20-point swing means one of
-   the two paths is wrong, and since the aspiration arm is the *better*
-   one, the suspect is the full-window path.
-3. **Extra depth buys almost nothing in games either**, which is the same
-   story measured a different way: depth 5 over depth 4 is +60 +/- 70 Elo,
-   depth 6 over depth 5 is +38 +/- 69 Elo, both inside their margins,
-   while depth 6 costs 3.8x the time of depth 5.
+- The full evaluation is worth about 15 points of agreement at every
+  depth. The positional terms do work.
+- Agreement stops improving after depth 4. Depth 6 is 61.4% against depth
+  4's 60.4%, for 6x the time.
+- With a material-only evaluation, agreement *falls* after depth 4 (45.6
+  to 41.6). A deeper search optimises harder for whatever the evaluation
+  says is good, so a weak evaluation gets actively worse with depth.
 
-Reproduce with:
+That is an evaluation ceiling, not a search defect. The engine already
+searches deep enough to reach the limit of what its evaluation can tell
+it apart, which is also why the games agreed: depth 5 over depth 4 was
++60 +/- 70 Elo and depth 6 over depth 5 +38 +/- 69, both inside their
+margins, while depth 6 cost 3.8x the time.
+
+So: **evaluation quality is the next lever, and more search is not.**
+Texel tuning (below) moves from "nice to have" to the main event.
+
+Reproduce:
 
 ```
 ./agree-bin -positions 300 -oracle-depth 14 -max-depth 6
-./agree-bin -positions 300 -oracle-depth 14 -max-depth 6 -aspiration=false
-./agree-bin -positions 300 -oracle-depth 14 -max-depth 5 -iterative=false
+./agree-bin -positions 300 -oracle-depth 14 -max-depth 6 -material=true -pst=false
 ```
 
-Places to look, in order: the root loop of `ChooseMoveIterative` never
-narrows alpha across root moves; `terminalScore` returns mate scores that
-depend on `depthLeft` and the transposition table stores them without
-adjusting for ply; the even/odd oscillation in the legacy arm is the
-classic signature of a leaf evaluation that is not symmetric with respect
-to the side to move.
+### Two loose ends, neither on the critical path
 
-Fixing this is worth more than any item below: an engine whose 6th ply is
-worth 38 Elo is leaving most of its search on the floor.
+- Turning aspiration windows off costs 20 points of agreement (60.4% to
+  40.3% at depth 4). Aspiration is a speed optimisation and should return
+  the same move as a full-window search once the fail-high/fail-low
+  re-search is right, so a swing that large is not yet explained. The
+  aspiration arm is the better one and is what matches use, so this is not
+  urgent, but it is not understood either.
+- The legacy alpha-beta path agrees less at depth 2 (26.7%) than at depth
+  1 (42.3%). That path is not used in matches. Worth a look only if the
+  aspiration question leads back to it.
 
 ## Calibration reality check (2026-09-05)
 
