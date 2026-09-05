@@ -372,7 +372,8 @@ type genStats struct {
 // only when nothing tactical is pending, since a static network cannot
 // predict a capture sequence and training on those teaches noise.
 func generate(champion engine.Player, games, playDepth, labelDepth, maxPlies int,
-	lambda, k, quietTol float64, useSigmoidTarget bool, gen int, stats *genStats,
+	lambda, k, quietTol float64, useSigmoidTarget bool, teachers chan *engine.UCIEngine, teacherDepth int,
+	gen int, stats *genStats,
 	live func(*game.Game, int, board.Sq, board.Sq)) []sample {
 
 	var mu sync.Mutex
@@ -395,6 +396,15 @@ func generate(champion engine.Player, games, playDepth, labelDepth, maxPlies int
 			// position. 16 bits is 1.5 MB, which stays in cache; the
 			// labelling search is shallow and does not need more.
 			labelTT := engine.NewTranspositionTable(16)
+			// Borrow a teacher from the shared pool for the duration of
+			// this game. Creating one per game meant a process spawn and a
+			// UCI handshake for every game, which dominated everything
+			// else: the pool grew so slowly it looked like a deadlock.
+			var teacher *engine.UCIEngine
+			if teachers != nil {
+				teacher = <-teachers
+				defer func() { teachers <- teacher }()
+			}
 			// The playing search gets its own table for the whole game.
 			// Allocating one per move was the single largest cost in the
 			// generator: 24 MB a move, and the profile showed 58% of the
@@ -457,8 +467,20 @@ func generate(champion engine.Player, games, playDepth, labelDepth, maxPlies int
 				if math.Abs(engine.QuiescenceScore(labeler, g)-staticSTM) > quietTol {
 					continue
 				}
-				score, ok := engine.PlayerScoreWith(labeler, g, labelTT)
-				if !ok {
+				var score float64
+				var scored bool
+				if teacher != nil {
+					var mate bool
+					score, mate, scored = teacher.Evaluate(g, teacherDepth)
+					if mate {
+						// A forced mate saturates any target and says
+						// nothing about the positional terms being learned.
+						continue
+					}
+				} else {
+					score, scored = engine.PlayerScoreWith(labeler, g, labelTT)
+				}
+				if !scored {
 					continue
 				}
 				if g.Turn == board.Black {
@@ -581,6 +603,20 @@ func main() {
 	// tactical noise in the target, which a static evaluation cannot
 	// learn anyway.
 	quietTol := flag.Float64("quiet", 0.35, "pawns of allowed static/quiescence disagreement")
+	// Where the training labels come from.
+	//
+	// "self" is a search by this engine, which is the classic bootstrap
+	// but caps the network near the strength of the engine producing the
+	// labels: it is penalised whenever it discovers something a depth-5
+	// search of an ~1850 player misses.
+	//
+	// "stockfish" distils from a much stronger search instead. Worth
+	// distinguishing from the earlier failed experiments, which fitted a
+	// *linear* model to Stockfish's *static* evaluation and removed the
+	// terms a shallow search depends on. This is a non-linear network
+	// learning search scores, which is what distillation normally means.
+	teacher := flag.String("teacher", "self", "label source: self | stockfish")
+	teacherDepth := flag.Int("teacher-depth", 10, "search depth for the teacher")
 	poolFile := flag.String("pool-file", "nnue_pool.bin", "append-only positions, reloaded on restart")
 	netFile := flag.String("net-file", "nnue_net.gob", "network and optimiser checkpoint")
 	fresh := flag.Bool("fresh", false, "ignore any checkpoint and start over")
@@ -592,6 +628,24 @@ func main() {
 	flag.Parse()
 
 	useSigmoid := *target == "sigmoid"
+	// One Stockfish per core, started once and reused for the whole run.
+	// A UCI process is a single conversation, so they cannot be shared
+	// concurrently; a buffered channel hands each game exclusive use of
+	// one and takes it back afterwards.
+	var teachers chan *engine.UCIEngine
+	if *teacher == "stockfish" {
+		teachers = make(chan *engine.UCIEngine, runtime.NumCPU())
+		for i := 0; i < runtime.NumCPU(); i++ {
+			sf, err := engine.NewStockfish("/opt/homebrew/bin/stockfish", 20, 0)
+			if err != nil {
+				fmt.Println("stockfish:", err)
+				return
+			}
+			defer sf.Close()
+			teachers <- sf
+		}
+		fmt.Printf("teacher: Stockfish depth %d, %d processes\n", *teacherDepth, runtime.NumCPU())
+	}
 	rng := rand.New(rand.NewSource(23))
 	n := newNet(*hidden, rng)
 
@@ -624,18 +678,20 @@ func main() {
 
 	params := engine.HalfKPInputs*(*hidden) + *hidden + 2*(*hidden) + 1
 	arch := map[string]any{
-		"features":    "HalfKP (king square x piece x square)",
-		"inputs":      engine.HalfKPInputs,
-		"hidden":      *hidden,
-		"layers":      fmt.Sprintf("%d -> %d (shared, both perspectives) -> %d -> 1", engine.HalfKPInputs, *hidden, 2**hidden),
-		"activation":  "clipped ReLU [0,1]",
-		"params":      params,
-		"target":      fmt.Sprintf("%.2f x sigmoid(search score) + %.2f x game result", *lambda, 1-*lambda),
-		"label_depth": *labelDepth,
-		"play_depth":  *playDepth,
-		"eval_every":  *evalEvery,
-		"eval_games":  *evalGames,
-		"eval_blend":  *evalBlend,
+		"features":      "HalfKP (king square x piece x square)",
+		"inputs":        engine.HalfKPInputs,
+		"hidden":        *hidden,
+		"layers":        fmt.Sprintf("%d -> %d (shared, both perspectives) -> %d -> 1", engine.HalfKPInputs, *hidden, 2**hidden),
+		"activation":    "clipped ReLU [0,1]",
+		"params":        params,
+		"target":        fmt.Sprintf("%.2f x sigmoid(search score) + %.2f x game result", *lambda, 1-*lambda),
+		"label_depth":   *labelDepth,
+		"teacher":       *teacher,
+		"teacher_depth": *teacherDepth,
+		"play_depth":    *playDepth,
+		"eval_every":    *evalEvery,
+		"eval_games":    *evalGames,
+		"eval_blend":    *evalBlend,
 	}
 	fmt.Printf("HalfKP %d inputs x %d hidden per side, %d parameters, %d workers\n",
 		engine.HalfKPInputs, *hidden, params, workers)
@@ -668,7 +724,7 @@ func main() {
 		}()
 
 		freshSamples := generate(champion, *gamesPerGen, *playDepth, *labelDepth, *maxPlies,
-			*lambda, *k, *quietTol, useSigmoid, gen, stats,
+			*lambda, *k, *quietTol, useSigmoid, teachers, *teacherDepth, gen, stats,
 			func(g *game.Game, ply int, from, to board.Sq) {
 				writeJSON("live_game.json", map[string]any{
 					"label": fmt.Sprintf("Generation %d self-play", gen), "move_no": ply,
