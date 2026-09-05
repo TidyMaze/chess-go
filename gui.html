@@ -41,6 +41,18 @@
   tr.baseline td { color: #86efac; }
   #matchLog { margin-top: 1rem; font-size: 0.85em; color: #bbb; max-height: 12em; overflow-y: auto; }
   #matchLog div { padding: 0.15rem 0; border-top: 1px solid #2a2a2a; }
+  #improve { width: min(90vw, 900px); margin-top: 2rem; }
+  #improve h2 { text-align: left; margin-bottom: 0.3rem; }
+  #progressOuter { background: #2a2a2a; border-radius: 6px; height: 1.6em; position: relative; overflow: hidden; margin-bottom: 0.8rem; }
+  #progressFill { background: linear-gradient(90deg,#16a34a,#f59e0b); height: 100%; }
+  #progressLabel { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 0.9em; }
+  table.steps { width: 100%; border-collapse: collapse; font-size: 0.92em; }
+  table.steps th { text-align: left; color: #9ca3af; padding: 0.3rem 0.5rem; }
+  table.steps td { padding: 0.35rem 0.5rem; border-top: 1px solid #333; vertical-align: top; }
+  table.steps td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .gain { color: #86efac; font-weight: 600; }
+  .note { color: #8b8b8b; font-size: 0.88em; }
+  #external { margin-top: 0.8rem; font-size: 0.9em; color: #bbb; }
 </style>
 </head>
 <body>
@@ -57,6 +69,14 @@
   <button id="live">&#9679; Live</button>
 </div>
 <div id="status"></div>
+
+<div id="improve">
+  <h2>Engine improvements</h2>
+  <div id="progressOuter"><div id="progressFill" style="width:0%"></div><div id="progressLabel"></div></div>
+  <table class="steps"><thead><tr><th>Change</th><th class="num">Elo</th><th class="num">Gain</th></tr></thead>
+    <tbody id="stepsBody"></tbody></table>
+  <div id="external"></div>
+</div>
 
 <div id="arena">
   <h2>Go engine arena</h2>
@@ -377,6 +397,33 @@ async function pollArena() {
 
 pollArena();
 setInterval(pollArena, 1000);
+
+async function pollImprovements() {
+  try {
+    const d = await fetch("improvements.json?_=" + Date.now()).then(r => r.json());
+    const span = d.target - d.baseline;
+    const pct = Math.max(0, Math.min(100, (d.current - d.baseline) / span * 100));
+    document.getElementById("progressFill").style.width = pct + "%";
+    document.getElementById("progressLabel").textContent =
+      `${d.current} Elo — ${pct.toFixed(0)}% of the way from ${d.baseline} to ${d.target} (2x)`;
+
+    const body = document.getElementById("stepsBody");
+    body.innerHTML = "";
+    for (const s of d.steps) {
+      const tr = document.createElement("tr");
+      const gain = s.gain > 0 ? `<span class="gain">+${s.gain} (+${s.pct}%)</span>` : "&mdash;";
+      tr.innerHTML = `<td>${s.name}<div class="note">${s.note || ""}</div></td>` +
+        `<td class="num">${s.elo}</td><td class="num">${gain}</td>`;
+      body.appendChild(tr);
+    }
+    document.getElementById("external").innerHTML =
+      "External calibration: " + d.external.map(e =>
+        `${e.opponent} &rarr; score ${e.score.toFixed(2)} (~${e.estimate} Elo)`).join(" &middot; ");
+  } catch (e) {}
+}
+
+pollImprovements();
+setInterval(pollImprovements, 2000);
 </script>
 </body>
 </html>

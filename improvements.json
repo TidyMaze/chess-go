@@ -1,0 +1,15 @@
+{
+  "baseline": 1712,
+  "target": 3424,
+  "current": 1927,
+  "steps": [
+    {"name": "Go port baseline (depth 5 FULL)", "elo": 1712, "gain": 0, "pct": 0,
+     "note": "starting point for this goal"},
+    {"name": "Check extensions + aspiration windows + SEE pruning", "elo": 1927, "gain": 215, "pct": 12.6,
+     "note": "measured head-to-head at equal depth, 40 games: 23-16-1"}
+  ],
+  "external": [
+    {"opponent": "Stockfish UCI_Elo 1800 (depth 5)", "score": 0.70, "estimate": 1947},
+    {"opponent": "Stockfish UCI_Elo 2000 (depth 6)", "score": 0.60, "estimate": 2070}
+  ]
+}
