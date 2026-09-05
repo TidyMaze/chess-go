@@ -53,6 +53,13 @@
   .gain { color: #86efac; font-weight: 600; }
   .note { color: #8b8b8b; font-size: 0.88em; }
   #external { margin-top: 0.8rem; font-size: 0.9em; color: #bbb; }
+  #tech { margin-top: 0.5rem; font-size: 0.9em; color: #bbb; }
+  #caveat { margin-top: 0.8rem; padding: 0.6rem 0.8rem; border-left: 3px solid #b45309;
+            background: #2a2118; font-size: 0.85em; color: #d6c9b4; line-height: 1.5; }
+  .loss { color: #f87171; }
+  #milestones { position: relative; height: 1.5em; margin-bottom: 0.9rem; font-size: 0.78em; color: #9ca3af; }
+  #milestones span { position: absolute; transform: translateX(-50%); white-space: nowrap; }
+  #milestones span::before { content: ""; display: block; width: 1px; height: 0.5em; background: #555; margin: 0 auto 2px; }
 </style>
 </head>
 <body>
@@ -71,11 +78,14 @@
 <div id="status"></div>
 
 <div id="improve">
-  <h2>Engine improvements</h2>
+  <h2>Engine strength (Stockfish-calibrated Elo)</h2>
   <div id="progressOuter"><div id="progressFill" style="width:0%"></div><div id="progressLabel"></div></div>
-  <table class="steps"><thead><tr><th>Change</th><th class="num">Elo</th><th class="num">Gain</th></tr></thead>
+  <div id="milestones"></div>
+  <table class="steps"><thead><tr><th>Change</th><th class="num">Calibrated Elo</th><th class="num">Gain</th></tr></thead>
     <tbody id="stepsBody"></tbody></table>
   <div id="external"></div>
+  <div id="tech"></div>
+  <div id="caveat"></div>
 </div>
 
 <div id="arena">
@@ -170,10 +180,10 @@ function render() {
   renderBoard(frame.board, frame.from, frame.to);
   document.getElementById("slider").value = frameIdx;
   const moveText = frame.move_no === 0 ? "Starting position" : `Move ${frame.move_no}: ${frame.mover} ${frame.from}${frame.to}`;
-  const resultText = frameIdx === data.frames.length - 1 ? ` — ${data.result}` : "";
+  const resultText = frameIdx === data.frames.length - 1 ? `, ${data.result}` : "";
   document.getElementById("status").textContent = moveText + resultText;
   document.getElementById("title").textContent = data.generation != null
-    ? `Generation ${data.generation} — ${data.result}` : "Self-play (recorded game)";
+    ? `Generation ${data.generation}: ${data.result}` : "Self-play (recorded game)";
   updateBadge(data.generation, data.game, data.games_per_gen, frame.move_no);
 }
 
@@ -256,7 +266,7 @@ async function pollLiveGame() {
     document.getElementById("slider").value = 0;
     document.getElementById("title").textContent = state.label;
     document.getElementById("status").textContent =
-      `LIVE — move ${state.move_no}: ${state.mover} ${state.from}${state.to}`;
+      `LIVE, move ${state.move_no}: ${state.mover} ${state.from}${state.to}`;
     const { gen, game, gamesPerGen } = parseLiveLabel(state.label);
     updateBadge(gen, game, gamesPerGen, state.move_no);
   } catch (e) {}
@@ -283,7 +293,7 @@ function refreshGenProgress(status) {
   const phaseText = status.phase === "benchmarking"
     ? "benchmarking best candidate vs the fixed bot…"
     : `game ${status.game}/${status.games_per_gen} in progress`;
-  const outcomesText = status.outcomes.length ? ` — so far: ${status.outcomes.join(", ")}` : "";
+  const outcomesText = status.outcomes.length ? `, so far: ${status.outcomes.join(", ")}` : "";
   el.textContent = `Gen ${status.generation},${candidateText} ${phaseText}, running score ${status.running_score}/${status.games_per_gen}${outcomesText}`;
 }
 
@@ -372,7 +382,7 @@ function refreshMatchLog(matches) {
   for (const m of [...matches].reverse()) {
     const d = document.createElement("div");
     const gap = m.elo_gap >= 0 ? `+${m.elo_gap}` : `${m.elo_gap}`;
-    d.textContent = `${m.a} vs ${m.b} — ${m.wins}-${m.draws}-${m.losses} (${gap} Elo, ${m.seconds}s)`;
+    d.textContent = `${m.a} vs ${m.b}: ${m.wins}-${m.draws}-${m.losses} (${gap} Elo, ${m.seconds}s)`;
     el.appendChild(d);
   }
 }
@@ -382,7 +392,7 @@ async function pollArena() {
     const st = await fetch("arena_status.json?_=" + Date.now()).then(r => r.json());
     const el = document.getElementById("arenaStatus");
     el.textContent = st.phase === "done"
-      ? `Arena complete — ${st.total_matches} matches played.`
+      ? `Arena complete: ${st.total_matches} matches played.`
       : `Match ${st.match}/${st.total_matches}: ${st.label} (${st.games_per_pair} games)`;
   } catch (e) {}
   try {
@@ -401,24 +411,44 @@ setInterval(pollArena, 1000);
 async function pollImprovements() {
   try {
     const d = await fetch("improvements.json?_=" + Date.now()).then(r => r.json());
-    const span = d.target - d.baseline;
-    const pct = Math.max(0, Math.min(100, (d.current - d.baseline) / span * 100));
+    // Scale runs from 0 to the Deep Blue target so the milestones below
+    // sit at their true positions on the same axis.
+    const pct = Math.max(0, Math.min(100, d.current / d.target * 100));
     document.getElementById("progressFill").style.width = pct + "%";
+    const ci = (d.current_low && d.current_high) ? ` (${d.current_low}-${d.current_high})` : "";
     document.getElementById("progressLabel").textContent =
-      `${d.current} Elo — ${pct.toFixed(0)}% of the way from ${d.baseline} to ${d.target} (2x)`;
+      `${d.current} Elo${ci}, ${pct.toFixed(0)}% of the way to ${d.target} (${d.target_name})`;
+
+    const ms = document.getElementById("milestones");
+    ms.innerHTML = "";
+    for (const m of (d.milestones || [])) {
+      const sp = document.createElement("span");
+      sp.style.left = Math.min(98, m.elo / d.target * 100) + "%";
+      sp.textContent = `${m.name} ${m.elo}`;
+      ms.appendChild(sp);
+    }
 
     const body = document.getElementById("stepsBody");
     body.innerHTML = "";
     for (const s of d.steps) {
       const tr = document.createElement("tr");
-      const gain = s.gain > 0 ? `<span class="gain">+${s.gain} (+${s.pct}%)</span>` : "&mdash;";
+      let gain = "&mdash;";
+      if (s.gain > 0) gain = `<span class="gain">+${s.gain} (+${s.pct}%)</span>`;
+      else if (s.gain < 0) gain = `<span class="loss">${s.gain} (${s.pct}%)</span>`;
+      const range = (s.low && s.high) ? `<div class="note">${s.low}-${s.high}</div>` : "";
       tr.innerHTML = `<td>${s.name}<div class="note">${s.note || ""}</div></td>` +
-        `<td class="num">${s.elo}</td><td class="num">${gain}</td>`;
+        `<td class="num">${s.elo}${range}</td><td class="num">${gain}</td>`;
       body.appendChild(tr);
     }
     document.getElementById("external").innerHTML =
-      "External calibration: " + d.external.map(e =>
-        `${e.opponent} &rarr; score ${e.score.toFixed(2)} (~${e.estimate} Elo)`).join(" &middot; ");
+      "Calibrated against Stockfish at its own Elo-limited settings: " + d.external.map(e =>
+        `${e.opponent} &rarr; score ${e.score.toFixed(2)}`).join(" &middot; ");
+    if (d.tech) {
+      document.getElementById("tech").innerHTML =
+        `Throughput: <b>${d.tech.nps}</b> positions/sec (single-threaded) &middot; ` +
+        `Deep Blue 1997: ~200M/sec on 480 custom chips &middot; depth ${d.tech.depth}`;
+    }
+    document.getElementById("caveat").textContent = d.caveat || "";
   } catch (e) {}
 }
 

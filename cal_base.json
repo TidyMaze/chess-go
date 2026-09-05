@@ -1,0 +1,10 @@
+[
+  {
+    "config": "base",
+    "depth": 5,
+    "elo": 1879,
+    "games_per_level": 30,
+    "label": "Go port baseline",
+    "when": "2026-09-05T12:46:59+02:00"
+  }
+]

@@ -32,13 +32,27 @@ func main() {
 	depth := flag.Int("depth", 5, "this engine's search depth")
 	maxMoves := flag.Int("max-moves", 200, "ply cap")
 	label := flag.String("label", "current", "name for this configuration")
+	config := flag.String("config", "current", "which engine build: base | search | current")
 	out := flag.String("out", "", "append the result to this JSON file")
 	flag.Parse()
 
+	// Every milestone has to be measured on the same Stockfish scale for the
+	// gains between them to mean anything, so the older builds stay
+	// reachable here rather than only existing in git history.
 	me := engine.Player{
 		Name: *label, Depth: *depth, UsePST: true, Quiescence: true,
 		TTBits: 20, NullMove: true, Tapered: true, Iterative: true,
-		Extensions: true, Aspiration: true, SEEPruning: true,
+	}
+	switch *config {
+	case "base": // Go port as first completed: PST, quiescence, TT, null-move, tapered, ID.
+	case "search": // + check extensions, aspiration windows, SEE pruning.
+		me.Extensions, me.Aspiration, me.SEEPruning = true, true, true
+	case "current": // + pawn structure and rook-file terms.
+		me.Extensions, me.Aspiration, me.SEEPruning = true, true, true
+		me.Structure = true
+	default:
+		fmt.Printf("unknown -config %q (want base, search or current)\n", *config)
+		return
 	}
 
 	levels := []level{
@@ -89,6 +103,7 @@ func main() {
 	if *out != "" {
 		record := map[string]any{
 			"label": *label, "depth": *depth, "elo": math.Round(final),
+			"config": *config, "games_per_level": *games,
 			"when": time.Now().Format(time.RFC3339),
 		}
 		var all []map[string]any

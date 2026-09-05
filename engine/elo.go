@@ -51,6 +51,10 @@ type Player struct {
 	Extensions bool
 	Aspiration bool
 	SEEPruning bool
+	// Structure enables the pawn-structure / king-safety evaluation terms.
+	Structure bool
+	// Futility enables futility pruning near the leaves.
+	Futility bool
 	// UCI delegates move choice to an external engine (Stockfish), giving
 	// an externally-calibrated reference point rather than only measuring
 	// against this engine's own ancestors.
@@ -85,7 +89,8 @@ func (p Player) pick(g *game.Game) (game.Move, bool) {
 		return moves[randIntn(len(moves))], true
 	}
 	ev := &Eval{Weights: p.Weights, UsePST: p.UsePST, NullMove: p.NullMove, MaterialOnly: p.MaterialOnly, QuiescePly: p.QuiescePly, Tapered: p.Tapered,
-		Extensions: p.Extensions, Aspiration: p.Aspiration, SEEPruning: p.SEEPruning}
+		Extensions: p.Extensions, Aspiration: p.Aspiration, SEEPruning: p.SEEPruning,
+		Structure: p.Structure, Futility: p.Futility}
 	if p.TTBits > 0 {
 		ev.Table = NewTranspositionTable(p.TTBits)
 	}

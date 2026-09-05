@@ -18,7 +18,8 @@ import (
 
 func full(name string, d int) engine.Player {
 	return engine.Player{Name: name, Depth: d, UsePST: true, Quiescence: true,
-		TTBits: 20, NullMove: true, Tapered: true, Iterative: true}
+		TTBits: 20, NullMove: true, Tapered: true, Iterative: true,
+		Extensions: true, Aspiration: true, SEEPruning: true, Structure: true}
 }
 
 func main() {
@@ -33,9 +34,7 @@ func main() {
 	// under test is enabled here. Flags on the Player struct make the
 	// comparison exact -- identical apart from the one change.
 	challenger := full("challenger", *depth)
-	challenger.Extensions = true
-	challenger.Aspiration = true
-	challenger.SEEPruning = true
+	challenger.Futility = true
 
 	t0 := time.Now()
 	res := engine.PlayMatch(challenger, reference, *games, *maxMoves)

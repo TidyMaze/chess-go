@@ -32,6 +32,11 @@ import (
 
 const maxSearchPly = 64
 
+// futilityMargin is how much a single move is assumed to be worth, per
+// remaining ply, in pawns. A position further than this from the bound is
+// treated as unreachable. Indexed by depth; only 1..3 are used.
+var futilityMargin = [4]float64{0, 1.0, 2.0, 3.0}
+
 // LastSearchNodes is the node count of the most recent search, for
 // reporting nodes per second. Not safe to read from concurrent searches;
 // intended for single-threaded benchmarking.
@@ -137,6 +142,42 @@ func (c *searchCtx) search(g *game.Game, color, maximizingFor board.Color, depth
 	maximizing := color == maximizingFor
 	inCheck := moves.IsInCheck(&g.Board, color)
 
+	// Futility pruning (Heinz, 1998). Near the leaves, a position already
+	// far outside the window is very unlikely to be dragged back inside by
+	// one quiet move, because a quiet move is worth much less than the
+	// margin. Two uses of the same idea:
+	//
+	//   - reverse futility, here: the static score is so far past the
+	//     cutoff bound that we return it without searching at all;
+	//   - forward futility, in the move loop: the static score is so far
+	//     short of the bound that individual quiet moves are skipped.
+	//
+	// Both are unsound in the strict sense -- a tactic can beat the margin
+	// -- so they are switched off when in check, and captures and checking
+	// moves are never pruned, since those are exactly the moves that move
+	// the score by more than a margin.
+	// A window whose bound is already a mate score means a forced mate is
+	// in play, where a static margin says nothing useful. No test here
+	// distinguishes the guard (mate-in-1, mate-in-2 and K+R vs K all
+	// convert either way), so it is insurance rather than a proven fix,
+	// kept because it costs two comparisons on a path that already
+	// evaluates the position.
+	const mateBound = mateScore - maxSearchPly
+	staticEval := 0.0
+	futile := c.ev != nil && c.ev.Futility && !inCheck && depth <= 3 &&
+		alpha > negInf && beta < posInf &&
+		alpha > -mateBound && beta < mateBound
+	if futile {
+		staticEval = PositionScoreEval(&g.Board, maximizingFor, c.ev)
+		margin := futilityMargin[depth]
+		if maximizing && staticEval-margin >= beta {
+			return staticEval - margin
+		}
+		if !maximizing && staticEval+margin <= alpha {
+			return staticEval + margin
+		}
+	}
+
 	if c.ev.useNullMove() && depth >= 3 && !inCheck {
 		score := c.search(g, color.Other(), maximizingFor, depth-3, ply+1, alpha, beta)
 		if maximizing && score >= beta {
@@ -170,10 +211,27 @@ func (c *searchCtx) search(g *game.Game, color, maximizingFor board.Color, depth
 				promoted = true
 			}
 		}
-		_ = promoted
 		// Recurse on the same Game: search reads the board through g and
 		// takes the side to move as a parameter, so there is no need to
 		// build a child object at all.
+
+		givesCheck := false
+		if c.extensions || futile {
+			givesCheck = moves.IsInCheck(&g.Board, color.Other())
+		}
+
+		// Forward futility: a quiet, non-checking, non-promoting move this
+		// far short of the bound is not going to reach it, so skip its
+		// whole subtree. The first move is always searched so that `best`
+		// is backed by a real score.
+		if futile && i > 0 && !isCapture && !givesCheck && !promoted {
+			margin := futilityMargin[depth]
+			if (maximizing && staticEval+margin <= alpha) ||
+				(!maximizing && staticEval-margin >= beta) {
+				g.Board.UnmakeMove(undo)
+				continue
+			}
+		}
 
 		// Late move reductions: the ordering above says moves after the
 		// first few are unlikely to be best, so look at them shallower.
@@ -187,7 +245,7 @@ func (c *searchCtx) search(g *game.Game, color, maximizingFor board.Color, depth
 		// search sees how the check resolves instead of evaluating a
 		// position that is about to change sharply.
 		extension := 0
-		if c.extensions && ply < maxSearchPly-2 && moves.IsInCheck(&g.Board, color.Other()) {
+		if c.extensions && ply < maxSearchPly-2 && givesCheck {
 			extension = 1
 			reduction = 0
 		}

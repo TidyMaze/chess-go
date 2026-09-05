@@ -119,6 +119,12 @@ type Eval struct {
 	Aspiration bool
 	// SEEPruning skips plainly-losing captures in quiescence.
 	SEEPruning bool
+	// Structure enables pawn-structure, rook-placement and king-safety
+	// terms.
+	Structure bool
+	// Futility enables futility and reverse-futility pruning near the
+	// leaves (Heinz, 1998).
+	Futility bool
 }
 
 func (e *Eval) useSEEPruning() bool { return e != nil && e.SEEPruning }
@@ -191,6 +197,13 @@ func PositionScoreEval(b *board.Board, color board.Color, ev *Eval) float64 {
 		ownCenter, enemyCenter = 0, 0
 	}
 	score := (ownMaterial - enemyMaterial) + (ownCenter - enemyCenter)
+
+	if ev != nil && ev.Structure {
+		ownPawns := scanPawns(b, color)
+		enemyPawns := scanPawns(b, color.Other())
+		score += structureScore(b, color, ownPawns, enemyPawns, phase)
+		score -= structureScore(b, color.Other(), enemyPawns, ownPawns, phase)
+	}
 
 	if score >= 4 {
 		score += kingDrivingBonus(b, color)

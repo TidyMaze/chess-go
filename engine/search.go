@@ -290,4 +290,3 @@ func chooseMoveOpts(g *game.Game, color board.Color, depth int, ev *Eval, useQui
 	}
 	return best[rand.Intn(len(best))], true
 }
-
