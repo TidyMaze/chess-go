@@ -205,7 +205,7 @@ func (n *net) train(train, test []example, epochs int, lr float64, rng *rand.Ran
 // deeper search is the same engine, just given more time, so the network
 // is being asked to compress what the engine already knows into
 // something it can see instantly at a leaf.
-func collect(best engine.Player, games, playDepth, labelDepth, maxPlies int,
+func collect(champion engine.Player, games, playDepth, labelDepth, maxPlies int,
 	live func(*game.Game, int, board.Sq, board.Sq), progress func(done, positions int)) []example {
 
 	var mu sync.Mutex
@@ -221,9 +221,9 @@ func collect(best engine.Player, games, playDepth, labelDepth, maxPlies int,
 			defer wg.Done()
 			defer func() { <-sem }()
 
-			player := best
+			player := champion
 			player.Depth = playDepth
-			labeler := best
+			labeler := champion
 			labeler.Depth = labelDepth
 
 			rng := rand.New(rand.NewSource(time.Now().UnixNano() + int64(gi)*7919))
@@ -263,7 +263,14 @@ func collect(best engine.Player, games, playDepth, labelDepth, maxPlies int,
 				} else if score < -8 {
 					score = -8
 				}
-				local = append(local, example{features: featuresOf(&g.Board), target: score})
+				// The network is a residual: at play time its output is
+				// added to the champion's own static evaluation. So the
+				// target is what the static evaluation misses, not the
+				// whole score. Training it on the whole score makes the
+				// engine count the evaluation twice, which is what
+				// generation 1 measured as -211 Elo.
+				target := score - engine.PlayerStaticEval(champion, &g.Board)
+				local = append(local, example{features: featuresOf(&g.Board), target: target})
 			}
 
 			mu.Lock()

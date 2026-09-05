@@ -436,3 +436,28 @@ func PlayerScore(p Player, g *game.Game) (float64, bool) {
 	score := ctx.search(g, g.Turn, g.Turn, depth, 0, negInf, posInf)
 	return score, true
 }
+
+// PlayerStaticEval is the player's evaluation of a position with no
+// search, from White's point of view.
+//
+// The self-play loop needs this because its network is a residual: at
+// play time the network's output is added to this, so the target it must
+// be trained on is the search score minus this, not the search score
+// itself. Training it on the full score makes the engine count the
+// evaluation twice.
+func PlayerStaticEval(p Player, b *board.Board) float64 {
+	ev := &Eval{Weights: p.Weights, UsePST: p.UsePST, MaterialOnly: p.MaterialOnly,
+		Tapered: p.Tapered, Structure: p.Structure, Mobility: p.Mobility,
+		KingSafety: p.KingSafety, Net: p.Net}
+	if p.Tuned {
+		if p.Weights == nil {
+			ev.Weights = TunedWeights()
+		}
+		scale := TunedPSTScale()
+		sw := TunedStructure()
+		mob := TunedMobility()
+		ev.PSTScale, ev.StructureW = &scale, &sw
+		ev.Mobility, ev.MobilityW = true, &mob
+	}
+	return PositionScoreEval(b, board.White, ev)
+}
