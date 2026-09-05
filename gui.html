@@ -378,6 +378,9 @@ async function pollNNUE() {
         ["Training target", a.target],
         ["Self-play / label depth", `${a.play_depth} / ${a.label_depth}`],
         ["Tested every", `${a.eval_every} generations, ${a.eval_games} games`],
+        ["Tested as", a.eval_blend > 0
+          ? `${Math.round((1 - a.eval_blend) * 100)}% network + ${Math.round(a.eval_blend * 100)}% hand evaluation`
+          : "network alone"],
         ["Next test", `generation ${st.next_eval}`],
       ];
       document.getElementById("arch").innerHTML =
