@@ -47,6 +47,20 @@ with depth. Confirmed independently in games: depth 5 over depth 4 is
 
 **More search is not the lever. Evaluation quality is.**
 
+The depth-to-Elo curve flattens hard, which is the same finding measured
+a third way:
+
+| step | Elo per ply | how measured |
+|---|---|---|
+| depth 2 -> 5 | ~320 | round-robin, 280 games |
+| depth 5 -> 6 | **+14 +/- 27** | head-to-head, 600 games |
+
+An extra ply is worth a fifth of nothing once past depth 5, while costing
+3.8x the time. A healthy engine gets 50-70 Elo per ply well past this
+depth. The search is not broken (see the blunder analysis below: no
+blunder in the sample was a hung piece); it has simply run out of things
+its evaluation can tell apart.
+
 ## What has been tried, and what it measured
 
 | Change | Result | Verdict |
