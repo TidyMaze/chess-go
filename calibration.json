@@ -16,5 +16,21 @@
     "elo": 1909,
     "label": "structure (30g/level)",
     "when": "2026-09-05T12:43:04+02:00"
+  },
+  {
+    "config": "current",
+    "depth": 5,
+    "elo": 1823,
+    "games_per_level": 30,
+    "label": "optimised",
+    "when": "2026-09-05T15:01:27+02:00"
+  },
+  {
+    "config": "current",
+    "depth": 6,
+    "elo": 1866,
+    "games_per_level": 30,
+    "label": "depth 6 optimised",
+    "when": "2026-09-05T15:08:11+02:00"
   }
 ]

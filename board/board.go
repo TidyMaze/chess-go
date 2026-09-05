@@ -77,9 +77,14 @@ const (
 )
 
 type Board struct {
-	cells         [width * width]cellCode
-	kings         [2]Sq
-	occupied      [32]Sq
+	cells [width * width]cellCode
+	kings [2]Sq
+	// Square indices (rank*8+file), not Sq values. A Sq is two ints, so
+	// this array alone was 512 bytes and dominated both the Board and the
+	// Undo record: the legal-move generator clones a board per candidate
+	// move and the search makes and unmakes one per node, so those 512
+	// bytes were being copied constantly. As indices it is 32 bytes.
+	occupied      [32]uint8
 	occupiedCount int
 	castle        uint8
 }
@@ -110,6 +115,10 @@ func castlingLost(s Sq) uint8 {
 	}
 	return 0
 }
+
+func squareIndex(s Sq) uint8 { return uint8(s.Rank*8 + s.File) }
+
+func squareFromIndex(i uint8) Sq { return Sq{File: int(i & 7), Rank: int(i >> 3)} }
 
 func index(s Sq) int {
 	return (s.Rank+pad)*width + (s.File + pad)
@@ -156,7 +165,7 @@ func (b *Board) setPiece(s Sq, p Piece) {
 		b.kings[p.Color] = s
 	}
 	if wasEmpty {
-		b.occupied[b.occupiedCount] = s
+		b.occupied[b.occupiedCount] = squareIndex(s)
 		b.occupiedCount++
 	}
 }
@@ -208,17 +217,19 @@ func (b *Board) Move(from, to Sq) {
 	// piece's entry for `to` first, then move the mover's entry from
 	// `from` to `to` -- otherwise the two entries collide.
 	if captured {
+		toIdx := squareIndex(to)
 		for i := 0; i < b.occupiedCount; i++ {
-			if b.occupied[i] == to {
+			if b.occupied[i] == toIdx {
 				b.occupied[i] = b.occupied[b.occupiedCount-1]
 				b.occupiedCount--
 				break
 			}
 		}
 	}
+	fromIdxSq := squareIndex(from)
 	for i := 0; i < b.occupiedCount; i++ {
-		if b.occupied[i] == from {
-			b.occupied[i] = to
+		if b.occupied[i] == fromIdxSq {
+			b.occupied[i] = squareIndex(to)
 			break
 		}
 	}
@@ -252,7 +263,7 @@ func (b *Board) PiecesOf(c Color) []PieceAtSquare {
 func (b *Board) AppendPiecesOf(dst []PieceAtSquare, c Color) []PieceAtSquare {
 	result := dst
 	for i := 0; i < b.occupiedCount; i++ {
-		s := b.occupied[i]
+		s := squareFromIndex(b.occupied[i])
 		cl := b.cells[index(s)]
 		if cl >= codePieceMin {
 			if p := decodePiece(cl); p.Color == c {
@@ -272,7 +283,7 @@ type Undo struct {
 	movedCode   cellCode
 	capturedRaw cellCode
 	kings       [2]Sq
-	occupied    [32]Sq
+	occupied    [32]uint8
 	occCount    int
 	castle      uint8
 	// rookFrom/rookTo record the rook's half of a castling move so unmake
@@ -357,7 +368,7 @@ type ColoredPiece struct {
 func (b *Board) AppendAllPieces(dst []ColoredPiece) []ColoredPiece {
 	result := dst
 	for i := 0; i < b.occupiedCount; i++ {
-		s := b.occupied[i]
+		s := squareFromIndex(b.occupied[i])
 		cl := b.cells[index(s)]
 		if cl >= codePieceMin {
 			p := decodePiece(cl)

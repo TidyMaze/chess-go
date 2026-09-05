@@ -72,9 +72,14 @@ func (g *Game) AppendLegalMoves(dst []Move, color board.Color) []Move {
 		needsCheckTest := inCheck || ps.Type == board.King || pinned.Has(ps.Sq)
 		for _, target := range moves.AppendLegalTargets(targetBuf[:0], &g.Board, ps.Sq, color, ps.Type) {
 			if needsCheckTest {
-				trial := g.Board.Clone()
-				trial.Move(ps.Sq, target)
-				if moves.IsInCheck(&trial, color) {
+				// Make and unmake on the real board rather than cloning
+				// it. Cloning copied the whole Board for every candidate
+				// move of every piece that could be pinned or in check,
+				// which the profile put at ~10% of all CPU at depth 7.
+				undo := g.Board.MakeMove(ps.Sq, target)
+				illegal := moves.IsInCheck(&g.Board, color)
+				g.Board.UnmakeMove(undo)
+				if illegal {
 					continue
 				}
 			}
