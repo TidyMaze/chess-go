@@ -36,6 +36,7 @@ import (
 	"chess/board"
 	"chess/engine"
 	"chess/game"
+	"chess/moves"
 )
 
 const (
@@ -250,6 +251,28 @@ func collect(champion engine.Player, games, playDepth, labelDepth, maxPlies int,
 				if gi == 0 && live != nil {
 					live(g, ply+1, m.From, m.To)
 				}
+				// Only quiet positions are worth learning from.
+				//
+				// The network is being asked to predict what a deeper
+				// search concludes. Where a capture sequence is pending,
+				// the difference between the static score and the search
+				// score IS the tactic, and no function of piece placement
+				// can predict it: that is what the search is for. Training
+				// on those positions teaches noise, which is why the first
+				// attempts left a held-out error near 1.8 pawns, easily
+				// enough to hang a piece.
+				if moves.IsInCheck(&g.Board, g.Turn) {
+					continue
+				}
+				static := engine.PlayerStaticEval(champion, &g.Board)
+				staticSTM := static
+				if g.Turn == board.Black {
+					staticSTM = -static
+				}
+				if math.Abs(engine.QuiescenceScore(labeler, g)-staticSTM) > 0.35 {
+					continue
+				}
+
 				// Deeper search of this position is the training target.
 				score, ok := engine.PlayerScore(labeler, g)
 				if !ok {
@@ -269,7 +292,7 @@ func collect(champion engine.Player, games, playDepth, labelDepth, maxPlies int,
 				// whole score. Training it on the whole score makes the
 				// engine count the evaluation twice, which is what
 				// generation 1 measured as -211 Elo.
-				target := score - engine.PlayerStaticEval(champion, &g.Board)
+				target := score - static
 				local = append(local, example{features: featuresOf(&g.Board), target: target})
 			}
 

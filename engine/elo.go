@@ -461,3 +461,19 @@ func PlayerStaticEval(p Player, b *board.Board) float64 {
 	}
 	return PositionScoreEval(b, board.White, ev)
 }
+
+// QuiescenceScore is the position's score after resolving captures, from
+// the side to move's point of view.
+//
+// Used to tell quiet positions from tactical ones. A position where the
+// quiescence score differs sharply from the static score has a capture
+// sequence pending, and no static evaluation can be expected to predict
+// what that sequence is worth: that is the search's job. Training a
+// network on such positions teaches it noise.
+func QuiescenceScore(p Player, g *game.Game) float64 {
+	ev := &Eval{Weights: p.Weights, UsePST: p.UsePST, MaterialOnly: p.MaterialOnly,
+		QuiescePly: p.QuiescePly, Tapered: p.Tapered, SEEPruning: p.SEEPruning,
+		Structure: p.Structure, Mobility: p.Mobility, KingSafety: p.KingSafety,
+		Net: p.Net}
+	return quiesce(g, g.Turn, g.Turn, negInf, posInf, ev, 0)
+}
