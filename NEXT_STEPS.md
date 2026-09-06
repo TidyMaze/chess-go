@@ -85,8 +85,24 @@ like.
 **Measure networks at the depth the engine plays at, not at the depth
 that is cheap to measure.**
 
-Not yet confirmed: +18 +/- 34 needs its margin beaten. A 1200-game run at
-depth 6 is the next thing to finish.
+Confirmed at power, and it half survived:
+
+| depth | Elo | games |
+|---|---|---|
+| 4 | -31 +/- 24 | 800 |
+| 6 | **+6 +/- 19** | 1200 |
+
+The +18 regressed toward zero like every other small-sample result here,
+so the network is *not* an improvement even at depth 6. But the signs
+still differ and the two are 37 Elo apart, so the depth effect is real
+even though the level is not yet positive: the network is roughly neutral
+at the depth the engine plays and clearly negative at the depth that was
+cheap to measure.
+
+The training loop now runs its test match at depth 6 for this reason. It
+costs four times as much per game and is worth it, because a measurement
+at the wrong depth was answering the wrong question for the whole
+session.
 
 ## Confirmed improvements
 
