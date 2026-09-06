@@ -1,5 +1,81 @@
 # Next steps to improve the engine
 
+## Task list: the bootstrap ladder, 2026-09-06 night
+
+The campaign is finished and its answer is in `PLATEAU_CAMPAIGN.md`: ten
+ideas, none kept, champion unchanged at the hand-written evaluation. The
+one configuration that beat it was disqualified for using external
+position scores, and every self-labelled network lands on the same place.
+
+**Why a ladder is the remaining route.** A network fitted to labels from a
+depth-3 search of the hand evaluation reaches 93.9% of held-out variance
+and then plays *neutral*: +2 +/- 22 from the Go trainer, +0 +/- 22 from
+PyTorch, on the same data. It is an excellent imitation of a depth-3
+search, and an excellent imitation of X plays like X. The ceiling is not
+the model: 32 and 64 hidden units both land on exactly 93.9%, and a
+learning-rate schedule does not move it.
+
+So strength has to enter through the labels, one rung at a time:
+
+```
+rung N:  label positions with the champion, searching D plies
+         train a network on those labels
+         blend it with the hand evaluation, race it
+         if it wins, it becomes the champion  ->  rung N+1 labels with it
+```
+
+Each rung's labeller is strictly stronger than the last, so each rung's
+network imitates something better. That is what Stockfish and AlphaZero
+actually do, and it needs nothing external.
+
+### The piece that was missing, now built
+
+`./nnue-bin -import-pgn` labelled with a hardcoded `engine.Strong(depth)`,
+so every rung would have produced the same labels and the ladder could not
+climb. It now takes `-label-champion champion.json` and labels with
+whatever was adopted last. `TestPGNLabellerChangesTheLabels` fails if that
+flag ever stops mattering, because a flag accepted and ignored is the bug
+that has already cost this project two measurement campaigns.
+
+### Running now
+
+- [~] **Rung 1 data: depth-5 labels on real games.** 250,000 positions,
+  about 100 per second against depth-3's 300. Log
+  `/tmp/chesslogs/pgn_depth5.log`.
+
+### Rung 1, queued
+
+- [ ] **Train on `games_d5.bin`** with PyTorch on MPS, until plateau.
+  Compare its held-out fit against the depth-3 net's 93.9%: the number to
+  watch is not whether it is higher, since the targets differ, but whether
+  the network still saturates.
+- [ ] **Race it**, 1000 games, depth 4, real openings, blend 0.45.
+- [ ] **Sweep the blend** if it is anywhere near neutral. 0.45 was
+  inherited and has never been optimised for a self-labelled network.
+- [ ] **Adopt or stop.** Past +19.6 with the margin clear of zero it
+  becomes champion and rung 2 begins. Neutral or worse at depth 5 is the
+  answer that deeper labels alone do not climb, and the next thing to vary
+  is the search rather than the evaluation.
+
+### Rung 2, if rung 1 lands
+
+- [ ] Regenerate with `-label-champion champion.json`, so labels carry the
+  adopted network plus the hand evaluation plus a depth-5 search.
+- [ ] Retrain, race, adopt. Repeat while each rung clears its margin.
+- [ ] Watch the jump-per-move at every rung. It is the quantity that has
+  predicted Elo all along, and the failure mode to expect is a network
+  that grows more accurate and jumpier until it stops being usable.
+
+### Known gaps, worth fixing when they block something
+
+- [ ] The champion is validated at depth 4 and the browser plays it at
+  depth 5.
+- [ ] Two opening protocols gave +29 +/- 34 and -30 +/- 22 for the same
+  network. Everything since uses real openings; the discrepancy is
+  unexplained.
+- [ ] Incremental accumulator, worth about +6 to +8 Elo and it makes every
+  future match cheaper, which now matters more than the Elo.
+
 ## Current state, and the one thing worth doing next
 
 Confirmed strength: one improvement this session, +16 +/- 12 over 3000

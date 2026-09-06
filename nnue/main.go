@@ -751,6 +751,10 @@ func main() {
 	importResume := flag.Bool("import-resume", true, "skip records already imported into this pool")
 	extractOpenings := flag.String("extract-openings", "", "write an opening book of FENs from the dump named by -import and exit")
 	extractBook := flag.String("extract-book", "", "write a playable opening book of FEN|move lines from the dump and exit")
+	emitCheck := flag.String("emit-eval-check", "", "write FENs, their HalfKP features and this engine's evaluation of them, for cross-checking a PyTorch export")
+	importPGNPath := flag.String("import-pgn", "", "import a PGN games file ('-' for stdin): moves and results only, labels computed here")
+	pgnSkipPlies := flag.Int("pgn-skip-plies", 8, "opening plies to skip when importing games")
+	labelChampion := flag.String("label-champion", "", "label positions with the champion described by this file, instead of the plain hand-written evaluation. This is what makes the bootstrap ladder climb.")
 	extractTuning := flag.String("extract-tuning", "", "write the dump as Texel tuning records and exit")
 	openingMinPieces := flag.Int("opening-min-pieces", 28, "pieces a position must still have to count as an opening")
 	openingMax := flag.Int("opening-max", 200000, "how many opening positions to write")
@@ -781,6 +785,37 @@ func main() {
 	// Importing is a separate job from training: it fills the pool from a
 	// file rather than from self-play, and the training run that follows
 	// reads that pool as usual.
+	if *emitCheck != "" {
+		if err := emitEvalCheck(*emitCheck, *netFile); err != nil {
+			fmt.Println("emit-eval-check:", err)
+		}
+		return
+	}
+	if *importPGNPath != "" {
+		src := os.Stdin
+		if *importPGNPath != "-" {
+			f, err := os.Open(*importPGNPath)
+			if err != nil {
+				fmt.Println("import-pgn:", err)
+				return
+			}
+			defer f.Close()
+			src = f
+		}
+		labeller := engine.Strong(*labelDepth)
+		if *labelChampion != "" {
+			c := engine.ReadChampion(*labelChampion)
+			labeller = c.Player()
+			labeller.Depth = *labelDepth
+			fmt.Printf("%s  labelling with the champion: %s\n",
+				time.Now().Format("15:04:05"), c.Label)
+		}
+		if err := ImportPGN(src, *poolFile, *importMax, *labelDepth, *pgnSkipPlies,
+			*lambda, *quietTol, 10*time.Second, *importResume, labeller); err != nil {
+			fmt.Println("import-pgn:", err)
+		}
+		return
+	}
 	if *importPath != "" || *extractOpenings != "" || *extractBook != "" || *extractTuning != "" {
 		src := os.Stdin
 		if *importPath != "" && *importPath != "-" {

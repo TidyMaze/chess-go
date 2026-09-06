@@ -77,6 +77,9 @@ type Player struct {
 	ScaledLMR bool
 	// NoRepetition disables repetition detection. Measurement only.
 	NoRepetition bool
+	// KeepNullMoveEP reproduces the null-move en passant bug. Measurement
+	// only, so its cost can be measured rather than guessed at.
+	KeepNullMoveEP bool
 	// Mobility adds the mobility evaluation term.
 	Mobility bool
 	// KingSafety weights the attacker-counting king danger term.
@@ -164,6 +167,7 @@ func (p Player) pickWith(g *game.Game, reuse *TranspositionTable) (game.Move, bo
 	ev.NoLMR = p.NoLMR
 	ev.ScaledLMR = p.ScaledLMR
 	ev.NoRepetition = p.NoRepetition
+	ev.KeepNullMoveEP = p.KeepNullMoveEP
 	ev.Mobility = p.Mobility
 	ev.KingSafety = p.KingSafety
 	ev.Extras = p.Extras

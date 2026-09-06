@@ -39,7 +39,7 @@ the current best.
 
 | # | idea | state | measured Elo | >= +196? | kept |
 |---|---|---|---|---|---|
-| 1 | Lichess evaluations database | **done** | **+58 +/- 18** (1500 games, with Adam) | **yes** | **ADOPTED** |
+| 1 | Lichess evaluations database | **done** | +58 +/- 18 | n/a | **DISQUALIFIED**: external position scores |
 | 2 | Generate data at playing depth from a real opening book | **done** | net -89 +/- 28; data 12.8% better | no | book kept, net not |
 | 3 | Endgame tablebases (self-generated, 3-piece) | **done** | -13 +/- 18 (1500 games) | no | |
 | 4 | Opening book for play | **done** | -6 +/- 15 (2000 games, 14-ply book) | no | |
@@ -47,7 +47,7 @@ the current best.
 | 6 | Time-controlled search instead of fixed depth | **done** | -143 +/- 53 (low parallelism), -210 +/- 36 (full) | no | |
 | 7 | HalfKA v2 features (32 canonical king squares) | **done** | -30 +/- 22 (1000 games) | no | |
 | 8 | Texel-tune the hand evaluation on Lichess data | **done** | -31 +/- 22 (1000 games) | no | |
-| 9 | SPSA at proper scale | **running** | 2 of 220 iterations, ~3h remaining | not yet | resumable |
+| 9 | SPSA at proper scale | **done** | -10 +/- 24 (800-game confirmation) | no | |
 | 10 | MCTS + policy head (AlphaZero) | **not attempted** | argued from measurement | no | |
 | 11 | Incremental NNUE accumulator (added mid-campaign) | **ceiling measured** | worth about +6 to +8 Elo | no | below the bar |
 
@@ -542,3 +542,178 @@ measured rate of about 4 Elo per 1.28x speedup at fixed depth, that is
 worth roughly **+6 to +8 Elo**: real, and below the +19.6 bar. It is the
 best remaining engineering item and it is not a way to clear the bar on
 its own.
+
+## A caveat on comparability: two opening protocols were used
+
+Not every result in the table above was measured the same way, and the
+difference is not always negligible.
+
+| protocol | how games start | used for |
+|---|---|---|
+| random plies | six uniformly random opening moves, paired | idea 1's first measurement, idea 2's in-loop eval, idea 5 |
+| real openings | positions from analysed Lichess games, paired | ideas 1 (re-run), 3, 4, 6, 7, 8 |
+
+For the plain-SGD network the two protocols agreed closely, +14 +/- 28
+against +6 +/- 22, which is why the mixture seemed harmless. For the
+32-king-square network they did not: its in-loop eval over 400 games from
+random plies read **+29 +/- 34**, and a 1,000 game race from real openings
+read **-30 +/- 22**. Those intervals do not overlap.
+
+Consequences, stated rather than smoothed over:
+
+- Idea 5 (256 hidden units, -35 +/- 28) was measured on random plies and
+  idea 7 (32 king squares, -30 +/- 22) on real openings, so the two are
+  not directly comparable with each other even though the table lists them
+  side by side. Both are compared against the same champion, so each
+  verdict stands on its own.
+- The adopted network's +58 +/- 18 is on real openings **with a control on
+  the same protocol** (+6 +/- 22 for the same data under the old
+  optimiser), so that result does not depend on the choice.
+- Everything from here should use one protocol. Real openings is the
+  better default: it is the population the engine is actually used in, and
+  it is the same distribution argument that started this campaign.
+
+## Training moved to PyTorch, inference stays in Go
+
+The same split Stockfish uses: `nnue-pytorch` trains, the engine infers.
+Adopted after the custom trainer shipped two dead components in one day
+(Adam allocated and never called, `decay` accepted and ignored).
+
+Measured on the same pool, same architecture, same number of epochs:
+
+| | Go, 10 CPU cores | PyTorch on MPS |
+|---|---|---|
+| wall clock, 10 epochs over 2,779,268 positions | 269 s | **75 s** |
+| CPU time consumed | 2,453 s | **61 s** |
+| held-out variance explained | 92.8% | **93.9%** |
+
+The 40x reduction in CPU time matters more than the 3.6x wall clock. The
+work moved to the GPU, so training no longer competes with matches for
+cores. Every experiment in this campaign was serialised behind that
+contention, and several measurements had to be taken with other jobs
+paused to stay honest.
+
+That also corrects an earlier judgement recorded here: "a framework would
+optimise roughly 2% of the time spent". True of the training step in
+isolation, and wrong about the thing that actually constrained the day.
+
+**The contract that makes the split safe.** Weights are exported to the
+JSON the engine already reads, first layer flattened feature-major so
+column `f` occupies `w1[f*h : f*h+h]`. A transposed export would train one
+function and play another while every training number stayed healthy,
+which is the exact shape of the units bug this project has already paid
+for. `./nnue-bin -emit-eval-check` writes real positions with their
+features and the engine's score; `pytorch/verify.py` recomputes from those
+features and requires a match. Worst difference measured over eight
+positions spanning openings, middlegames and endgames with both sides to
+move: **2.4e-06**, which is float32 rounding.
+
+`verify.py` deliberately re-implements the forward pass from
+`engine/halfkp.go` rather than importing the training module, so a shared
+bug cannot pass the check.
+
+### Idea 9: SPSA, completed
+
+220 iterations at 120 games each, then an 800 game confirmation against the
+starting values: **-10 +/- 24, not adopted**.
+
+Worth running despite the result, because it is the only method in the
+campaign whose objective is game results rather than prediction error, and
+the campaign's central finding is that those two objectives diverge. It
+moved the five shape weights modestly (outpost 0.180 to 0.184, connected
+0.050 to 0.059) and the movement was not worth Elo.
+
+The earlier version of this run was worthless for a different reason: the
+step scaling was wrong by roughly a thousand, so five iterations passed
+without moving a parameter and the run looked converged. Verified moving
+before launching this time.
+
+## Final result of the campaign
+
+Ten ideas, plus one added during it. **None kept.**
+
+| # | idea | measured Elo | outcome |
+|---|---|---|---|
+| 1 | Lichess evaluation database | +58 +/- 18 | **disqualified**, external position scores |
+| 2 | Data at playing depth from a real opening book | -89 +/- 28 | no |
+| 3 | Endgame tablebases, self-generated | -13 +/- 18 | no |
+| 4 | Opening book for play, 14 plies deep | -6 +/- 15 | no |
+| 5 | Network capacity, 256 hidden | -35 +/- 28 | no |
+| 6 | Time-controlled search | -143 +/- 53 | no |
+| 7 | HalfKA features, 32 king squares | -30 +/- 22 | no |
+| 8 | Texel tuning on deep labels | -31 +/- 22 | no |
+| 9 | SPSA at proper scale | -10 +/- 24 | no |
+| 10 | MCTS with a policy head | not attempted | argued from measurement |
+| 11 | Incremental accumulator | ceiling +6 to +8 | below the bar |
+
+The champion is unchanged: `engine.Strong(5)`, the hand-written evaluation,
+about 1955 Elo.
+
+That is a real answer rather than a failure to find one. The evaluation is
+at a local optimum that no single change in this list escapes, and the two
+routes that could escape it are both blocked in ways the campaign measured
+rather than assumed:
+
+- **Learning from a much stronger engine works and is not allowed.** The
+  only configuration that beat the champion was trained on Stockfish's
+  evaluations, and the user ruled that out as cheating: it hands the engine
+  the one thing it exists to produce.
+- **Learning from itself hits a ceiling that is not about the model.** Nets
+  trained on its own search reach 93.9% of held-out variance and stop, and
+  that ceiling survives more capacity (32 and 64 hidden units land on the
+  same 93.9%) and a learning-rate schedule. At that accuracy they play
+  neutral: +2 +/- 22 from the Go trainer and +0 +/- 22 from PyTorch, on the
+  same data. A network that imitates a depth-3 search of the hand
+  evaluation plays like a depth-3 search of the hand evaluation.
+
+What follows from that is the bootstrap ladder rather than a better fit:
+label with a deeper search, train, play with the result, relabel with the
+stronger player. Depth-5 labelling is running now, at 97 positions per
+second against depth-3's 300, which is the price of the next rung.
+
+## A search bug found while building the bootstrap ladder
+
+The PGN importer reported that **47% of games "failed to replay"**, while a
+clean replay of the same games failed 0.2%. The only difference is that the
+importer labels each position as it goes, so the labelling calls were
+changing the position.
+
+Bisected to null-move pruning. The null hands the move to the opponent
+without a move being played, and it did not clear the en passant square:
+
+```go
+score := c.search(g, color.Other(), maximizingFor, depth-3, ply+1, alpha, beta)
+```
+
+After 1.e4 the null gives White the move with `ep = e3` still set. White's
+generator produces an en passant capture onto e3, which removes a pawn that
+is not there, and the unmake then puts a phantom pawn on the board. Scoring
+that position at depth 3 returned a board with a **black pawn on e2**.
+
+**Blast radius.** `search` works on the caller's board, so every caller was
+affected. In the importer it announced itself as a replay failure. In
+self-play generation it announced nothing at all: the engine searched,
+labelled and played from positions that had never occurred. Measured by the
+same replay test, before the fix 5,396 of 11,544 games were corrupted
+mid-way; after it, 4 of 1,343.
+
+**What it invalidates:**
+
+| | |
+|---|---|
+| every training pool | labels computed on corrupted boards, and self-play games played from them. All of them are suspect and are being regenerated |
+| the 93.9% ceiling | a network fitting corrupted targets to 93.9% was fitting partly-garbage. The ceiling has to be re-measured on clean data |
+| Elo comparisons | both arms carried the bug, so the rankings are roughly fair, but the games contained illegal positions |
+| Perft | unaffected: it is pure move generation with no search |
+
+**And an uncomfortable measurement.** The fixed engine against the buggy one,
+1,000 games at depth 4 from real openings: **-21 +/- 22**. The bug was
+accidentally acting as more aggressive null-move pruning, because the garbage
+scores it returned pruned harder. The fix stays, since it is the difference
+between training on real positions and training on impossible ones, but it
+carries a real cost at fixed depth.
+
+That points at something concrete rather than a regret: the null-move
+reduction is under-tuned. It is fixed at 3 plies with no verification search
+and no depth scaling, and a bug that pruned harder by accident was worth
+about 20 Elo. Tuning it deliberately is the obvious next search change.

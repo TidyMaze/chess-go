@@ -408,6 +408,25 @@ async function pollNNUE() {
       explain = `The champion plays itself at depth ${a2.play_depth}, from 10 random opening moves so the games differ. ` +
         `After each move the position is kept only if it is quiet (nobody in check, no capture sequence pending), ` +
         `then scored by a depth-${a2.label_depth} search of the same engine. That score, blended with the eventual game result, is what the network learns to predict.`;
+    } else if (st.phase === "training" && st.epochs === 0) {
+      // The PyTorch trainer runs until the held-out loss stops improving,
+      // so there is no fixed epoch count and no meaningful percentage.
+      // Progress is how close it is to giving up, which is what the
+      // patience counter measures.
+      const patience = (st.arch && st.arch.patience) || 0;
+      pct = patience ? 100 * (st.stale_epochs || 0) / patience : 0;
+      label = `training epoch ${st.epoch}, running until the loss stops improving`;
+      if (typeof st.explains === "number") {
+        label += `, explains ${st.explains.toFixed(1)}% of held-out variance`;
+      }
+      if (st.positions_per_sec) {
+        label += `, ${Math.round(st.positions_per_sec).toLocaleString()} positions/s`;
+      }
+      explain = `Best so far at epoch ${st.best_epoch}. ` +
+        (st.stale_epochs
+          ? `No improvement for ${st.stale_epochs} of ${patience} epochs; it stops when that runs out.`
+          : `Still improving.`) +
+        (st.arch && st.arch.trainer ? ` Trained by ${st.arch.trainer}.` : "");
     } else if (st.phase === "training" && st.epochs) {
       // Progress within the epoch, not just between epochs. An epoch over
       // ten million positions takes three and a half minutes at 256 hidden
@@ -432,6 +451,10 @@ async function pollNNUE() {
       label = `3/3 testing: ${st.eval_games} games against the current champion`;
       explain = `The only measurement that counts. The new network replaces the champion's evaluation and plays it at depth ${a2.eval_depth || 4}, ` +
         `colours alternating from paired random openings. It is adopted only if the measured Elo exceeds its own error margin, never on a positive result that could be noise.`;
+    } else if (st.phase === "done" && typeof st.explains === "number") {
+      pct = 100;
+      label = `training finished at epoch ${st.epoch}, explains ${st.explains.toFixed(1)}% of held-out variance`;
+      explain = `Stopped because the held-out loss stopped improving. The best weights were kept, not the last.`;
     } else if (st.phase === "done") {
       pct = 100;
       label = "finished";
@@ -440,10 +463,17 @@ async function pollNNUE() {
     // The phase text alone would keep showing whatever it was doing when
     // it stopped, which reads as stuck rather than stopped.
     const ageSec = st.at ? (Date.now() / 1000 - st.at) : 0;
-    if (ageSec > 60) {
+    // A run that finished is not a run that died. Without this exception
+    // a training run that plateaued cleanly, wrote its result and exited
+    // was reported as "training is not running (last update 7 min ago)",
+    // which reads as a failure and invites a pointless restart.
+    if (st.phase === "done") {
+      document.getElementById("fill").style.background = "#2f6b2f";
+    } else if (ageSec > 60) {
       pct = 0;
       label = `training is not running (last update ${Math.round(ageSec / 60)} min ago)`;
-      explain = "The process is stopped. It resumes from its checkpoint: no positions, weights or optimiser state are lost. Restart it with ./nnue-bin.";
+      explain = "The process is stopped. It resumes from its checkpoint, so no weights or optimiser state are lost: " +
+        ".venv/bin/python pytorch/train.py --pool nnue_pool.bin --epochs 0 --checkpoint nets_torch/main.ckpt";
       document.getElementById("fill").style.background = "#6b3030";
     } else {
       document.getElementById("fill").style.background = "#2f6b2f";

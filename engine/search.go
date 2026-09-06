@@ -114,7 +114,14 @@ func minimaxOpts(g *game.Game, color, maximizingFor board.Color, depth int, alph
 	// the whole subtree can be skipped. Disabled in check (passing is
 	// nonsense there) and near the leaves (no depth left to save).
 	if ev.useNullMove() && depth >= 3 && !moves.IsInCheck(&g.Board, color) {
+		// The board is copied here, so unlike search2 this cannot corrupt
+		// the caller's position. The en passant square still has to go:
+		// a null hands the move to the opponent, and any en passant right
+		// belonged to the side now passing. Leaving it set lets the
+		// opponent capture en passant onto a square nobody double-pushed
+		// to, so the null-move score is computed from an illegal position.
 		passed := game.Game{Board: g.Board, Turn: color.Other()}
+		passed.Board.SetEPSquare(board.Sq{}, false)
 		const reduction = 2
 		score := minimaxOpts(&passed, color.Other(), maximizingFor, depth-1-reduction, alpha, beta, ev, useQuiescence)
 		if maximizing && score >= beta {

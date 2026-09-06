@@ -36,6 +36,7 @@ func main() {
 	blend := flag.Float64("blend", 0, "weight on the hand evaluation when a network is used")
 	refNoCastle := flag.Bool("ref-no-castle", false, "reference refuses to castle")
 	refNoRep := flag.Bool("ref-no-repetition", false, "reference has no repetition detection")
+	refKeepEP := flag.Bool("ref-nullmove-ep-bug", false, "reference keeps the en passant square across a null move, reproducing the bug fixed on 2026-09-06")
 	noLMR := flag.Bool("no-lmr", false, "challenger disables late move reductions")
 	scaledLMR := flag.Bool("scaled-lmr", false, "challenger scales reductions with depth and move number")
 	noNull := flag.Bool("no-null", false, "challenger disables null-move pruning")
@@ -71,6 +72,7 @@ func main() {
 	reference.Futility = *futility
 	reference.NoCastle = *refNoCastle
 	reference.NoRepetition = *refNoRep
+	reference.KeepNullMoveEP = *refKeepEP
 
 	// The challenger is the same configuration; whatever new feature is
 	// under test is enabled here. Flags on the Player struct make the

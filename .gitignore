@@ -71,3 +71,12 @@ tablebase-bin
 label-bin
 nnuetrain-bin
 trainloop-bin
+
+# PyTorch virtualenv: recreate with
+#   python3 -m venv .venv && .venv/bin/pip install torch
+.venv/
+__pycache__/
+games_pool.bin
+games_pool.bin.progress
+lichess_games_*.pgn.zst
+disqualified/

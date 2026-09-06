@@ -282,7 +282,29 @@ func (c *searchCtx) search(g *game.Game, color, maximizingFor board.Color, depth
 	}
 
 	if c.ev.useNullMove() && depth >= 3 && !inCheck {
+		// Clear the en passant square across the null move.
+		//
+		// A null hands the move to the opponent without a move being
+		// played, so any en passant right belonged to the side that is
+		// now passing and must not survive. Leaving it set lets the
+		// opponent's generator "capture en passant" onto a square nobody
+		// double-pushed to, which removes a pawn that is not there and
+		// whose unmake then puts a phantom pawn on the board.
+		//
+		// The damage was not confined to the null-move subtree: the
+		// phantom survived back to the caller. After 1.e4, scoring the
+		// position at depth 3 returned a board with a black pawn on e2.
+		// That corrupted the game being replayed in the PGN importer,
+		// where it showed up as 47% of games "failing to replay", and it
+		// silently corrupted self-play generation too, where a wrong
+		// position does not announce itself: the engine simply searched
+		// and labelled a position that never occurred.
+		ep, hadEP := g.Board.EPSquare()
+		if !c.ev.KeepNullMoveEP {
+			g.Board.SetEPSquare(board.Sq{}, false)
+		}
 		score := c.search(g, color.Other(), maximizingFor, depth-3, ply+1, alpha, beta)
+		g.Board.SetEPSquare(ep, hadEP)
 		if maximizing && score >= beta {
 			return score
 		}

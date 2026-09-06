@@ -1,9 +1,7 @@
 {
-  "label": "Lichess-trained HalfKP network (32 hidden, Adam) blended 55/45 with the hand evaluation",
+  "label": "Strong: mobility + attacker-counting king safety (hand-written evaluation)",
   "depth": 5,
-  "elo": 2013,
+  "elo": 1955,
   "margin": 130,
-  "net_file": "champion_net.json",
-  "hand_blend": 0.45,
-  "adopted": "2026-09-06T15:30:00+02:00"
+  "adopted": "2026-09-06T00:00:00+02:00"
 }

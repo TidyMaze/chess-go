@@ -172,6 +172,11 @@ type Eval struct {
 	// Tablebases gives exact results for small endgames. When a position
 	// is covered, the score is not an estimate at all.
 	Tablebases *TablebaseSet
+	// KeepNullMoveEP reproduces a bug for measurement only: it leaves the
+	// en passant square set across a null move, which is what the engine
+	// did until it was found. Never set in play. It exists so the cost of
+	// the bug can be measured rather than guessed at.
+	KeepNullMoveEP bool
 	// STM is the side to move at the position being evaluated.
 	//
 	// The evaluation's `color` argument is the side the score is *for*,
