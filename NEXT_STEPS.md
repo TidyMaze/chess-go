@@ -1,5 +1,31 @@
 # Next steps to improve the engine
 
+## Current state, and the one thing worth doing next
+
+Confirmed strength: one improvement this session, +16 +/- 12 over 3000
+games (mobility and attacker-counting king safety), which is 0.85% on a
+base of about 1879. Calibration reads 1955.
+
+Eleven further evaluation changes were measured and every one came back
+at or below zero. The hand-written evaluation is at a local optimum that
+single-term changes do not escape, which is what the original diagnosis
+predicted: the limit is the shape of a linear evaluation, not the value
+of any coefficient in it.
+
+The network is the only thing still moving: -798 Elo at the start of the
+session, +6 +/- 19 at depth 6 now, with its jumpiness down from 3.7x the
+hand evaluation to 1.09x. Its remaining gap is smoothness, and smoothness
+is what data buys, so **the one thing worth doing next is running the
+loop for a long time**. It is configured for throughput (662 labelled
+positions per second, about 2.4M an hour) and checkpoints every
+generation, so it can be left alone and picked up later.
+
+What would need to change to go much further is architectural rather than
+incremental: production NNUE trains on the order of 10^9 positions, which
+is weeks at this rate. Reaching twice the current rating is that kind of
+undertaking, not a tuning exercise.
+
+
 Updated 2026-09-05.
 
 ## Read this first: what a measurement here can and cannot detect
