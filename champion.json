@@ -1,7 +1,9 @@
 {
-  "label": "Strong: mobility + attacker-counting king safety (hand-written evaluation)",
+  "label": "PyTorch net, 3.18M self-labelled positions, smoothing prior 0.5, blended 55/45",
   "depth": 5,
-  "elo": 1955,
+  "elo": 1990,
   "margin": 130,
-  "adopted": "2026-09-06T00:00:00+02:00"
+  "net_file": "champion_net.json",
+  "hand_blend": 0.45,
+  "adopted": "2026-09-07T00:15:00+02:00"
 }

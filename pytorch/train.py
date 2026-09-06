@@ -68,6 +68,59 @@ def load_pool(path: Path, limit: int = 0):
     return own_idx, opp_idx, targets, games
 
 
+def neighbour_index(inputs: int, device):
+    """For every feature, the indices of the same piece on adjacent squares.
+
+    A HalfKP feature is (king slot, piece kind, square) and the square is the
+    low 6 bits, so neighbours share everything above them and differ only in
+    file and rank. Returns an [inputs, 8] index tensor and a matching mask,
+    with off-board neighbours pointing at the feature itself and masked out.
+    """
+    idx = torch.zeros(inputs, 8, dtype=torch.long)
+    mask = torch.zeros(inputs, 8, dtype=torch.float32)
+    for feat in range(inputs):
+        sq = feat % 64
+        base = feat - sq
+        file, rank = sq % 8, sq // 8
+        k = 0
+        for df in (-1, 0, 1):
+            for dr in (-1, 0, 1):
+                if df == 0 and dr == 0:
+                    continue
+                f, r = file + df, rank + dr
+                if 0 <= f < 8 and 0 <= r < 8:
+                    idx[feat, k] = base + r * 8 + f
+                    mask[feat, k] = 1.0
+                else:
+                    idx[feat, k] = feat
+                k += 1
+    return idx.to(device), mask.to(device)
+
+
+def smooth_(weight, idx, mask, alpha: float):
+    """Pull each square's weights toward its neighbours', in place.
+
+    This is a prior, not a constraint: a knight on e4 and one on e5 are worth
+    nearly the same, and the exceptions (a pawn on the seventh) stay learnable
+    because the pull is partial. It attacks the measured blocker directly.
+    Across every network this project has raced, Elo has tracked how much the
+    evaluation moves between two positions one move apart, and has not tracked
+    accuracy at all: the three most accurate networks were the three jumpiest
+    and all lost. The jumpiness comes from adjacent squares learning
+    independent weights, so a piece stepping one square swaps in an unrelated
+    column.
+    """
+    if alpha <= 0:
+        return
+    with torch.no_grad():
+        w = weight[: idx.shape[0]]
+        neigh = w[idx]                      # [inputs, 8, h]
+        m = mask.unsqueeze(-1)              # [inputs, 8, 1]
+        count = m.sum(dim=1).clamp(min=1.0)
+        avg = (neigh * m).sum(dim=1) / count
+        w.mul_(1 - alpha).add_(avg, alpha=alpha)
+
+
 def pack(index_lists, pad_index, device):
     """Pack variable-length feature lists into one dense [N, K] tensor.
 
@@ -171,6 +224,10 @@ def main():
     ap.add_argument("--checkpoint-every", type=int, default=10,
                     help="also checkpoint every N epochs, not only on improvement")
     ap.add_argument("--fresh", action="store_true", help="ignore any checkpoint")
+    ap.add_argument("--smooth", type=float, default=0.0,
+                    help="after each epoch, pull every square's weights this far toward its "
+                         "neighbours'. Targets jumpiness, which is what predicts Elo here; "
+                         "accuracy does not. The Go trainer used 0.05.")
     ap.add_argument("--lr-decay", type=float, default=0.0,
                     help="halve the learning rate after this many epochs without improvement "
                          "(0 disables). A plateau can be the optimiser stalling rather than the "
@@ -249,6 +306,9 @@ def main():
         Path(args.status).write_text(json.dumps(st))
 
     model = HalfKP(args.hidden, args.buckets).to(device)
+    smooth_idx = smooth_mask = None
+    if args.smooth > 0:
+        smooth_idx, smooth_mask = neighbour_index(model.inputs, device)
     # Packed once, kept on the device. This is what lets the GPU run at
     # full rate while every CPU core is busy with matches and self-play.
     t_pack = time.time()
@@ -304,6 +364,8 @@ def main():
         # half-written checkpoint where a good one used to be.
         tmp.replace(ckpt_path)
 
+    # Game ids on the device, so smoothness can be computed without leaving it.
+    games_t = torch.tensor(games, dtype=torch.long, device=device)
     tr_t = torch.tensor(tr, dtype=torch.long, device=device)
     te_t = torch.tensor(te, dtype=torch.long, device=device)
 
@@ -312,6 +374,32 @@ def main():
             idx_t = idx_t[torch.randperm(idx_t.numel(), device=idx_t.device)]
         for s0 in range(0, idx_t.numel(), size):
             yield idx_t[s0 : s0 + size]
+
+    def smoothness(idx):
+        """How much the evaluation moves between two positions one move apart.
+
+        This is the quantity that has predicted Elo throughout this project,
+        and accuracy has not: three networks ranked exactly opposite to their
+        held-out loss, and the one that was adopted was the least accurate and
+        the least jumpy. The search prunes on pawn-sized thresholds
+        (aspiration window 0.5, futility margins 1 to 3), so an evaluation
+        that jumps a pawn between neighbouring positions fires them on noise.
+
+        Consecutive entries in a pool are consecutive positions in a game, so
+        a pair is only counted when both sides share a game id.
+        """
+        model.eval()
+        total, pairs = 0.0, 0
+        with torch.no_grad():
+            for b in batches(idx, args.batch, False):
+                pred = model(own_t[b], opp_t[b])
+                gid = games_t[b]
+                same = gid[1:] == gid[:-1]
+                if same.any():
+                    d = (pred[1:] - pred[:-1]).abs()[same]
+                    total += float(d.sum())
+                    pairs += int(same.sum())
+        return total / max(pairs, 1)
 
     def evaluate(idx):
         model.eval()
@@ -347,7 +435,10 @@ def main():
             loss.backward()
             opt.step()
             seen += b.numel()
+        if smooth_idx is not None:
+            smooth_(model.embed.weight, smooth_idx, smooth_mask, args.smooth)
         test = evaluate(te_t)
+        jump = smoothness(te_t)
         explained = 100 * (1 - test / baseline) if baseline > 0 else 0.0
         rate = seen / max(time.time() - est, 1e-6)
 
@@ -362,13 +453,13 @@ def main():
 
         where = "epoch %d/%d" % (epoch, args.epochs) if args.epochs > 0 \
             else "epoch %d (until plateau)" % epoch
-        log("%-26s held out %.4f  constant %.4f  explains %.1f%%  %.0f pos/s%s"
-            % (where, test, baseline, explained, rate,
+        log("%-26s held out %.4f  constant %.4f  explains %.1f%%  jump %.3f  %.0f pos/s%s"
+            % (where, test, baseline, explained, jump, rate,
                "" if improved else "  (no improvement for %d)" % stale))
         if improved or epoch % max(args.checkpoint_every, 1) == 0:
             save_checkpoint(epoch, best, best_epoch, best_state)
         write_status(epoch=epoch, epochs=args.epochs, test_loss=test,
-                     explains=explained, positions_per_sec=rate,
+                     explains=explained, smoothness=jump, positions_per_sec=rate,
                      epoch_positions=seen, epoch_total=len(tr),
                      epoch_eta_sec=0, best_epoch=best_epoch, stale_epochs=stale)
 
