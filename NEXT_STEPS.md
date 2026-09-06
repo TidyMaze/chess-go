@@ -89,6 +89,7 @@ in the file.
 | passed pawn bonus 0.06 | +24 +/- 24 (800) | **+7 +/- 12 (3000)** |
 | rook on 7th + doubled rooks + tempo | (not tested small) | +3 +/- 17 (1500) |
 | outposts, connected/backward pawns, bad bishops | (not tested small) | -11 +/- 17 (1500) |
+| piece-square tables scaled 1.3x | (single parameter) | -10 +/- 24 (800) |
 | futility pruning | +55 +/- 63 (120) | kept for the 25% node reduction, not for Elo |
 
 Six hand-weighted evaluation terms have now been added and measured in

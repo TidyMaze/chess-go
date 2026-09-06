@@ -82,6 +82,8 @@ type Player struct {
 	Shape bool
 	// ShapeW overrides their weights.
 	ShapeW *ShapeWeights
+	// PSTScale multiplies the piece-square tables.
+	PSTScale *[6]float64
 	// MobilityW and StructureW override the evaluation constants, so a
 	// tuner can vary them per player without touching package state.
 	MobilityW  *[6]float64
@@ -144,6 +146,9 @@ func (p Player) pickWith(g *game.Game, reuse *TranspositionTable) (game.Move, bo
 	ev.Extras = p.Extras
 	ev.Shape = p.Shape
 	ev.ShapeW = p.ShapeW
+	if p.PSTScale != nil {
+		ev.PSTScale = p.PSTScale
+	}
 	if p.MobilityW != nil {
 		ev.MobilityW = p.MobilityW
 	}

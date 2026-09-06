@@ -47,6 +47,11 @@ func main() {
 	// worth one more look at a smaller weight.
 	passed := flag.Float64("passed", 0, "passed pawn bonus per rank advanced")
 	shape := flag.Bool("shape", false, "challenger adds outposts, connected/backward pawns, bad bishops")
+	// The piece-square tables' shapes are plausible but their size
+	// relative to a pawn was set by hand and never checked against games.
+	// One parameter, so this avoids the trap that has caught every
+	// multi-term batch: guessing several weights at once.
+	pstScale := flag.Float64("pst-scale", 0, "multiply every piece-square table (0 = leave alone)")
 	openingPlies := flag.Int("opening-plies", 6, "random plies starting each game")
 	flag.Parse()
 	engine.OpeningPlies = *openingPlies
@@ -73,6 +78,13 @@ func main() {
 	challenger.KingSafety = *kingSafety
 	challenger.Extras = *extras
 	challenger.Shape = *shape
+	if *pstScale > 0 {
+		sc := engine.DefaultPSTScale()
+		for i := range sc {
+			sc[i] *= *pstScale
+		}
+		challenger.PSTScale = &sc
+	}
 	if *passed > 0 {
 		sw := engine.DefaultStructureWeights()
 		sw.PassedBase = *passed
