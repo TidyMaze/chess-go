@@ -61,6 +61,39 @@ depth. The search is not broken (see the blunder analysis below: no
 blunder in the sample was a hung piece); it has simply run out of things
 its evaluation can tell apart.
 
+## Confirmed improvements
+
+| change | measured | games |
+|---|---|---|
+| mobility + attacker-counting king safety | **+16 +/- 12** | 3000 |
+
+That is the whole list. It is 0.85% on a base of about 1879.
+
+Both terms measured inside their margins individually (+9 +/- 34 and
++13 +/- 34 over 400 games each) and were correctly not adopted then. The
+method that worked is: implement several cheap terms, stack them, and
+measure the stack at 3000 games. A term worth 5 to 15 Elo cannot be
+confirmed alone at any affordable sample size, because 400 games resolve
++/- 34.
+
+## Promising results that did not survive more games
+
+Every one of these looked worth adopting at small sample size and shrank
+toward zero when measured properly. This is the single most useful table
+in the file.
+
+| change | small sample | at power |
+|---|---|---|
+| disable LMR | +23 +/- 39 (300) | +9 +/- 17 stacked (1500) |
+| quiescence cap 4 -> 12 | +23 +/- 39 (300) | as above |
+| passed pawn bonus 0.06 | +24 +/- 24 (800) | **+7 +/- 12 (3000)** |
+| rook on 7th + doubled rooks + tempo | (not tested small) | +3 +/- 17 (1500) |
+| futility pruning | +55 +/- 63 (120) | kept for the 25% node reduction, not for Elo |
+
+The pattern is consistent enough to be a rule: a result whose margin
+exceeds its estimate is not evidence, however encouraging it looks, and
+roughly three quarters of them evaporate.
+
 ## What has been tried, and what it measured
 
 | Change | Result | Verdict |
