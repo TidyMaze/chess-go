@@ -61,6 +61,33 @@ depth. The search is not broken (see the blunder analysis below: no
 blunder in the sample was a hung piece); it has simply run out of things
 its evaluation can tell apart.
 
+## The network is better at depth 6 than at depth 4
+
+Same network, same blend, two search depths:
+
+| depth | Elo vs the hand-written evaluation | games |
+|---|---|---|
+| 4 | -31 +/- 24 | 800 |
+| 6 | **+18 +/- 34** | 400 |
+
+A 49 Elo swing and a change of sign. Every network measurement in this
+project had been taken at depth 4, chosen because it is four times
+cheaper, while the engine that plays runs at depth 5 and calibration at
+5 or 6. The cheap measurement was answering a different question from the
+one that matters, and it had been answering it for the whole session.
+
+It is also the central diagnosis running backwards. More depth stopped
+paying because the evaluation could not tell positions apart, so a deeper
+search had nothing extra to find. An evaluation that discriminates better
+should convert depth into strength again, and this is what that looks
+like.
+
+**Measure networks at the depth the engine plays at, not at the depth
+that is cheap to measure.**
+
+Not yet confirmed: +18 +/- 34 needs its margin beaten. A 1200-game run at
+depth 6 is the next thing to finish.
+
 ## Confirmed improvements
 
 | change | measured | games |
