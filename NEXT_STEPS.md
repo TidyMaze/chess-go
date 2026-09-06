@@ -88,7 +88,22 @@ in the file.
 | quiescence cap 4 -> 12 | +23 +/- 39 (300) | as above |
 | passed pawn bonus 0.06 | +24 +/- 24 (800) | **+7 +/- 12 (3000)** |
 | rook on 7th + doubled rooks + tempo | (not tested small) | +3 +/- 17 (1500) |
+| outposts, connected/backward pawns, bad bishops | (not tested small) | -11 +/- 17 (1500) |
 | futility pruning | +55 +/- 63 (120) | kept for the 25% node reduction, not for Elo |
+
+Six hand-weighted evaluation terms have now been added and measured in
+two batches, and both batches came back at zero or below. Against that,
+the one batch that worked (mobility and king safety, +16 +/- 12) was also
+hand-weighted. So the failure is not "hand-picked weights never work",
+it is that the hit rate is low and only a 3000-game match can tell which
+batch is which.
+
+SPSA was pointed at the five newest weights and abandoned after six
+iterations: at a gain that keeps the run stable, it moves a weight of
+0.18 by about 0.002 per iteration, so it needs hundreds of iterations to
+say anything. That is hours of the machine for a term worth perhaps 10
+Elo, against a network that is currently at parity and improving with
+every generation of data. The cores went to the network.
 
 The pattern is consistent enough to be a rule: a result whose margin
 exceeds its estimate is not evidence, however encouraging it looks, and
