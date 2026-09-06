@@ -54,6 +54,39 @@ type sample struct {
 
 var writeMu sync.Mutex
 
+// lastStatus is the most recent status map, refreshed by a heartbeat so
+// that a long phase does not look like a stopped process.
+//
+// The evaluation phase plays 500 games and writes its status once, so the
+// file sat untouched for three minutes while the trainer was busy and the
+// staleness check reported it as not running. The phase durations here
+// are minutes, so the file has to be touched on a timer rather than only
+// when something changes.
+var (
+	lastStatusMu sync.Mutex
+	lastStatus   map[string]any
+)
+
+func startHeartbeat(stop <-chan struct{}) {
+	go func() {
+		t := time.NewTicker(5 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-t.C:
+				lastStatusMu.Lock()
+				m := lastStatus
+				lastStatusMu.Unlock()
+				if m != nil {
+					writeJSON("nnue_status.json", m)
+				}
+			}
+		}
+	}()
+}
+
 func writeJSON(path string, v any) {
 	// Status writes carry a timestamp so the browser can tell "this run
 	// is between updates" from "this run is not running". Without it a
@@ -62,6 +95,9 @@ func writeJSON(path string, v any) {
 	if m, ok := v.(map[string]any); ok {
 		if _, has := m["phase"]; has {
 			m["at"] = time.Now().Unix()
+			lastStatusMu.Lock()
+			lastStatus = m
+			lastStatusMu.Unlock()
 		}
 	}
 	data, err := json.Marshal(v)
@@ -701,6 +737,10 @@ func main() {
 	}
 	fmt.Printf("HalfKP %d inputs x %d hidden per side, %d parameters, %d workers\n",
 		engine.HalfKPInputs, *hidden, params, workers)
+
+	heartbeatStop := make(chan struct{})
+	startHeartbeat(heartbeatStop)
+	defer close(heartbeatStop)
 
 	var history []genRecord
 	if data, err := os.ReadFile("nnue.json"); err == nil && !*fresh {
