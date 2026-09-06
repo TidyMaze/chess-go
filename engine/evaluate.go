@@ -153,6 +153,9 @@ type Eval struct {
 	// is good enough that anything after the first few is not worth full
 	// depth, which is a much bigger assumption at depth 4 than at 20.
 	NoLMR bool
+	// ScaledLMR reduces more with depth and move number instead of a flat
+	// one ply.
+	ScaledLMR bool
 	// NoCastle is a measurement instrument, never a playing mode. Castling
 	// is a rule of chess and is implemented; this flag exists only so one
 	// side of an A/B can decline it, which is the only way to price the

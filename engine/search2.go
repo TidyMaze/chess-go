@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"math"
 	"sync"
 
 	"chess/board"
@@ -52,6 +53,34 @@ var searchCtxPool = sync.Pool{New: func() any { return new(searchCtx) }}
 // remaining ply, in pawns. A position further than this from the bound is
 // treated as unreachable. Indexed by depth; only 1..3 are used.
 var futilityMargin = [4]float64{0, 1.0, 2.0, 3.0}
+
+// lmrTable is the reduction for a quiet move at a given depth and move
+// number, precomputed because it is read at every node.
+//
+// The shape is the standard one: roughly 0.5 + ln(depth)*ln(move)/2.5,
+// so the reduction grows slowly with both and stays modest at the
+// shallow depths this engine searches.
+var lmrReductions [64][64]int
+
+func init() {
+	for d := 1; d < 64; d++ {
+		for m := 1; m < 64; m++ {
+			r := 0.5 + math.Log(float64(d))*math.Log(float64(m))/2.5
+			lmrReductions[d][m] = int(r)
+		}
+	}
+}
+
+func lmrTable(depth, moveIndex int) int {
+	d, m := depth, moveIndex+1
+	if d > 63 {
+		d = 63
+	}
+	if m > 63 {
+		m = 63
+	}
+	return lmrReductions[d][m]
+}
 
 // LastSearchNodes is the node count of the most recent search, for
 // reporting nodes per second. Not safe to read from concurrent searches;
@@ -289,6 +318,29 @@ func (c *searchCtx) search(g *game.Game, color, maximizingFor board.Color, depth
 		reduction := 0
 		if depth >= 3 && i >= 3 && !isCapture && !inCheck && !(c.ev != nil && c.ev.NoLMR) {
 			reduction = 1
+			if c.ev != nil && c.ev.ScaledLMR {
+				// Reduce more the deeper the search and the later the
+				// move. A flat one-ply reduction treats the fourth move
+				// and the fortieth alike, and treats a depth-3 node like a
+				// depth-12 one, when the move ordering says the fortieth
+				// move at high depth is far less likely to be best.
+				//
+				// The logarithmic form is what strong engines use: it
+				// grows without ever reducing so much that a good move
+				// cannot come back, and the re-search on a fail-high
+				// catches the cases where it was wrong.
+				r := lmrTable(depth, i)
+				if r > reduction {
+					reduction = r
+				}
+				// Never reduce into quiescence: leave at least one ply.
+				if reduction > depth-2 {
+					reduction = depth - 2
+				}
+				if reduction < 1 {
+					reduction = 1
+				}
+			}
 		}
 
 		// Check extension: a forced sequence should not be cut off

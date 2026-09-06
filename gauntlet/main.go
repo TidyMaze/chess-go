@@ -35,6 +35,7 @@ func main() {
 	refNoCastle := flag.Bool("ref-no-castle", false, "reference refuses to castle")
 	refNoRep := flag.Bool("ref-no-repetition", false, "reference has no repetition detection")
 	noLMR := flag.Bool("no-lmr", false, "challenger disables late move reductions")
+	scaledLMR := flag.Bool("scaled-lmr", false, "challenger scales reductions with depth and move number")
 	noNull := flag.Bool("no-null", false, "challenger disables null-move pruning")
 	qply := flag.Int("qply", 0, "challenger quiescence ply cap (0 = default)")
 	mobility := flag.Bool("mobility", false, "challenger adds the mobility term")
@@ -72,6 +73,7 @@ func main() {
 	challenger.Futility = *futility
 	challenger.Tuned = *tuned
 	challenger.NoLMR = *noLMR
+	challenger.ScaledLMR = *scaledLMR
 	challenger.NullMove = !*noNull
 	challenger.QuiescePly = *qply
 	challenger.Mobility = *mobility

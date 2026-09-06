@@ -70,6 +70,8 @@ type Player struct {
 	NoCastle bool
 	// NoLMR disables late move reductions.
 	NoLMR bool
+	// ScaledLMR scales the reduction with depth and move number.
+	ScaledLMR bool
 	// NoRepetition disables repetition detection. Measurement only.
 	NoRepetition bool
 	// Mobility adds the mobility evaluation term.
@@ -140,6 +142,7 @@ func (p Player) pickWith(g *game.Game, reuse *TranspositionTable) (game.Move, bo
 	ev.HalfKPBlend = p.HalfKPBlend
 	ev.NoCastle = p.NoCastle
 	ev.NoLMR = p.NoLMR
+	ev.ScaledLMR = p.ScaledLMR
 	ev.NoRepetition = p.NoRepetition
 	ev.Mobility = p.Mobility
 	ev.KingSafety = p.KingSafety
