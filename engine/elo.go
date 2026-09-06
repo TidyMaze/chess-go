@@ -76,6 +76,8 @@ type Player struct {
 	Mobility bool
 	// KingSafety weights the attacker-counting king danger term.
 	KingSafety float64
+	// Extras enables rook-on-seventh, doubled rooks and a tempo bonus.
+	Extras bool
 	// MobilityW and StructureW override the evaluation constants, so a
 	// tuner can vary them per player without touching package state.
 	MobilityW  *[6]float64
@@ -135,6 +137,7 @@ func (p Player) pickWith(g *game.Game, reuse *TranspositionTable) (game.Move, bo
 	ev.NoRepetition = p.NoRepetition
 	ev.Mobility = p.Mobility
 	ev.KingSafety = p.KingSafety
+	ev.Extras = p.Extras
 	if p.MobilityW != nil {
 		ev.MobilityW = p.MobilityW
 	}

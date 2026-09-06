@@ -38,7 +38,14 @@ func main() {
 	noNull := flag.Bool("no-null", false, "challenger disables null-move pruning")
 	qply := flag.Int("qply", 0, "challenger quiescence ply cap (0 = default)")
 	mobility := flag.Bool("mobility", false, "challenger adds the mobility term")
-	kingSafety := flag.Float64("king-safety", 0, "challenger's king-danger weight (0 = off)")
+	kingSafety := flag.Float64("king-safety", 0.01, "challenger's king-danger weight (0 = off)")
+	extras := flag.Bool("extras", false, "challenger adds rook-on-seventh, doubled rooks and tempo")
+	// Passed pawns are weighted zero by default. An early sweep found a
+	// hand-picked passed-pawn bonus harmful, because it double-counts
+	// with the endgame pawn table which already rewards advancement. That
+	// was measured before king safety and mobility existed, so it is
+	// worth one more look at a smaller weight.
+	passed := flag.Float64("passed", 0, "passed pawn bonus per rank advanced")
 	openingPlies := flag.Int("opening-plies", 6, "random plies starting each game")
 	flag.Parse()
 	engine.OpeningPlies = *openingPlies
@@ -63,6 +70,13 @@ func main() {
 	challenger.QuiescePly = *qply
 	challenger.Mobility = *mobility
 	challenger.KingSafety = *kingSafety
+	challenger.Extras = *extras
+	if *passed > 0 {
+		sw := engine.DefaultStructureWeights()
+		sw.PassedBase = *passed
+		sw.PassedPerRank = *passed / 2
+		challenger.StructureW = &sw
+	}
 	if *halfkpPath != "" {
 		n, err := engine.LoadHalfKPNet(*halfkpPath)
 		if err != nil {

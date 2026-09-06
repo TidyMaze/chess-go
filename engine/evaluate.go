@@ -129,6 +129,8 @@ type Eval struct {
 	Mobility bool
 	// KingSafety weights the attacker-counting king danger term. 0 is off.
 	KingSafety float64
+	// Extras enables rook-on-seventh, doubled rooks and a tempo bonus.
+	Extras bool
 	// MobilityW overrides the per-piece mobility weights. Nil uses the
 	// defaults. Hand-picked weights measured +9 +/- 34, which is what a
 	// guess is worth; these exist so the tuner can fit them instead.
@@ -459,6 +461,18 @@ func PositionScoreEval(b *board.Board, color board.Color, ev *Eval) float64 {
 		sw := ev.structureWeights()
 		score += structurePieces(pieces, color, pawns[color], pawns[other], phase, sw)
 		score -= structurePieces(pieces, other, pawns[other], pawns[color], phase, sw)
+	}
+
+	if ev != nil && ev.Extras {
+		score += extraScore(pieces, color, phase, defaultExtras)
+		score -= extraScore(pieces, other, phase, defaultExtras)
+		// Tempo: the side to move has a real if small advantage, and
+		// nothing else in this evaluation says so.
+		if color == board.White {
+			score += defaultExtras.Tempo
+		} else {
+			score -= defaultExtras.Tempo
+		}
 	}
 
 	if ev != nil && ev.KingSafety != 0 {

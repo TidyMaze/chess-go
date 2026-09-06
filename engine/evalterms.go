@@ -318,3 +318,45 @@ func kingSafetyPenalty(b *board.Board, pieces []board.ColoredPiece, color board.
 	}
 	return weight * kingDangerScale[attackers] * weightSum * phase
 }
+
+// Three terms the evaluation does not have, each cheap and each standard.
+//
+// Added together because the useful lesson from mobility and king safety
+// is that a term worth 5 to 15 Elo cannot be confirmed on its own at any
+// affordable sample size: 400 games resolve +/- 34. Several such terms
+// stacked can be confirmed, and then the ones that turn out to be dead
+// weight can be removed one at a time.
+type extraWeights struct {
+	RookSeventh float64 // a rook on the seventh cuts off the king and eats pawns
+	RookDoubled float64 // two rooks on one file are worth more than two rooks
+	Tempo       float64 // having the move is worth something in itself
+}
+
+var defaultExtras = extraWeights{RookSeventh: 0.20, RookDoubled: 0.12, Tempo: 0.06}
+
+// extraScore evaluates the terms above for one side.
+func extraScore(pieces []board.ColoredPiece, color board.Color, phase float64, w extraWeights) float64 {
+	seventh := 6
+	if color == board.Black {
+		seventh = 1
+	}
+	score := 0.0
+	var rookFiles [8]int
+	for _, p := range pieces {
+		if p.Color != color || p.Type != board.Rook {
+			continue
+		}
+		rookFiles[p.Sq.File]++
+		if p.Sq.Rank == seventh {
+			// Worth most while the enemy king is still stuck on its back
+			// rank, which is what phase approximates.
+			score += w.RookSeventh * phase
+		}
+	}
+	for _, n := range rookFiles {
+		if n > 1 {
+			score += w.RookDoubled
+		}
+	}
+	return score
+}

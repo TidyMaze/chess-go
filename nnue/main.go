@@ -55,6 +55,15 @@ type sample struct {
 var writeMu sync.Mutex
 
 func writeJSON(path string, v any) {
+	// Status writes carry a timestamp so the browser can tell "this run
+	// is between updates" from "this run is not running". Without it a
+	// stopped trainer looks identical to a slow one, which is exactly how
+	// a paused run gets read as a hung one.
+	if m, ok := v.(map[string]any); ok {
+		if _, has := m["phase"]; has {
+			m["at"] = time.Now().Unix()
+		}
+	}
 	data, err := json.Marshal(v)
 	if err != nil {
 		return

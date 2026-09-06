@@ -414,6 +414,18 @@ async function pollNNUE() {
       pct = 100;
       label = "finished";
     }
+    // A status older than a minute means the trainer is not running.
+    // The phase text alone would keep showing whatever it was doing when
+    // it stopped, which reads as stuck rather than stopped.
+    const ageSec = st.at ? (Date.now() / 1000 - st.at) : 0;
+    if (ageSec > 60) {
+      pct = 0;
+      label = `training is not running (last update ${Math.round(ageSec / 60)} min ago)`;
+      explain = "The process is stopped. It resumes from its checkpoint: no positions, weights or optimiser state are lost. Restart it with ./nnue-bin.";
+      document.getElementById("fill").style.background = "#6b3030";
+    } else {
+      document.getElementById("fill").style.background = "#2f6b2f";
+    }
     document.getElementById("fill").style.width = pct + "%";
     document.getElementById("barlabel").textContent = label;
     document.getElementById("phase").textContent = explain;
