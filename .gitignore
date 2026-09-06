@@ -37,3 +37,5 @@ halfkp_*.json
 nnue_pool.bin
 nnue_net.gob
 spsa_state.gob
+evalgap-bin
+evalgap.json
