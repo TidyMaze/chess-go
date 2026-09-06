@@ -805,7 +805,16 @@ func main() {
 		labeller := engine.Strong(*labelDepth)
 		if *labelChampion != "" {
 			c := engine.ReadChampion(*labelChampion)
-			labeller = c.Player()
+			lp, err := c.PlayerOrError()
+			if err != nil {
+				// Refuse rather than degrade. Labelling with the hand
+				// evaluation when the champion's network was meant to be
+				// loaded produces a rung identical to the previous one,
+				// and no number in the run would reveal it.
+				fmt.Printf("%s  refusing to label: %v\n", time.Now().Format("15:04:05"), err)
+				return
+			}
+			labeller = lp
 			labeller.Depth = *labelDepth
 			fmt.Printf("%s  labelling with the champion: %s\n",
 				time.Now().Format("15:04:05"), c.Label)

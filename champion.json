@@ -1,9 +1,9 @@
 {
-  "label": "PyTorch net, 3.18M self-labelled positions, smoothing prior 0.5, blended 55/45",
+  "label": "ladder rung 1: network trained on depth-labelled real games",
   "depth": 5,
-  "elo": 1990,
-  "margin": 130,
+  "elo": 2016,
+  "margin": 22,
   "net_file": "champion_net.json",
   "hand_blend": 0.45,
-  "adopted": "2026-09-07T00:15:00+02:00"
+  "adopted": "2026-09-07T01:00:51+0200"
 }

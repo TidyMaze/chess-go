@@ -49,17 +49,42 @@ for rung in $(seq 1 "$RUNGS"); do
 
   # Generate. -label-champion is what makes this a ladder rather than a
   # loop: without it every rung would produce identical labels.
-  if [ ! -f "$pool" ]; then
+  #
+  # "The file exists" is not "the pool is complete": a killed run leaves a
+  # partial pool, and treating that as done would train the rung on a
+  # fraction of its data and blame the labels. Positions average about 86
+  # bytes, so compare against that and let the import resume, which it does
+  # from a marker written only after the samples are on disk.
+  want_bytes=$((POSITIONS * 86 * 9 / 10))
+  have_bytes=$(stat -f%z "$pool" 2>/dev/null || echo 0)
+  if [ "$have_bytes" -lt "$want_bytes" ]; then
+    say "rung $rung: generating (have ${have_bytes} bytes, want about ${want_bytes})"
     zstd -dcq "$PGN" 2>/dev/null | ./nnue-bin -import-pgn - \
       -pool-file "$pool" -import-max "$POSITIONS" -label-depth "$DEPTH" \
       -pgn-skip-plies 8 -label-champion champion.json \
       >> /tmp/chesslogs/ladder_gen_r${rung}.log 2>&1
   fi
-  kept=$(ls -la "$pool" 2>/dev/null | awk '{print $5}')
-  say "rung $rung: pool $pool is ${kept:-0} bytes"
+  kept=$(stat -f%z "$pool" 2>/dev/null || echo 0)
+  say "rung $rung: pool $pool is ${kept} bytes"
+
+  # Train on everything accumulated, not just this rung's pool.
+  #
+  # Volume dominates here and it is not close: the same recipe measured -7
+  # Elo on 400k positions and +35 on 3.18M. A rung that trains only on its
+  # own 600k would lose to the champion on data alone, however much better
+  # its labels are, and the ladder would stop on the wrong evidence.
+  #
+  # Older pools carry labels from weaker champions, which dilutes the
+  # improvement. That is the trade Stockfish makes too, and at this scale
+  # dilution is much cheaper than starving the network.
+  pools="nnue_pool.bin games_d5.bin"
+  for prev in $(seq 1 "$rung"); do
+    [ -f "ladder_r${prev}.bin" ] && pools="$pools ladder_r${prev}.bin"
+  done
+  say "rung $rung: training on [$pools]"
 
   # Train, until the held-out loss stops improving.
-  .venv/bin/python -u pytorch/train.py --pool "$pool" --epochs 0 \
+  .venv/bin/python -u pytorch/train.py --pool $pools --epochs 0 \
     --patience 20 --lr-decay 8 --hidden 64 --batch 16384 --device mps \
     --lr 0.005 --smooth 0.5 \
     --checkpoint "$ckpt" --out "$net" --status nnue_status.json \
@@ -90,7 +115,11 @@ for rung in $(seq 1 "$RUNGS"); do
 
   lower=$((elo - margin))
   if [ "$lower" -gt 0 ]; then
-    cp "$net" "champion_net.json"
+    # Written then renamed, because the play server is live and watches
+    # this file: a plain copy can be read half-written, and the watcher
+    # would fall back to the hand evaluation mid-game. rename is atomic on
+    # the same filesystem.
+    cp "$net" "champion_net.json.tmp" && mv -f "champion_net.json.tmp" "champion_net.json"
     python3 - "$rung" "$elo" "$margin" <<'PY'
 import json, sys, time
 rung, elo, margin = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
@@ -101,7 +130,9 @@ json.dump({
     "depth": 5, "elo": prev + elo, "margin": margin,
     "net_file": "champion_net.json", "hand_blend": 0.45,
     "adopted": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
-}, open("champion.json", "w"), indent=2)
+}, open("champion.json.tmp", "w"), indent=2)
+import os
+os.replace("champion.json.tmp", "champion.json")
 PY
     say "rung $rung: ADOPTED (+$elo, lower bound +$lower). The next rung labels with it."
   else

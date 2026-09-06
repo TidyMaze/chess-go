@@ -2,6 +2,7 @@ package engine
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"sync"
 	"time"
@@ -82,25 +83,49 @@ func WriteChampion(path string, c Champion) error {
 // that fails to load is skipped rather than fatal, for the same reason
 // LoadChampion falls back: the hand-written evaluation always works.
 func (c Champion) Player() Player {
+	p, err := c.PlayerOrError()
+	if err != nil {
+		// The browser must keep working, so this degrades rather than
+		// fails. It says so loudly: a champion that names a network and
+		// silently plays without it is indistinguishable from one that has
+		// none, and in the bootstrap ladder that turns every rung into a
+		// copy of the last one with nothing to show for it.
+		fmt.Fprintf(os.Stderr, "champion: %v (falling back to the hand-written evaluation)\n", err)
+	}
+	return p
+}
+
+// PlayerOrError is Player with the failure visible. Anything that depends
+// on the champion actually being the champion, above all the ladder's
+// labeller, must use this: labelling with the hand evaluation when the
+// network was meant to be loaded produces a rung identical to the previous
+// one, and nothing in the numbers would reveal it.
+func (c Champion) PlayerOrError() (Player, error) {
 	p := Strong(c.Depth)
 	p.Name = "champion"
 	if c.NetFile != "" {
-		if n, err := LoadHalfKPNet(c.NetFile); err == nil {
-			p.HalfKP = n
-			p.HalfKPBlend = c.HandBlend
+		n, err := LoadHalfKPNet(c.NetFile)
+		if err != nil {
+			return p, fmt.Errorf("network %s named by the champion did not load: %w", c.NetFile, err)
 		}
+		p.HalfKP = n
+		p.HalfKPBlend = c.HandBlend
 	}
 	if c.Book != "" {
-		if b, err := LoadBook(c.Book); err == nil {
-			p.Book = b
+		b, err := LoadBook(c.Book)
+		if err != nil {
+			return p, fmt.Errorf("book %s named by the champion did not load: %w", c.Book, err)
 		}
+		p.Book = b
 	}
 	if c.Syzygy != "" {
-		if tb, err := LoadTablebases(c.Syzygy); err == nil {
-			p.Tablebases = tb
+		tb, err := LoadTablebases(c.Syzygy)
+		if err != nil {
+			return p, fmt.Errorf("tablebases %s named by the champion did not load: %w", c.Syzygy, err)
 		}
+		p.Tablebases = tb
 	}
-	return p
+	return p, nil
 }
 
 // ChampionWatcher hands out the current champion, rebuilding it when the
