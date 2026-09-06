@@ -2,7 +2,10 @@
 // the self-play training loop.
 package engine
 
-import "chess/board"
+import (
+	"chess/board"
+	"chess/game"
+)
 
 // Weights is indexed by PieceType rather than keyed by it: this is read
 // for every piece at every evaluated node, and a map lookup there showed
@@ -166,6 +169,24 @@ type Eval struct {
 	// one Game, and it is applied to the root move list because that is
 	// where the played move is chosen.
 	NoCastle bool
+	// Tablebases gives exact results for small endgames. When a position
+	// is covered, the score is not an estimate at all.
+	Tablebases *TablebaseSet
+	// STM is the side to move at the position being evaluated.
+	//
+	// The evaluation's `color` argument is the side the score is *for*,
+	// which during a search is the root's colour and is fixed for the
+	// whole tree. A tablebase index needs the side to move at this node,
+	// which is a different thing and changes every ply. Probing with the
+	// root's colour indexed the wrong entry on about half of all nodes:
+	// the tablebase measured -24 +/- 22 Elo and did not improve rook
+	// endgame conversion at all (4 of 6 either way), which is what a probe
+	// that is half wrong looks like.
+	//
+	// Set by evalPosition at every call site inside the search. One Eval
+	// belongs to one game searched by one goroutine, so this is per-node
+	// state on a per-search object rather than shared mutable state.
+	STM board.Color
 	// HalfKP is a king-conditioned network. When set it replaces the
 	// hand-written evaluation, or blends with it if HalfKPBlend is set.
 	HalfKP *HalfKPNet
@@ -358,6 +379,24 @@ func positionScoreEvalReference(b *board.Board, color board.Color, ev *Eval) flo
 // that array: same arithmetic, same result, a fraction of the memory
 // traffic.
 func PositionScoreEval(b *board.Board, color board.Color, ev *Eval) float64 {
+	// Exact answers first. Where a tablebase covers the position there is
+	// nothing for an evaluation to estimate, and the piece-count guard
+	// means the probe costs one integer comparison in every position that
+	// is not an endgame, which is nearly all of them.
+	if ev != nil && ev.Tablebases != nil && b.PieceCount() <= TablebaseMaxPieces {
+		if score, ok := ev.Tablebases.Probe(b, ev.STM); ok {
+			// Probe answers from White's point of view; this function
+			// answers from `color`'s, as every other branch below does.
+			// Without this negation the tablebase score was inverted in
+			// every game the engine played as Black, which is half of
+			// them, and three rounds of tuning the table chased a sign
+			// error: -15, -26 and -19 Elo across successive attempts.
+			if color == board.Black {
+				score = -score
+			}
+			return score
+		}
+	}
 	if ev != nil && ev.HalfKP != nil {
 		score := ev.HalfKP.Evaluate(b)
 		if color == board.Black {
@@ -521,4 +560,17 @@ func PositionScoreEval(b *board.Board, color board.Color, ev *Eval) float64 {
 		score += correction
 	}
 	return score
+}
+
+// evalPosition evaluates a node during a search, recording whose turn it
+// is so an endgame tablebase can be indexed correctly.
+//
+// The evaluation's own `color` argument cannot serve: it is the root's
+// colour, constant for the whole tree, while a tablebase index needs the
+// side to move at this node.
+func evalPosition(g *game.Game, maximizingFor board.Color, ev *Eval) float64 {
+	if ev != nil {
+		ev.STM = g.Turn
+	}
+	return PositionScoreEval(&g.Board, maximizingFor, ev)
 }

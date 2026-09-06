@@ -126,6 +126,15 @@ and `result_pawns` maps the game outcome to -4/0/+4.
 
 **Training.** Adam (second moment only, no momentum) with per-touched-
 column weight decay, Hogwild across 10 cores. 10 epochs per generation
+
+> CORRECTION 2026-09-06. This described the intent, not the code. Until
+> today `trainEpoch` ran **plain SGD at a single rate**: the `v1`, `v2`,
+> `vb1`, `vb2` and `step` fields were allocated, checkpointed, round-trip
+> tested and never read, and the `decay` argument was accepted and
+> ignored. Every measurement taken over `-decay` in this project
+> therefore measured noise, and every network before today was fitted by
+> an optimiser that was not the one described here. Both are now
+> implemented and covered by `nnue/learn_test.go`.
 over a sliding pool capped at 8M positions.
 
 **Validation split is by game, never by position.** This matters
@@ -218,6 +227,19 @@ not because it makes the engine play better.
 **"The network just needs more capacity or less overfitting."** Swept 4,
 16, 64 and 256 hidden units on the previous feature set: worse than the
 hand evaluation at every size, including sizes far too small to overfit.
+
+> CORRECTION 2026-09-06. The 256-unit arm of that sweep is void.
+> `HalfKPNet.Evaluate` kept its accumulator in a stack array bounded by
+> `maxHalfKPHidden = 128` and returned **exactly 0** for any wider
+> network, silently. The 256-unit arm was therefore not evaluating at
+> all, and "worse at every size" was partly a measurement of a network
+> that scored every position as equal. Sizes up to 128 stand.
+>
+> Re-run properly on the Lichess pool: 256 units reached 62.3% of
+> held-out variance against 32 units' 57.8%, and measured **-35 +/- 28**
+> against **+14 +/- 28**. The conclusion survives the correction, for a
+> different reason: the bigger network is more accurate and jumpier
+> (2.455 against 2.331 per move), and jumpiness is what tracks Elo.
 
 ---
 

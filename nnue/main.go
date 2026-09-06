@@ -33,7 +33,6 @@ import (
 	"math/rand"
 	"os"
 	"runtime"
-	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -138,7 +137,7 @@ type net struct {
 }
 
 func newNet(h int, rng *rand.Rand) *net {
-	inputs := engine.HalfKPInputs
+	inputs := engine.HalfKPInputsFor(engine.FeatureKingBuckets)
 	n := &net{
 		h:   h,
 		w1:  make([]float32, inputs*h),
@@ -246,10 +245,76 @@ func (n *net) loss(data []sample, k float64, useSigmoid bool) float64 {
 //
 // Single-threaded training was the bottleneck in the previous loop: data
 // generation used every core and then training used one.
+// trainProgress, when set, is called while an epoch runs.
+//
+// An epoch over ten million positions takes over three minutes at 256
+// hidden units, and the status file was only written between epochs, so
+// the browser showed "epoch 1 of 2" and nothing else for the whole time.
+// A phase that reports nothing for three minutes is indistinguishable
+// from a stalled one.
+var trainProgress func(done, total int, rate float64, eta time.Duration)
+
 func (n *net) trainEpoch(data []sample, order []int32, lr, decay float32, k float64, useSigmoid bool, workers int) {
 	var wg sync.WaitGroup
+
+	var done int64
+	if trainProgress != nil {
+		start := time.Now()
+		stop := make(chan struct{})
+		defer close(stop)
+		go func() {
+			t := time.NewTicker(2 * time.Second)
+			defer t.Stop()
+			for {
+				select {
+				case <-stop:
+					return
+				case <-t.C:
+					d := atomic.LoadInt64(&done)
+					if d == 0 {
+						continue
+					}
+					el := time.Since(start)
+					rate := float64(d) / el.Seconds()
+					eta := time.Duration(float64(len(order)-int(d))/rate) * time.Second
+					trainProgress(int(d), len(order), rate, eta)
+				}
+			}
+		}()
+	}
 	chunk := (len(order) + workers - 1) / workers
 	h := n.h
+
+	// Adam's second moment and the weight decay, both of which this
+	// function used to accept and ignore.
+	//
+	// The state was allocated, checkpointed, round-trip tested and
+	// documented at length while the loop ran plain SGD at a single rate,
+	// so every sweep over -decay measured nothing. It matters here because
+	// the feature set is sparse: a common column is updated hundreds of
+	// times an epoch and a rare one twice, so any single rate that moves
+	// the rare ones destabilises the common ones. Scaling each weight by
+	// its own gradient history is exactly the mismatch to fix.
+	//
+	// The first moment is still deliberately absent. Under Hogwild the
+	// workers race, and momentum accumulates those races into a persistent
+	// wrong direction, while the second moment only grows and so degrades
+	// gracefully.
+	const beta2 = 0.999
+	const eps = 1e-8
+	step := atomic.AddInt64(&n.step, 1)
+	// Bias correction. Without it the first updates divide by a
+	// second moment still near zero and take enormous steps.
+	corr := float32(1 / (1 - math.Pow(beta2, float64(step))))
+
+	// adam applies one update in place. w and v are pointers into the
+	// shared arrays; the races between workers are the point of Hogwild.
+	adam := func(w, v *float32, g float32) {
+		nv := beta2**v + (1-beta2)*g*g
+		*v = nv
+		*w -= lr * g / (float32(math.Sqrt(float64(nv*corr))) + eps)
+	}
+
 	for w := 0; w < workers; w++ {
 		lo := w * chunk
 		hi := lo + chunk
@@ -265,7 +330,14 @@ func (n *net) trainEpoch(data []sample, order []int32, lr, decay float32, k floa
 			acc := make([]float32, 2*h)
 			act := make([]float32, 2*h)
 			grad := make([]float32, 2*h)
+			since := 0
 			for _, idx := range order[lo:hi] {
+				// Counted in blocks: one atomic add per position would
+				// contend across ten cores on a hot loop.
+				if since++; since == 4096 {
+					atomic.AddInt64(&done, int64(since))
+					since = 0
+				}
 				s := &data[idx]
 				out := n.forward(s, acc, act)
 				dOut := 2 * (out - float32(s.target))
@@ -278,25 +350,34 @@ func (n *net) trainEpoch(data []sample, order []int32, lr, decay float32, k floa
 					} else {
 						grad[i] = 0
 					}
-					n.w2[i] -= lr * dOut * act[i]
+					adam(&n.w2[i], &n.v2[i], dOut*act[i])
 				}
-				n.b2 -= lr * dOut
+				adam(&n.b2, &n.vb2, dOut)
 
 				for side, feats := range [2][]int32{s.own, s.opp} {
 					off := side * h
 					g := grad[off : off+h]
 					for i := 0; i < h; i++ {
-						n.b1[i] -= lr * g[i]
+						adam(&n.b1[i], &n.vb1[i], g[i])
 					}
 					for _, f := range feats {
 						col := int(f) * h
 						wv := n.w1[col : col+h : col+h]
+						vv := n.v1[col : col+h : col+h]
 						for i := 0; i < h; i++ {
-							wv[i] -= lr * g[i]
+							adam(&wv[i], &vv[i], g[i])
+							// Decay only the columns this position touched.
+							// Decaying all 5120 columns every step would
+							// shrink features the position says nothing
+							// about, at 5120 times the cost.
+							if decay > 0 {
+								wv[i] -= lr * decay * wv[i]
+							}
 						}
 					}
 				}
 			}
+			atomic.AddInt64(&done, int64(since))
 		}(lo, hi)
 	}
 	wg.Wait()
@@ -329,7 +410,7 @@ func (n *net) smooth(alpha float32) {
 	}
 	h := n.h
 	orig := append([]float32(nil), n.w1...)
-	for feat := 0; feat < engine.HalfKPInputs; feat++ {
+	for feat := 0; feat < engine.HalfKPInputsFor(engine.FeatureKingBuckets); feat++ {
 		sq := feat % 64
 		base := feat - sq
 		file, rank := sq%8, sq/8
@@ -365,6 +446,7 @@ func (n *net) export(k float64, sigmoidOut bool) *engine.HalfKPNet {
 		B1: append([]float32(nil), n.b1...),
 		W2: append([]float32(nil), n.w2...),
 		B2: n.b2, Scale: 1, Sigmoid: sigmoidOut, K: k,
+		Buckets: engine.FeatureKingBuckets,
 	}
 }
 
@@ -418,7 +500,7 @@ type genStats struct {
 // predict a capture sequence and training on those teaches noise.
 func generate(champion engine.Player, games, playDepth, labelDepth, maxPlies int,
 	lambda, k, quietTol float64, useSigmoidTarget bool, teachers chan *engine.UCIEngine, teacherDepth int,
-	gen int, stats *genStats,
+	gen int, stats *genStats, openings []string,
 	live func(*game.Game, int, board.Sq, board.Sq)) []sample {
 
 	var mu sync.Mutex
@@ -457,16 +539,8 @@ func generate(champion engine.Player, games, playDepth, labelDepth, maxPlies int
 			playTT := engine.NewTranspositionTable(16)
 
 			rng := rand.New(rand.NewSource(int64(gen)*1_000_003 + int64(gi)*7919))
-			g := game.New()
+			g := startingPosition(openings, rng)
 			g.EnableRepetitionTracking()
-			for i := 0; i < 10; i++ {
-				legal := g.AllLegalMoves(g.Turn)
-				if len(legal) == 0 {
-					break
-				}
-				m := legal[rng.Intn(len(legal))]
-				g.ApplyMove(m.From, m.To)
-			}
 
 			type pending struct {
 				own, opp []int32
@@ -665,12 +739,82 @@ func main() {
 	poolFile := flag.String("pool-file", "nnue_pool.bin", "append-only positions, reloaded on restart")
 	netFile := flag.String("net-file", "nnue_net.gob", "network and optimiser checkpoint")
 	fresh := flag.Bool("fresh", false, "ignore any checkpoint and start over")
+	freshPool := flag.Bool("fresh-pool", false, "discard stored positions too (fresh resets only the network)")
 	lambda := flag.Float64("lambda", 0.8, "weight on the search score against the game result")
 	k := flag.Float64("k", 0.30, "pawns-to-win-probability scale")
 	hidden := flag.Int("hidden", 32, "hidden units per perspective")
 	poolCap := flag.Int("pool", 3000000, "maximum positions kept")
 	maxPlies := flag.Int("max-plies", 160, "ply cap in self-play")
+	importPath := flag.String("import", "", "import the Lichess evaluation dump (JSONL, '-' for stdin) into the pool and exit")
+	importMax := flag.Int("import-max", 0, "stop after this many imported positions (0 = the whole stream)")
+	importQuiet := flag.Bool("import-quiet-filter", true, "keep only quiet positions when importing")
+	importResume := flag.Bool("import-resume", true, "skip records already imported into this pool")
+	extractOpenings := flag.String("extract-openings", "", "write an opening book of FENs from the dump named by -import and exit")
+	extractBook := flag.String("extract-book", "", "write a playable opening book of FEN|move lines from the dump and exit")
+	extractTuning := flag.String("extract-tuning", "", "write the dump as Texel tuning records and exit")
+	openingMinPieces := flag.Int("opening-min-pieces", 28, "pieces a position must still have to count as an opening")
+	openingMax := flag.Int("opening-max", 200000, "how many opening positions to write")
+	kingBuckets := flag.Int("king-buckets", 8, "king granularity in the feature set: 8 buckets or 32 canonical squares")
+	openingBook := flag.String("opening-book", "", "start each self-play game from a position in this book instead of ten random plies")
 	flag.Parse()
+
+	engine.FeatureKingBuckets = *kingBuckets
+
+	// The opening book, if one was asked for. Loaded before anything else
+	// so a missing or empty book is reported now rather than after a
+	// generation of self-play has already started from the wrong place.
+	var openings []string
+	if *openingBook != "" {
+		b, err := LoadOpenings(*openingBook)
+		if err != nil {
+			fmt.Println("opening book:", err)
+			return
+		}
+		if len(b) == 0 {
+			fmt.Printf("opening book %s is empty\n", *openingBook)
+			return
+		}
+		openings = b
+		fmt.Printf("opening book: %d positions from %s\n", len(openings), *openingBook)
+	}
+
+	// Importing is a separate job from training: it fills the pool from a
+	// file rather than from self-play, and the training run that follows
+	// reads that pool as usual.
+	if *importPath != "" || *extractOpenings != "" || *extractBook != "" || *extractTuning != "" {
+		src := os.Stdin
+		if *importPath != "" && *importPath != "-" {
+			f, err := os.Open(*importPath)
+			if err != nil {
+				fmt.Println("import:", err)
+				return
+			}
+			defer f.Close()
+			src = f
+		}
+		if *extractTuning != "" {
+			if err := ExtractTuning(src, *extractTuning, *openingMax, *importQuiet, *quietTol); err != nil {
+				fmt.Println("extract tuning:", err)
+			}
+			return
+		}
+		if *extractBook != "" {
+			if err := ExtractBook(src, *extractBook, *openingMax, *openingMinPieces); err != nil {
+				fmt.Println("extract book:", err)
+			}
+			return
+		}
+		if *extractOpenings != "" {
+			if err := ExtractOpenings(src, *extractOpenings, *openingMax, *openingMinPieces); err != nil {
+				fmt.Println("extract openings:", err)
+			}
+			return
+		}
+		if err := ImportLichess(src, *poolFile, *importMax, *quietTol, *importQuiet, *importResume); err != nil {
+			fmt.Println("import:", err)
+		}
+		return
+	}
 
 	useSigmoid := *target == "sigmoid"
 	// One Stockfish per core, started once and reused for the whole run.
@@ -708,9 +852,18 @@ func main() {
 		} else if !os.IsNotExist(err) {
 			fmt.Printf("not resuming: %v\n", err)
 		}
+	}
+	// The pool is loaded whatever -fresh says. Positions are the expensive
+	// half of this pipeline and they outlive any particular network: a
+	// pool is hours of self-play or a 21 GB download, while a network is
+	// minutes of fitting. Tying the two together meant that trying a new
+	// architecture threw away the data it needed to be judged on.
+	if !*freshPool {
 		if p, err := loadPool(*poolFile, *poolCap); err == nil && len(p) > 0 {
 			pool = p
 			fmt.Printf("loaded %d positions from %s\n", len(pool), *poolFile)
+		} else if err != nil && !os.IsNotExist(err) {
+			fmt.Printf("pool %s: %v\n", *poolFile, err)
 		}
 	}
 	workers := runtime.NumCPU()
@@ -718,12 +871,13 @@ func main() {
 	champion := engine.Strong(0)
 	champion.Name = "champion"
 
-	params := engine.HalfKPInputs*(*hidden) + *hidden + 2*(*hidden) + 1
+	inputCount := engine.HalfKPInputsFor(engine.FeatureKingBuckets)
+	params := inputCount*(*hidden) + *hidden + 2*(*hidden) + 1
 	arch := map[string]any{
-		"features":      "HalfKP (king square x piece x square)",
-		"inputs":        engine.HalfKPInputs,
+		"features":      fmt.Sprintf("HalfKP (%d king slots x piece x square)", engine.FeatureKingBuckets),
+		"inputs":        inputCount,
 		"hidden":        *hidden,
-		"layers":        fmt.Sprintf("%d -> %d (shared, both perspectives) -> %d -> 1", engine.HalfKPInputs, *hidden, 2**hidden),
+		"layers":        fmt.Sprintf("%d -> %d (shared, both perspectives) -> %d -> 1", inputCount, *hidden, 2**hidden),
 		"activation":    "clipped ReLU [0,1]",
 		"params":        params,
 		"target":        fmt.Sprintf("%.2f x sigmoid(search score) + %.2f x game result", *lambda, 1-*lambda),
@@ -735,8 +889,8 @@ func main() {
 		"eval_games":    *evalGames,
 		"eval_blend":    *evalBlend,
 	}
-	fmt.Printf("HalfKP %d inputs x %d hidden per side, %d parameters, %d workers\n",
-		engine.HalfKPInputs, *hidden, params, workers)
+	fmt.Printf("HalfKP %d inputs (%d king slots) x %d hidden per side, %d parameters, %d workers\n",
+		inputCount, engine.FeatureKingBuckets, *hidden, params, workers)
 
 	heartbeatStop := make(chan struct{})
 	startHeartbeat(heartbeatStop)
@@ -770,7 +924,7 @@ func main() {
 		}()
 
 		freshSamples := generate(champion, *gamesPerGen, *playDepth, *labelDepth, *maxPlies,
-			*lambda, *k, *quietTol, useSigmoid, teachers, *teacherDepth, gen, stats,
+			*lambda, *k, *quietTol, useSigmoid, teachers, *teacherDepth, gen, stats, openings,
 			func(g *game.Game, ply int, from, to board.Sq) {
 				writeJSON("live_game.json", map[string]any{
 					"label": fmt.Sprintf("Generation %d self-play", gen), "move_no": ply,
@@ -795,51 +949,53 @@ func main() {
 			gen, len(freshSamples), len(pool),
 			atomic.LoadInt64(&stats.truncated), *gamesPerGen, time.Since(t0).Seconds())
 
-		// Split by game, never by position: consecutive positions in a
-		// game differ by one move, so a random split leaks near-copies
-		// into the held-out set and reports a score the model cannot
-		// reproduce in play.
-		ids := map[int32]bool{}
-		for i := range pool {
-			ids[pool[i].game] = true
-		}
-		idList := make([]int32, 0, len(ids))
-		for id := range ids {
-			idList = append(idList, id)
-		}
-		sort.Slice(idList, func(i, j int) bool { return idList[i] < idList[j] })
-		rng.Shuffle(len(idList), func(i, j int) { idList[i], idList[j] = idList[j], idList[i] })
-		heldOut := map[int32]bool{}
-		for _, id := range idList[:1+len(idList)*15/100] {
-			heldOut[id] = true
-		}
-		var trainIdx []int32
-		var testSet []sample
-		for i := range pool {
-			if heldOut[pool[i].game] {
-				testSet = append(testSet, pool[i])
-			} else {
-				trainIdx = append(trainIdx, int32(i))
-			}
-		}
+		trainIdx, testSet := splitByGame(pool, rng, 15)
 		if len(testSet) == 0 || len(trainIdx) == 0 {
+			fmt.Printf("gen %d: pool holds %d positions, which cannot be split into a "+
+				"training and a held-out set; nothing to train on\n", gen, len(pool))
+			if len(pool) == 0 {
+				fmt.Printf("the pool is empty: check -pool-file, and note that -fresh " +
+					"resets the network only, not the positions\n")
+				return
+			}
 			continue
 		}
 
 		genSecs := time.Since(t0).Seconds()
 		trainStart := time.Now()
 		var lastTrain, lastTest, handMSE, smoothness, handSmoothness float64
+		// Carried into the per-epoch status so the browser can show the
+		// share of variance explained, which is the number that says
+		// whether the network is learning at all.
+		lastExplained := 0.0
 		for e := 1; e <= *epochs; e++ {
 			rng.Shuffle(len(trainIdx), func(i, j int) {
 				trainIdx[i], trainIdx[j] = trainIdx[j], trainIdx[i]
 			})
+			// Within-epoch progress. Without it the browser shows "epoch 1
+			// of 2" and nothing else for three and a half minutes.
+			epoch := e
+			trainProgress = func(doneN, total int, rate float64, eta time.Duration) {
+				writeJSON("nnue_status.json", map[string]any{
+					"phase": "training", "generation": gen, "generations": *generations,
+					"epoch": epoch, "epochs": *epochs, "test_loss": lastTest,
+					"pool": len(pool), "cum_elo": cumElo,
+					"arch": arch, "next_eval": nextEval(gen, *evalEvery),
+					"epoch_positions": doneN, "epoch_total": total,
+					"positions_per_sec": rate, "epoch_eta_sec": eta.Seconds(),
+					"explains": lastExplained,
+				})
+			}
 			n.trainEpoch(pool, trainIdx, float32(*lr), float32(*decay), *k, useSigmoid, workers)
 			n.smooth(float32(*smoothing))
 			lastTest = n.loss(testSet, *k, useSigmoid)
+			if b := constantBaseline(testSet); b > 0 {
+				lastExplained = 100 * (1 - lastTest/b)
+			}
 			writeJSON("nnue_status.json", map[string]any{
 				"phase": "training", "generation": gen, "generations": *generations,
 				"epoch": e, "epochs": *epochs, "test_loss": lastTest,
-				"pool": len(pool), "cum_elo": cumElo,
+				"pool": len(pool), "cum_elo": cumElo, "explains": lastExplained,
 				"arch": arch, "next_eval": nextEval(gen, *evalEvery),
 			})
 		}
@@ -911,9 +1067,29 @@ func main() {
 		}
 		smoothness = netJump
 		handSmoothness = handJump
-		fmt.Printf("  train %.3f  held out %.3f (hand %.3f)  jump/move %.3f (hand %.3f)%s\n",
-			lastTrain, lastTest, handErr, smoothness, handSmoothness,
-			map[bool]string{true: "  <- more accurate", false: ""}[lastTest < handErr])
+		// The constant predictor is reported next to the losses, and the
+		// verdict is taken against it rather than against the hand-written
+		// evaluation.
+		//
+		// Beating the hand evaluation is not evidence of learning. On the
+		// Lichess pool a network scored held-out 9.72 against the hand
+		// evaluation's 13.5, printed "more accurate", and was worse than
+		// predicting one constant for every position (9.80). The labels
+		// had a sign bug and the network had learned 0.8% of the variance.
+		// Nothing in the old line could show that.
+		explained := 0.0
+		if baseline > 0 {
+			explained = 100 * (1 - lastTest/baseline)
+		}
+		verdict := "  <- learning nothing"
+		switch {
+		case explained >= 50:
+			verdict = "  <- learning"
+		case explained >= 10:
+			verdict = "  <- learning slowly"
+		}
+		fmt.Printf("  train %.3f  held out %.3f  constant %.3f  explains %.1f%% (hand %.3f)  jump/move %.3f (hand %.3f)%s\n",
+			lastTrain, lastTest, baseline, explained, handErr, smoothness, handSmoothness, verdict)
 		handMSE = handErr
 		_ = handSmoothness
 

@@ -1,10 +1,13 @@
 package engine
 
 import (
+	"fmt"
 	"math"
 	"math/rand"
 	"runtime"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"chess/board"
 	"chess/game"
@@ -90,6 +93,16 @@ type Player struct {
 	// tuner can vary them per player without touching package state.
 	MobilityW  *[6]float64
 	StructureW *StructureWeights
+	// Tablebases gives exact endgame results.
+	Tablebases *TablebaseSet
+	// TimeBudget, when positive, replaces the fixed depth with a per-move
+	// time budget: the search deepens until the next iteration would not
+	// fit. Depth then becomes the ceiling rather than the target.
+	TimeBudget time.Duration
+	// Book is an opening book consulted before searching. A hit returns
+	// the move a depth-46 search chose, which is forty plies deeper than
+	// this engine reaches.
+	Book *Book
 	// UCI delegates move choice to an external engine (Stockfish), giving
 	// an externally-calibrated reference point rather than only measuring
 	// against this engine's own ancestors.
@@ -109,6 +122,12 @@ func (p Player) pick(g *game.Game) (game.Move, bool) {
 }
 
 func (p Player) pickWith(g *game.Game, reuse *TranspositionTable) (game.Move, bool) {
+	// The book comes first: a hit is a move from a far deeper search than
+	// this engine can run, so searching the position instead would be
+	// slower and worse.
+	if m, ok := p.Book.Move(g); ok {
+		return m, true
+	}
 	if p.UCI != nil {
 		depth := p.UCIDepth
 		if depth <= 0 {
@@ -138,6 +157,7 @@ func (p Player) pickWith(g *game.Game, reuse *TranspositionTable) (game.Move, bo
 		Extensions: p.Extensions, Aspiration: p.Aspiration, SEEPruning: p.SEEPruning,
 		Structure: p.Structure, Futility: p.Futility}
 	ev.Net = p.Net
+	ev.Tablebases = p.Tablebases
 	ev.HalfKP = p.HalfKP
 	ev.HalfKPBlend = p.HalfKPBlend
 	ev.NoCastle = p.NoCastle
@@ -178,10 +198,20 @@ func (p Player) pickWith(g *game.Game, reuse *TranspositionTable) (game.Move, bo
 		ev.Table = NewTranspositionTable(p.TTBits)
 	}
 	if p.Iterative {
-		return ChooseMoveIterative(g, g.Turn, p.Depth, ev, p.Quiescence)
+		depth := p.Depth
+		if p.TimeBudget > 0 && depth < maxTimedDepth {
+			// Under a clock the configured depth is a floor to search past,
+			// not a target, so the ceiling is raised out of the way.
+			depth = maxTimedDepth
+		}
+		return ChooseMoveIterativeTimed(g, g.Turn, depth, ev, p.Quiescence, p.TimeBudget)
 	}
 	return chooseMoveOpts(g, g.Turn, p.Depth, ev, p.Quiescence)
 }
+
+// maxTimedDepth caps a time-budgeted search, so a trivially simple
+// position cannot spin to an absurd depth inside its budget.
+const maxTimedDepth = 24
 
 // AnchorPlayer is the fixed reference the Elo scale is pinned to: the
 // original default-weights engine searching one ply. Defined as 0 Elo, so
@@ -217,6 +247,14 @@ func (m MatchResult) EloMargin() int {
 	return (hi - lo) / 2
 }
 
+// MatchProgressEvery is how often a running match reports progress, and
+// MatchProgress overrides where that report goes. A UI sets the hook to
+// route it into a status file; left nil it prints to stdout.
+var (
+	MatchProgressEvery = 15 * time.Second
+	MatchProgress      func(done, total int, elapsed, eta time.Duration)
+)
+
 // PlayMatch plays `games` games between a and b with alternating colours,
 // concurrently across GOMAXPROCS goroutines, and reports a's record.
 func PlayMatch(a, b Player, games, maxMoves int) MatchResult {
@@ -233,12 +271,53 @@ func PlayMatchLive(a, b Player, games, maxMoves int, live LiveHook) MatchResult 
 	sem := make(chan struct{}, runtime.GOMAXPROCS(0))
 	var wg sync.WaitGroup
 
+	// Progress and a remaining-time estimate.
+	//
+	// A match is the slowest thing in this project, minutes to an hour,
+	// and until now it printed nothing until it was finished. That is
+	// indistinguishable from a hung process, and a run that looks hung
+	// gets killed, which is how measurements get paid for twice.
+	//
+	// The estimate is games-completed over elapsed, which is honest here
+	// because games are independent and run at a steady rate once all the
+	// workers are busy.
+	var done int64
+	start := time.Now()
+	progressStop := make(chan struct{})
+	go func() {
+		t := time.NewTicker(MatchProgressEvery)
+		defer t.Stop()
+		for {
+			select {
+			case <-progressStop:
+				return
+			case <-t.C:
+				n := atomic.LoadInt64(&done)
+				if n == 0 {
+					continue
+				}
+				el := time.Since(start)
+				per := el / time.Duration(n)
+				eta := time.Duration(int64(games)-n) * per
+				if MatchProgress != nil {
+					MatchProgress(int(n), games, el, eta)
+					continue
+				}
+				fmt.Printf("  %d/%d games (%.0f%%), %s elapsed, about %s left\n",
+					n, games, 100*float64(n)/float64(games),
+					el.Truncate(time.Second), eta.Truncate(time.Second))
+			}
+		}
+	}()
+	defer close(progressStop)
+
 	for i := 0; i < games; i++ {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
+			defer atomic.AddInt64(&done, 1)
 
 			white, black := a, b
 			aIsWhite := i%2 == 0
@@ -249,8 +328,9 @@ func PlayMatchLive(a, b Player, games, maxMoves int, live LiveHook) MatchResult 
 			if i == 0 {
 				hook = live
 			}
-			// i/2 so the pair sharing an opening gets the same seed.
-			start := randomOpening(rand.New(rand.NewSource(int64(i/2)+1)), OpeningPlies)
+			// i/2 so the pair sharing an opening gets the same seed, and
+			// the same opening is played twice with colours reversed.
+			start := matchOpening(i / 2)
 			winner, decisive := playFrom(start, white, black, maxMoves, hook)
 			perspective := board.White
 			if !aIsWhite {
@@ -319,6 +399,38 @@ var OpeningPlies = 6
 // where that leaves someone already lost are not filtered out: both
 // engines get the same one, and a slightly unbalanced start is a
 // perfectly good test of who handles it better.
+// MatchOpenings, when set, replaces the random opening plies with real
+// positions from analysed games.
+//
+// Random plies were introduced to stop two engines differing in one flag
+// playing near-identical games, and they do that. They also start every
+// measured game from a position no real game reaches, which is the same
+// distribution problem that was measured in the training data: mean
+// material gap 3.47 with 22% of positions lopsided, against 6.79 and 53%
+// in real play. A match from real openings measures the engine where it
+// is actually used.
+var MatchOpenings []string
+
+// MatchOpeningOffset shifts which openings a match uses.
+//
+// It exists so a long match can be run as several short ones and the
+// results pooled. A 2,000 game match is a quarter of an hour during which
+// nothing can be learned or changed; four 500 game chunks give the same
+// precision with four points at which to stop early or adapt. Without an
+// offset every chunk would replay the same openings and the pooled result
+// would be one chunk measured four times.
+var MatchOpeningOffset int
+
+func matchOpening(pair int) *game.Game {
+	pair += MatchOpeningOffset
+	if n := len(MatchOpenings); n > 0 {
+		if g, err := game.ParseFEN(MatchOpenings[pair%n]); err == nil {
+			return g
+		}
+	}
+	return randomOpening(rand.New(rand.NewSource(int64(pair)+1)), OpeningPlies)
+}
+
 func randomOpening(rnd *rand.Rand, plies int) *game.Game {
 	g := game.New()
 	for i := 0; i < plies; i++ {

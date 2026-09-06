@@ -1,0 +1,9 @@
+{
+  "label": "Lichess-trained HalfKP network (32 hidden, Adam) blended 55/45 with the hand evaluation",
+  "depth": 5,
+  "elo": 2013,
+  "margin": 130,
+  "net_file": "champion_net.json",
+  "hand_blend": 0.45,
+  "adopted": "2026-09-06T15:30:00+02:00"
+}

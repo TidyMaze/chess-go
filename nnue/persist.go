@@ -14,7 +14,7 @@ import (
 
 func mathFloat32bits(f float32) uint32     { return math.Float32bits(f) }
 func mathFloat32frombits(b uint32) float32 { return math.Float32frombits(b) }
-func inputsFor() int                       { return engine.HalfKPInputs }
+func inputsFor() int                       { return engine.HalfKPInputsFor(engine.FeatureKingBuckets) }
 
 // Persistence for the two things that cost real time: the positions
 // collected from self-play, and the network's weights together with
@@ -106,7 +106,12 @@ func loadPool(path string, limit int) ([]sample, error) {
 		}
 		out = append(out, s)
 		// Trim as we go rather than loading gigabytes and slicing after.
-		if limit > 0 && len(out) > limit*2 {
+		// The slack is 25% and not 100% because the pool is now tens of
+		// millions of positions: doubling it before trimming needs several
+		// gigabytes of headroom this machine does not have. The cost is
+		// more copying, which is pointer-sized and cheap next to the
+		// allocation it avoids.
+		if limit > 0 && len(out) > limit+limit/4 {
 			out = append([]sample(nil), out[len(out)-limit:]...)
 		}
 	}

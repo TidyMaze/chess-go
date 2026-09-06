@@ -26,7 +26,16 @@ import (
 	"chess/moves"
 )
 
-var best engine.Player
+// champions hands out the strongest configuration measured so far,
+// reloading it when a campaign adopts something new. The UI must play the
+// current best without a restart, which is why this is a watcher rather
+// than a value read once at startup.
+var champions *engine.ChampionWatcher
+
+func best() engine.Player {
+	_, p := champions.Current()
+	return p
+}
 
 // status describes how a game ended, or that it has not.
 func status(g *game.Game) string {
@@ -128,7 +137,7 @@ func handleMove(w http.ResponseWriter, r *http.Request) {
 	}
 
 	t0 := time.Now()
-	reply, ok := engine.PlayerPick(best, g)
+	reply, ok := engine.PlayerPick(best(), g)
 	if !ok {
 		writeJSON(w, moveResponse{OK: true, FEN: g.FEN(), Status: status(g), Legal: legalUCI(g)})
 		return
@@ -155,7 +164,7 @@ func handleHint(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, moveResponse{Error: "bad position"})
 		return
 	}
-	m, ok := engine.PlayerPick(best, g)
+	m, ok := engine.PlayerPick(best(), g)
 	if !ok {
 		writeJSON(w, moveResponse{Error: "no move"})
 		return
@@ -165,26 +174,37 @@ func handleHint(w http.ResponseWriter, r *http.Request) {
 
 func main() {
 	port := flag.Int("port", 8765, "port to serve on")
-	depth := flag.Int("depth", 5, "engine search depth")
-	tuned := flag.Bool("tuned", false, "use the Texel-tuned evaluation")
+	champFile := flag.String("champion", "champion.json", "descriptor of the strongest configuration so far")
 	dir := flag.String("dir", ".", "directory to serve files from")
 	flag.Parse()
 
-	best = engine.Strong(*depth)
-	best.Tuned = *tuned
+	champions = engine.NewChampionWatcher(*champFile)
 
 	http.HandleFunc("/api/new", handleNew)
 	http.HandleFunc("/api/move", handleMove)
 	http.HandleFunc("/api/hint", handleHint)
 	http.HandleFunc("/api/engine", func(w http.ResponseWriter, r *http.Request) {
+		c, p := champions.Current()
+		eval := "hand-written evaluation"
+		if p.HalfKP != nil {
+			eval = fmt.Sprintf("HalfKP network (%d hidden), %.0f%% hand evaluation",
+				p.HalfKP.H, 100*c.HandBlend)
+		}
+		if n := p.Book.Len(); n > 0 {
+			eval += fmt.Sprintf(", opening book of %d positions", n)
+		}
 		writeJSON(w, map[string]any{
-			"depth": *depth, "tuned": *tuned, "cores": runtime.NumCPU(),
-			"description": fmt.Sprintf("depth %d, iterative deepening + PVS + killers + history + LMR, null-move, futility, quiescence with SEE, tapered PST, pawn structure", *depth),
+			"depth": p.Depth, "cores": runtime.NumCPU(),
+			"champion": c.Label, "elo": c.Elo, "margin": c.Margin,
+			"adopted": c.Adopted, "eval": eval,
+			"description": fmt.Sprintf("depth %d, iterative deepening + PVS + killers + history + LMR, null-move, futility, quiescence with SEE, tapered PST, pawn structure; %s", p.Depth, eval),
 		})
 	})
 	http.Handle("/", http.FileServer(http.Dir(*dir)))
 
+	c, _ := champions.Current()
 	addr := fmt.Sprintf(":%d", *port)
-	fmt.Printf("serving %s on http://localhost%s/gui.html (engine: depth %d, tuned=%v)\n", *dir, addr, *depth, *tuned)
+	fmt.Printf("serving %s on http://localhost%s/gui.html\nchampion: %s (depth %d, ~%.0f Elo)\n",
+		*dir, addr, c.Label, c.Depth, c.Elo)
 	log.Fatal(http.ListenAndServe(addr, nil))
 }

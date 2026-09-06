@@ -62,3 +62,28 @@ func TestParseFENRejectsGarbage(t *testing.T) {
 		}
 	}
 }
+
+// A position with more than 32 pieces is a variant, not a standard one.
+// The Lichess evaluation dump contains them (Horde opens with 36 pawns,
+// Crazyhouse drops captured pieces back in). Before this check they ran
+// off the end of the board's 32-entry occupied list and panicked, and
+// since ParseFEN also validates positions arriving from the browser, that
+// panic was reachable from an HTTP request.
+func TestParseFENRejectsMoreThan32Pieces(t *testing.T) {
+	for _, tc := range []struct{ name, fen string }{
+		{"horde", "7K/PPPPPPPP/PPPPPPPP/PPPPPPPP/PPPPPPPP/PPPPPPPP/PPPPPPPP/q6k b - - 0 1"},
+		{"crazyhouse", "rnbqk1nr/1pp2ppp/pbnp4/3Pp3/B3P3/2P2N2/PP3PPP/RNBQKBNR b KQkq - 0 1"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := ParseFEN(tc.fen); err == nil {
+				t.Error("accepted a position with more than 32 pieces")
+			}
+		})
+	}
+}
+
+func TestParseFENStillAcceptsAFullBoard(t *testing.T) {
+	if _, err := ParseFEN("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"); err != nil {
+		t.Errorf("the starting position has exactly 32 pieces and must parse: %v", err)
+	}
+}

@@ -11,6 +11,8 @@ package main
 import (
 	"flag"
 	"fmt"
+	"os"
+	"strings"
 	"time"
 
 	"chess/engine"
@@ -54,6 +56,14 @@ func main() {
 	// multi-term batch: guessing several weights at once.
 	pstScale := flag.Float64("pst-scale", 0, "multiply every piece-square table (0 = leave alone)")
 	openingPlies := flag.Int("opening-plies", 6, "random plies starting each game")
+	bookPath := flag.String("book", "", "challenger plays from this opening book")
+	refBookPath := flag.String("ref-book", "", "reference plays from this opening book too")
+	matchOpenings := flag.String("match-openings", "", "start games from positions in this file instead of random plies")
+	timeMS := flag.Int("time-ms", 0, "challenger plays to a per-move time budget instead of a fixed depth")
+	tunedFile := flag.String("tuned-file", "", "challenger uses the fitted parameters in this file")
+	openingOffset := flag.Int("opening-offset", 0, "shift the openings used, so chunked matches do not repeat games")
+	tbPath := flag.String("tablebases", "", "challenger probes this generated endgame tablebase")
+	refTBPath := flag.String("ref-tablebases", "", "reference probes it too")
 	flag.Parse()
 	engine.OpeningPlies = *openingPlies
 
@@ -118,6 +128,75 @@ func main() {
 	}
 
 	t0 := time.Now()
+	if *matchOpenings != "" {
+		lines, err := os.ReadFile(*matchOpenings)
+		if err != nil {
+			fmt.Println("match openings:", err)
+			return
+		}
+		for _, line := range strings.Split(string(lines), "\n") {
+			if line = strings.TrimSpace(line); line != "" {
+				// The book file format is "FEN|move"; take the position.
+				if i := strings.LastIndexByte(line, '|'); i > 0 {
+					line = strings.TrimSpace(line[:i])
+				}
+				engine.MatchOpenings = append(engine.MatchOpenings, line)
+			}
+		}
+		fmt.Printf("starting games from %d real openings\n", len(engine.MatchOpenings))
+	}
+	for _, spec := range []struct {
+		path string
+		p    *engine.Player
+		who  string
+	}{{*bookPath, &challenger, "challenger"}, {*refBookPath, &reference, "reference"}} {
+		if spec.path == "" {
+			continue
+		}
+		b, err := engine.LoadBook(spec.path)
+		if err != nil {
+			fmt.Println("book:", err)
+			return
+		}
+		spec.p.Book = b
+		fmt.Printf("%s opening book: %d positions\n", spec.who, b.Len())
+	}
+
+	for _, spec := range []struct {
+		path string
+		p    *engine.Player
+		who  string
+	}{{*tbPath, &challenger, "challenger"}, {*refTBPath, &reference, "reference"}} {
+		if spec.path == "" {
+			continue
+		}
+		tb, err := engine.LoadTablebases(spec.path)
+		if err != nil {
+			fmt.Println("tablebases:", err)
+			return
+		}
+		spec.p.Tablebases = tb
+		fmt.Printf("%s tablebases: %d exact positions\n", spec.who, tb.Len())
+	}
+
+	if *tunedFile != "" {
+		tf, err := engine.LoadTunedFile(*tunedFile)
+		if err != nil {
+			fmt.Println("tuned file:", err)
+			return
+		}
+		tf.Apply(&challenger)
+		fmt.Printf("challenger uses fitted parameters from %s\n", *tunedFile)
+	}
+
+	if *timeMS > 0 {
+		challenger.TimeBudget = time.Duration(*timeMS) * time.Millisecond
+		fmt.Printf("challenger plays to %d ms per move; the reference stays at depth %d\n",
+			*timeMS, *depth)
+	}
+
+	engine.MatchOpeningOffset = *openingOffset
+
 	res := engine.PlayMatch(challenger, reference, *games, *maxMoves)
 	fmt.Printf("challenger (depth %d) vs reference (depth %d), %d games\n", cd, *depth, *games)
 	fmt.Printf("  W-D-L %d-%d-%d   score %.3f\n", res.Wins, res.Draws, res.Losses, res.Score())

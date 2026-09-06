@@ -26,7 +26,7 @@ func TestHalfKPIndicesAreInRangeAndDistinct(t *testing.T) {
 					for r := 0; r < 8; r++ {
 						sq := board.Sq{File: f, Rank: r}
 						_ = sq
-						idx, ok := halfKPIndex(kingSq, pt, owner, sq, board.White)
+						idx, ok := halfKPIndex(kingSq, pt, owner, sq, board.White, halfKPKingBuckets)
 						if !ok {
 							t.Fatalf("piece %v was rejected", pt)
 						}
@@ -46,7 +46,7 @@ func TestHalfKPIndicesAreInRangeAndDistinct(t *testing.T) {
 }
 
 func TestHalfKPExcludesKings(t *testing.T) {
-	if _, ok := halfKPIndex(board.Sq{4, 0}, board.King, board.White, board.Sq{4, 0}, board.White); ok {
+	if _, ok := halfKPIndex(board.Sq{4, 0}, board.King, board.White, board.Sq{4, 0}, board.White, halfKPKingBuckets); ok {
 		t.Error("kings must not produce a piece feature: the king square is the conditioning variable")
 	}
 }
@@ -57,15 +57,15 @@ func TestHalfKPExcludesKings(t *testing.T) {
 // safety, which is what the previous 768-input network could not do.
 func TestHalfKPIsConditionedOnTheKing(t *testing.T) {
 	// Across buckets: a king on e1 and one on a1 are different situations.
-	a, _ := halfKPIndex(board.Sq{4, 0}, board.Knight, board.White, board.Sq{5, 2}, board.White)
-	b, _ := halfKPIndex(board.Sq{0, 0}, board.Knight, board.White, board.Sq{5, 2}, board.White)
+	a, _ := halfKPIndex(board.Sq{4, 0}, board.Knight, board.White, board.Sq{5, 2}, board.White, halfKPKingBuckets)
+	b, _ := halfKPIndex(board.Sq{0, 0}, board.Knight, board.White, board.Sq{5, 2}, board.White, halfKPKingBuckets)
 	if a == b {
 		t.Error("kings in different buckets produced the same feature index")
 	}
 	// Within a bucket they deliberately share, which is the point: it is
 	// what multiplies the data behind each weight.
-	c, _ := halfKPIndex(board.Sq{4, 0}, board.Knight, board.White, board.Sq{5, 2}, board.White)
-	d, _ := halfKPIndex(board.Sq{4, 1}, board.Knight, board.White, board.Sq{5, 2}, board.White)
+	c, _ := halfKPIndex(board.Sq{4, 0}, board.Knight, board.White, board.Sq{5, 2}, board.White, halfKPKingBuckets)
+	d, _ := halfKPIndex(board.Sq{4, 1}, board.Knight, board.White, board.Sq{5, 2}, board.White, halfKPKingBuckets)
 	if c != d {
 		t.Error("kings in the same bucket should share a feature index")
 	}
@@ -282,7 +282,7 @@ func TestNetworkCanFitASmallSample(t *testing.T) {
 
 	h := 16
 	n := &miniNet{h: h,
-		w1: make([]float32, HalfKPInputs*h),
+		w1: make([]float32, HalfKPInputsFor(halfKPKingBuckets)*h),
 		b1: make([]float32, h),
 		w2: make([]float32, 2*h),
 	}
@@ -335,5 +335,44 @@ func TestNetworkCanFitASmallSample(t *testing.T) {
 	t.Logf("loss over 20 positions: %.5f -> %.5f", before, after)
 	if after > before/10 {
 		t.Errorf("training reduced the loss only from %.5f to %.5f; the optimiser is not working", before, after)
+	}
+}
+
+// A network larger than the stack accumulator must still evaluate.
+//
+// It used to return exactly 0 for every position instead. Nothing failed,
+// nothing logged, and the capacity experiment trained a 256-unit network
+// to 62% of held-out variance and was about to race it over 3,000 games
+// against the champion; it would have scored like a coin flip and the
+// conclusion drawn would have been "capacity does not help".
+//
+// The silent zero is the defect, more than the bound itself: an
+// evaluation that cannot run must not quietly answer "equal".
+func TestLargeNetworkStillEvaluates(t *testing.T) {
+	for _, h := range []int{16, maxHalfKPHidden, maxHalfKPHidden + 1, 256} {
+		n := &HalfKPNet{
+			H:  h,
+			W1: make([]float32, HalfKPInputsFor(halfKPKingBuckets)*h),
+			B1: make([]float32, h),
+			W2: make([]float32, 2*h),
+			B2: 0.25, Scale: 1,
+		}
+		// Weights that cannot cancel to zero by accident.
+		for i := range n.W1 {
+			n.W1[i] = 0.01
+		}
+		for i := range n.B1 {
+			n.B1[i] = 0.5
+		}
+		for i := range n.W2 {
+			n.W2[i] = 0.5
+		}
+		g, err := game.ParseFEN("r1bq1rk1/pp2bppp/2n1pn2/3p4/3P4/2NBPN2/PP3PPP/R1BQ1RK1 w - - 0 9")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := n.Evaluate(&g.Board); got == 0 {
+			t.Errorf("h=%d: evaluated to exactly 0, so the network is not running at all", h)
+		}
 	}
 }

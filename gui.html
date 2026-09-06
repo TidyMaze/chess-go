@@ -309,6 +309,15 @@ function updateChart(key, chart, data) {
 }
 
 // ---- live NNUE training -------------------------------------------------
+
+// fmtETA renders seconds as the kind of thing a person reads at a glance.
+function fmtETA(sec) {
+  sec = Math.max(0, Math.round(sec));
+  if (sec < 60) return `${sec}s`;
+  const m = Math.floor(sec / 60), s = sec % 60;
+  if (m < 60) return `${m}m ${s}s`;
+  return `${Math.floor(m / 60)}h ${m % 60}m`;
+}
 let nnueChart = null;
 
 function buildNNUEBoard() {
@@ -400,8 +409,21 @@ async function pollNNUE() {
         `After each move the position is kept only if it is quiet (nobody in check, no capture sequence pending), ` +
         `then scored by a depth-${a2.label_depth} search of the same engine. That score, blended with the eventual game result, is what the network learns to predict.`;
     } else if (st.phase === "training" && st.epochs) {
-      pct = 100 * st.epoch / st.epochs;
+      // Progress within the epoch, not just between epochs. An epoch over
+      // ten million positions takes three and a half minutes at 256 hidden
+      // units, and showing only "epoch 1 of 2" for that long is
+      // indistinguishable from a stalled run.
+      const within = st.epoch_total ? (st.epoch_positions || 0) / st.epoch_total : 0;
+      pct = 100 * (st.epoch - 1 + within) / st.epochs;
       label = `2/3 training: epoch ${st.epoch} of ${st.epochs} over ${(st.pool || 0).toLocaleString()} positions`;
+      if (st.epoch_total) {
+        label += `, ${(st.epoch_positions || 0).toLocaleString()} of ${st.epoch_total.toLocaleString()} done`;
+        if (st.positions_per_sec) label += `, ${Math.round(st.positions_per_sec).toLocaleString()}/s`;
+        if (st.epoch_eta_sec > 0) label += `, ${fmtETA(st.epoch_eta_sec)} left in this epoch`;
+      }
+      if (typeof st.explains === "number" && st.explains !== 0) {
+        label += `, explains ${st.explains.toFixed(1)}% of held-out variance`;
+      }
       explain = `Adam, all ten cores updating shared weights without locking (safe here because each position touches only about 30 of ${(a2.inputs || 0).toLocaleString()} inputs). ` +
         `Fifteen percent of games are held out entirely, never split by position, because consecutive positions in one game are near-copies and splitting them leaks. ` +
         `After each epoch every square's weights are pulled slightly toward its neighbours, which is what keeps the evaluation smooth.`;

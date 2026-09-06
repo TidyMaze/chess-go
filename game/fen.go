@@ -118,6 +118,22 @@ func ParseFEN(s string) (*Game, error) {
 		fromLetter[ch] = board.PieceType(t)
 	}
 
+	// A standard position has at most 32 pieces, which is exactly what the
+	// board's occupied list holds. Anything larger is a variant (Horde
+	// opens with 36 pawns, Crazyhouse drops pieces back in) and used to
+	// walk off the end of that array with a panic rather than an error.
+	// This parser also validates positions arriving from the browser, so
+	// the check belongs here and not in each caller.
+	placed := 0
+	for _, ch := range fields[0] {
+		if (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') {
+			placed++
+		}
+	}
+	if placed > 32 {
+		return nil, fmt.Errorf("fen: %d pieces, want at most 32 (not a standard position)", placed)
+	}
+
 	b := board.NewEmpty()
 	for i, row := range ranks {
 		rank := 7 - i // FEN starts at rank 8

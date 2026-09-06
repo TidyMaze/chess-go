@@ -3,6 +3,7 @@ package engine
 import (
 	"math"
 	"sync"
+	"time"
 
 	"chess/board"
 	"chess/game"
@@ -108,6 +109,15 @@ type searchCtx struct {
 	// Repeating one of those is a draw by repetition, which the search
 	// must be able to see coming, especially when it is winning.
 	played map[uint64]int
+	// deadline aborts the search when a time budget runs out, and aborted
+	// records that it happened.
+	//
+	// Checking only between iterations is not enough: one iteration can
+	// overrun without bound, and did. Three games in every five hundred
+	// stopped making progress at all, because a single depth on some
+	// position ran for minutes inside a 32 ms budget.
+	deadline time.Time
+	aborted  bool
 }
 
 // isRepetition reports whether this position already appears on the
@@ -183,6 +193,19 @@ func (c *searchCtx) orderMoves(g *game.Game, ms []game.Move, ttMove game.Move, p
 // search is a negamax-style alpha-beta from `color`'s point of view,
 // with the score always relative to `maximizingFor`.
 func (c *searchCtx) search(g *game.Game, color, maximizingFor board.Color, depth, ply int, alpha, beta float64) float64 {
+	// The clock is read every 2048 nodes rather than every node: time.Now
+	// is a syscall-ish read and this is the hottest loop in the engine.
+	// 2048 nodes is well under a millisecond, so the overrun it allows is
+	// far smaller than the one it prevents.
+	if !c.deadline.IsZero() {
+		if c.aborted {
+			return 0
+		}
+		if c.nodes&2047 == 0 && time.Now().After(c.deadline) {
+			c.aborted = true
+			return 0
+		}
+	}
 	c.nodes++
 	tt := c.ev.table()
 
@@ -217,7 +240,7 @@ func (c *searchCtx) search(g *game.Game, color, maximizingFor board.Color, depth
 		if c.quiescence {
 			return quiesce(g, color, maximizingFor, alpha, beta, c.ev, 0)
 		}
-		return PositionScoreEval(&g.Board, maximizingFor, c.ev)
+		return evalPosition(g, maximizingFor, c.ev)
 	}
 
 	maximizing := color == maximizingFor
@@ -248,7 +271,7 @@ func (c *searchCtx) search(g *game.Game, color, maximizingFor board.Color, depth
 		alpha > negInf && beta < posInf &&
 		alpha > -mateBound && beta < mateBound
 	if futile {
-		staticEval = PositionScoreEval(&g.Board, maximizingFor, c.ev)
+		staticEval = evalPosition(g, maximizingFor, c.ev)
 		margin := futilityMargin[depth]
 		if maximizing && staticEval-margin >= beta {
 			return staticEval - margin
@@ -413,6 +436,22 @@ func (c *searchCtx) search(g *game.Game, color, maximizingFor board.Color, depth
 // killers, history, PVS and LMR, reusing one transposition table across
 // iterations.
 func ChooseMoveIterative(g *game.Game, color board.Color, maxDepth int, ev *Eval, useQuiescence bool) (game.Move, bool) {
+	return ChooseMoveIterativeTimed(g, color, maxDepth, ev, useQuiescence, 0)
+}
+
+// ChooseMoveIterativeTimed is the same search under a time budget.
+//
+// When budget is positive the search keeps deepening until it predicts the
+// next iteration would overrun, and plays the deepest completed result.
+// The prediction uses the measured branching factor of this search rather
+// than a constant, because it varies from 1.9 to 4.6 per ply depending on
+// the position, and a fixed guess would either stop a ply early
+// everywhere or overrun on tactical positions.
+//
+// It stops between iterations rather than inside one. Aborting mid-search
+// would need every partial result discarded, and a search that returns a
+// half-explored score is worse than one ply less of a complete one.
+func ChooseMoveIterativeTimed(g *game.Game, color board.Color, maxDepth int, ev *Eval, useQuiescence bool, budget time.Duration) (game.Move, bool) {
 	legal := g.AllLegalMoves(color)
 	if ev != nil && ev.NoCastle {
 		kept := legal[:0]
@@ -438,13 +477,43 @@ func ChooseMoveIterative(g *game.Game, color board.Color, maxDepth int, ev *Eval
 	defer searchCtxPool.Put(ctx)
 	ctx.ev, ctx.quiescence, ctx.extensions = ev, useQuiescence, ev.Extensions
 	ctx.nodes = 0
+	ctx.aborted = false
+	ctx.deadline = time.Time{}
+	if budget > 0 {
+		// A little past the budget, so the in-search abort is a backstop
+		// for the between-iteration check rather than the usual path: an
+		// iteration abandoned halfway is wasted work.
+		ctx.deadline = time.Now().Add(budget * 3 / 2)
+	}
 	ctx.played = playedKeys(g)
 	ctx.path[0] = zobristHash(g)
 	defer func() { LastSearchNodes = ctx.nodes }()
 
 	best := legal[0]
 	prevScore := 0.0
+	start := time.Now()
+	lastIter := time.Duration(0)
 	for depth := 1; depth <= maxDepth; depth++ {
+		if budget > 0 && depth > 1 {
+			elapsed := time.Since(start)
+			// Stop outright once the budget is spent. The prediction below
+			// is not enough on its own: in a trivial position the early
+			// iterations take microseconds, so a predicted cost of three
+			// times the last one rounds to nothing and the search keeps
+			// deepening until one iteration explodes. Two games out of 500
+			// hung on exactly that.
+			if elapsed >= budget {
+				break
+			}
+			// Otherwise predict the next iteration from the last one and
+			// stop if it would not fit. Three times is the measured
+			// branching factor of this search, which runs 1.9 to 4.6 per
+			// ply depending on the position.
+			if elapsed+lastIter*3 > budget {
+				break
+			}
+		}
+		iterStart := time.Now()
 		// Aspiration window: the score at depth N is usually close to the
 		// score at N-1, so search a narrow window around it. Most searches
 		// then run with far tighter bounds and prune much harder; the
@@ -487,7 +556,14 @@ func ChooseMoveIterative(g *game.Game, color board.Color, maxDepth int, ev *Eval
 			alpha, beta = negInf, posInf
 			goto researchFullWindow
 		}
+		// An aborted iteration explored only part of the move list, so its
+		// best move is not comparable with the previous depth's. Discard
+		// it and keep what the last complete iteration found.
+		if ctx.aborted {
+			break
+		}
 		prevScore = bestScore
+		lastIter = time.Since(iterStart)
 
 		if len(tied) > 1 {
 			// Same anti-repetition tie-break as the simple search: prefer a

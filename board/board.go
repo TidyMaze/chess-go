@@ -224,6 +224,12 @@ func (b *Board) CellPiece(s Sq) (Piece, bool) {
 	return decodePiece(c), true
 }
 
+// PieceCount is the number of men on the board. Kept as a counter rather
+// than recounted, because the endgame tablebase probe needs to reject the
+// vast majority of positions before doing anything expensive, and it is
+// consulted at every evaluated node.
+func (b *Board) PieceCount() int { return b.occupiedCount }
+
 func (b *Board) KingSquare(c Color) Sq {
 	return b.kings[c]
 }

@@ -2,8 +2,10 @@ package engine
 
 import (
 	"encoding/json"
+	"fmt"
 	"math"
 	"os"
+	"sync"
 
 	"chess/board"
 )
@@ -28,8 +30,16 @@ type Sq = board.Sq
 // White's king and one by Black's, sharing the same first-layer weights,
 // concatenated before the output layer. That is what lets one set of
 // weights describe "good for the side to move" symmetrically.
-// maxHalfKPHidden bounds the accumulator so it can live on the stack.
+// maxHalfKPHidden is how wide a network can be before the accumulator
+// stops fitting comfortably on the stack. Wider networks still work; they
+// borrow from accPool instead.
 const maxHalfKPHidden = 128
+
+// accPool holds accumulators for networks too wide for the stack path.
+var accPool = sync.Pool{New: func() any {
+	b := make([]float32, 2*maxHalfKPHidden*4)
+	return &b
+}}
 
 // King buckets, as modern NNUE feature sets use.
 //
@@ -45,6 +55,14 @@ const maxHalfKPHidden = 128
 // (files halved and mirrored, ranks in quarters) cut the input count
 // eightfold and multiply the data behind each weight by the same factor.
 const halfKPKingBuckets = 8
+
+// halfKPKingSquares is the finer alternative: 32 canonical king squares
+// rather than 8 buckets, files mirrored so the king is always on the
+// queenside half. This is what HalfKA-style feature sets use. It is four
+// times as many inputs, so it needs four times the data behind each
+// weight to be worth having, which is why it is a runtime choice and not
+// a constant.
+const halfKPKingSquares = 32
 
 const (
 	halfKPPieceKinds = 10 // 5 piece types x 2 colours, kings excluded
@@ -63,6 +81,26 @@ func kingBucket(s Sq) int {
 		file = 7 - file
 	}
 	return (s.Rank/4)*4 + file
+}
+
+// kingCanonicalSquare is the 32-way version: every rank kept, files
+// mirrored about the centre.
+func kingCanonicalSquare(s Sq) int {
+	file := s.File
+	if file > 3 {
+		file = 7 - file
+	}
+	return s.Rank*4 + file
+}
+
+// kingSlot picks between them. buckets is 8 or 32; anything else is
+// treated as 8, which is what every network written before this existed
+// was trained with.
+func kingSlot(s Sq, buckets int) int {
+	if buckets == halfKPKingSquares {
+		return kingCanonicalSquare(s)
+	}
+	return kingBucket(s)
 }
 
 // halfKPPieceIndex maps a piece to its slot, relative to the perspective
@@ -90,7 +128,7 @@ func halfKPPieceIndex(pt board.PieceType, owner, perspective board.Color) (int, 
 // Squares are mirrored vertically for Black so that "my side of the
 // board" means the same thing to both perspectives. Without that the
 // network has to learn every pattern twice.
-func halfKPIndex(kingSq board.Sq, pt board.PieceType, owner board.Color, sq board.Sq, perspective board.Color) (int, bool) {
+func halfKPIndex(kingSq board.Sq, pt board.PieceType, owner board.Color, sq board.Sq, perspective board.Color, buckets int) (int, bool) {
 	pi, ok := halfKPPieceIndex(pt, owner, perspective)
 	if !ok {
 		return 0, false
@@ -100,7 +138,7 @@ func halfKPIndex(kingSq board.Sq, pt board.PieceType, owner board.Color, sq boar
 		ks = board.Sq{File: ks.File, Rank: 7 - ks.Rank}
 		ps = board.Sq{File: ps.File, Rank: 7 - ps.Rank}
 	}
-	k := kingBucket(ks)
+	k := kingSlot(ks, buckets)
 	s := ps.Rank*8 + ps.File
 	return k*halfKPPerKing + pi*64 + s, true
 }
@@ -109,15 +147,30 @@ func halfKPIndex(kingSq board.Sq, pt board.PieceType, owner board.Color, sq boar
 // perspective. At most 30 of 40,960 are ever set, which is what makes
 // the first layer affordable: it costs one column addition per piece.
 func AppendHalfKPFeatures(dst []int32, b *board.Board, perspective board.Color) []int32 {
+	return AppendHalfKPFeaturesN(dst, b, perspective, FeatureKingBuckets)
+}
+
+// AppendHalfKPFeaturesN is the same with an explicit king granularity, so
+// a network trained on 32 canonical king squares and one trained on 8
+// buckets can coexist rather than one silently mis-indexing the other.
+func AppendHalfKPFeaturesN(dst []int32, b *board.Board, perspective board.Color, buckets int) []int32 {
 	king := b.KingSquare(perspective)
 	var buf [32]board.ColoredPiece
 	for _, p := range b.AppendAllPieces(buf[:0]) {
-		if i, ok := halfKPIndex(king, p.Type, p.Color, p.Sq, perspective); ok {
+		if i, ok := halfKPIndex(king, p.Type, p.Color, p.Sq, perspective, buckets); ok {
 			dst = append(dst, int32(i))
 		}
 	}
 	return dst
 }
+
+// FeatureKingBuckets is the granularity used when generating training
+// data and when a network does not say which it wants. Set by the
+// training command; 8 is what every network before today used.
+var FeatureKingBuckets = halfKPKingBuckets
+
+// HalfKPInputsFor is the input count for a given granularity.
+func HalfKPInputsFor(buckets int) int { return buckets * halfKPPerKing }
 
 // HalfKPNet is the trained network: a shared first layer applied to both
 // perspectives, concatenated, then one hidden-to-output layer.
@@ -143,6 +196,18 @@ type HalfKPNet struct {
 	// "Black is a rook up" came out at +0.245.
 	Sigmoid bool    `json:"sigmoid"`
 	K       float64 `json:"k"`
+	// Buckets is the king granularity this network was trained with, 8 or
+	// 32. Zero means 8, which is what every network written before this
+	// field existed used.
+	Buckets int `json:"buckets,omitempty"`
+}
+
+// buckets returns the granularity, defaulting to 8 for older files.
+func (n *HalfKPNet) buckets() int {
+	if n == nil || n.Buckets == 0 {
+		return halfKPKingBuckets
+	}
+	return n.Buckets
 }
 
 // probabilityToPawns is the inverse of the sigmoid used in training.
@@ -169,7 +234,7 @@ func probabilityToPawns(p, k float64) float64 {
 
 // Evaluate returns the score in pawns from White's point of view.
 func (n *HalfKPNet) Evaluate(b *board.Board) float64 {
-	if n == nil || n.H == 0 || len(n.W1) != HalfKPInputs*n.H {
+	if n == nil || n.H == 0 || len(n.W1) != HalfKPInputsFor(n.buckets())*n.H {
 		return 0
 	}
 	h := n.H
@@ -177,17 +242,35 @@ func (n *HalfKPNet) Evaluate(b *board.Board) float64 {
 	// position, which a search does millions of times per move, so an
 	// allocation here would dominate everything else the engine does.
 	var accArr [2 * maxHalfKPHidden]float32
-	if h > maxHalfKPHidden {
-		return 0
+	var acc []float32
+	if h <= maxHalfKPHidden {
+		acc = accArr[: 2*h : 2*h]
+	} else {
+		// A network wider than the stack bound used to return exactly 0
+		// here, for every position. Nothing failed and nothing logged: a
+		// 256-unit network trained to 62% of held-out variance was about
+		// to be raced over 3,000 games while evaluating every position as
+		// equal, and the conclusion would have been that capacity does not
+		// help.
+		//
+		// An evaluation that cannot run must not quietly answer "equal".
+		// Wide networks now borrow a buffer instead, which costs a pool
+		// round trip per evaluation and is the price of being able to try
+		// them at all.
+		buf := accPool.Get().(*[]float32)
+		if cap(*buf) < 2*h {
+			*buf = make([]float32, 2*h)
+		}
+		acc = (*buf)[:2*h]
+		defer accPool.Put(buf)
 	}
-	acc := accArr[: 2*h : 2*h]
 	copy(acc[:h], n.B1)
 	copy(acc[h:], n.B1)
 
 	var buf [32]int32
 	for side, persp := range [2]board.Color{board.White, board.Black} {
 		off := side * h
-		for _, f := range AppendHalfKPFeatures(buf[:0], b, persp) {
+		for _, f := range AppendHalfKPFeaturesN(buf[:0], b, persp, n.buckets()) {
 			col := int(f) * h
 			w := n.W1[col : col+h : col+h]
 			a := acc[off : off+h]
@@ -228,6 +311,19 @@ func LoadHalfKPNet(path string) (*HalfKPNet, error) {
 	}
 	if n.Scale == 0 {
 		n.Scale = 1
+	}
+	// Validated at load, not at evaluation. A network whose weight count
+	// does not match its declared shape used to load happily and then
+	// evaluate every position as exactly 0, which is the failure mode that
+	// cost a whole capacity experiment: nothing errors, nothing logs, and
+	// the engine plays as though every position were equal.
+	if want := HalfKPInputsFor(n.buckets()) * n.H; n.H == 0 || len(n.W1) != want {
+		return nil, fmt.Errorf("halfkp %s: %d first-layer weights for %d hidden units "+
+			"at %d king buckets, want %d", path, len(n.W1), n.H, n.buckets(), want)
+	}
+	if len(n.B1) != n.H || len(n.W2) != 2*n.H {
+		return nil, fmt.Errorf("halfkp %s: biases %d and output weights %d do not match "+
+			"%d hidden units", path, len(n.B1), len(n.W2), n.H)
 	}
 	return &n, nil
 }

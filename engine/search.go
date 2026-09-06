@@ -103,7 +103,7 @@ func minimaxOpts(g *game.Game, color, maximizingFor board.Color, depth int, alph
 		if useQuiescence {
 			return quiesce(g, color, maximizingFor, alpha, beta, ev, 0)
 		}
-		return PositionScoreEval(&g.Board, maximizingFor, ev)
+		return evalPosition(g, maximizingFor, ev)
 	}
 
 	maximizing := color == maximizingFor
@@ -180,7 +180,7 @@ const maxQuiescePly = 4
 
 func quiesce(g *game.Game, color, maximizingFor board.Color, alpha, beta float64, ev *Eval, ply int) float64 {
 	quiesceNodes++
-	standPat := PositionScoreEval(&g.Board, maximizingFor, ev)
+	standPat := evalPosition(g, maximizingFor, ev)
 	if ply >= ev.quiescePly() {
 		return standPat
 	}
