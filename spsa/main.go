@@ -30,7 +30,6 @@ import (
 	"os"
 	"time"
 
-	"chess/board"
 	"chess/engine"
 )
 
@@ -44,17 +43,19 @@ type knob struct {
 	Step  float64 `json:"step"` // size of a one-unit perturbation
 }
 
+// The tunable set is the five new terms whose hand-picked weights
+// measured -11 +/- 17 stacked. The terms describe real features; being
+// wrong about their size is a different failure from their being
+// useless, and SPSA optimises the objective that matters rather than a
+// proxy.
 func defaultKnobs() []knob {
-	mob := engine.DefaultMobilityWeights()
-	str := engine.DefaultStructureWeights()
+	sh := engine.DefaultShapeWeights()
 	return []knob{
-		{"kingSafety", 0.010, 0, 0.08, 0.006},
-		{"mobKnight", mob[board.Knight], 0, 0.20, 0.012},
-		{"mobBishop", mob[board.Bishop], 0, 0.20, 0.012},
-		{"mobRook", mob[board.Rook], 0, 0.20, 0.012},
-		{"mobQueen", mob[board.Queen], 0, 0.20, 0.010},
-		{"isolated", str.Isolated, 0, 0.60, 0.030},
-		{"rookOpen", str.RookOpen, 0, 0.90, 0.040},
+		{"outpost", sh.Outpost, 0, 0.50, 0.025},
+		{"connected", sh.Connected, 0, 0.30, 0.015},
+		{"backward", sh.Backward, 0, 0.40, 0.020},
+		{"badBishop", sh.BadBishop, 0, 0.20, 0.010},
+		{"passed", 0.06, 0, 0.40, 0.020},
 	}
 }
 
@@ -74,21 +75,19 @@ func player(ks []knob, depth int) engine.Player {
 	for _, k := range ks {
 		byName[k.Name] = k.Value
 	}
-	mob := [6]float64{
-		board.Knight: byName["mobKnight"], board.Bishop: byName["mobBishop"],
-		board.Rook: byName["mobRook"], board.Queen: byName["mobQueen"],
+	sh := engine.ShapeWeights{
+		Outpost: byName["outpost"], Connected: byName["connected"],
+		Backward: byName["backward"], BadBishop: byName["badBishop"],
 	}
 	str := engine.DefaultStructureWeights()
-	str.Isolated = byName["isolated"]
-	str.RookOpen = byName["rookOpen"]
+	str.PassedBase = byName["passed"]
+	str.PassedPerRank = byName["passed"] / 2
 
-	return engine.Player{
-		Name: "spsa", Depth: depth, UsePST: true, Quiescence: true, TTBits: 20,
-		NullMove: true, Tapered: true, Iterative: true, Extensions: true,
-		Aspiration: true, SEEPruning: true, Structure: true, Futility: true,
-		Mobility: true, MobilityW: &mob, StructureW: &str,
-		KingSafety: byName["kingSafety"],
-	}
+	p := engine.Strong(depth)
+	p.Name = "spsa"
+	p.Shape, p.ShapeW = true, &sh
+	p.StructureW = &str
+	return p
 }
 
 type iterRecord struct {

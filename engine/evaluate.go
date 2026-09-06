@@ -131,6 +131,10 @@ type Eval struct {
 	KingSafety float64
 	// Extras enables rook-on-seventh, doubled rooks and a tempo bonus.
 	Extras bool
+	// Shape enables outposts, connected and backward pawns, bad bishops.
+	Shape bool
+	// ShapeW overrides their weights. Nil uses the defaults.
+	ShapeW *ShapeWeights
 	// MobilityW overrides the per-piece mobility weights. Nil uses the
 	// defaults. Hand-picked weights measured +9 +/- 34, which is what a
 	// guess is worth; these exist so the tuner can fit them instead.
@@ -461,6 +465,18 @@ func PositionScoreEval(b *board.Board, color board.Color, ev *Eval) float64 {
 		sw := ev.structureWeights()
 		score += structurePieces(pieces, color, pawns[color], pawns[other], phase, sw)
 		score -= structurePieces(pieces, other, pawns[other], pawns[color], phase, sw)
+	}
+
+	if ev != nil && ev.Shape && wantStructure {
+		sw := ev.structureWeights()
+		_ = sw
+		sh := defaultShape
+		if ev.ShapeW != nil {
+			sh = shapeWeights{ev.ShapeW.Outpost, ev.ShapeW.Connected,
+				ev.ShapeW.Backward, ev.ShapeW.BadBishop}
+		}
+		score += shapeScore(pieces, color, pawns[color], pawns[other], sh)
+		score -= shapeScore(pieces, other, pawns[other], pawns[color], sh)
 	}
 
 	if ev != nil && ev.Extras {

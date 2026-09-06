@@ -78,6 +78,10 @@ type Player struct {
 	KingSafety float64
 	// Extras enables rook-on-seventh, doubled rooks and a tempo bonus.
 	Extras bool
+	// Shape enables outposts, connected and backward pawns, bad bishops.
+	Shape bool
+	// ShapeW overrides their weights.
+	ShapeW *ShapeWeights
 	// MobilityW and StructureW override the evaluation constants, so a
 	// tuner can vary them per player without touching package state.
 	MobilityW  *[6]float64
@@ -138,6 +142,8 @@ func (p Player) pickWith(g *game.Game, reuse *TranspositionTable) (game.Move, bo
 	ev.Mobility = p.Mobility
 	ev.KingSafety = p.KingSafety
 	ev.Extras = p.Extras
+	ev.Shape = p.Shape
+	ev.ShapeW = p.ShapeW
 	if p.MobilityW != nil {
 		ev.MobilityW = p.MobilityW
 	}

@@ -46,6 +46,7 @@ func main() {
 	// was measured before king safety and mobility existed, so it is
 	// worth one more look at a smaller weight.
 	passed := flag.Float64("passed", 0, "passed pawn bonus per rank advanced")
+	shape := flag.Bool("shape", false, "challenger adds outposts, connected/backward pawns, bad bishops")
 	openingPlies := flag.Int("opening-plies", 6, "random plies starting each game")
 	flag.Parse()
 	engine.OpeningPlies = *openingPlies
@@ -71,6 +72,7 @@ func main() {
 	challenger.Mobility = *mobility
 	challenger.KingSafety = *kingSafety
 	challenger.Extras = *extras
+	challenger.Shape = *shape
 	if *passed > 0 {
 		sw := engine.DefaultStructureWeights()
 		sw.PassedBase = *passed

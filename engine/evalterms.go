@@ -360,3 +360,125 @@ func extraScore(pieces []board.ColoredPiece, color board.Color, phase float64, w
 	}
 	return score
 }
+
+// Four more standard terms, added as a batch for the same reason as
+// before: a term worth 5 to 15 Elo cannot be confirmed on its own, since
+// 400 games resolve +/- 34, but a stack of them can be.
+type shapeWeights struct {
+	Outpost   float64 // a knight where no enemy pawn can ever attack it
+	Connected float64 // pawns defending each other
+	Backward  float64 // a pawn its neighbours have advanced past
+	BadBishop float64 // a bishop behind its own pawns on its own colour
+}
+
+var defaultShape = shapeWeights{Outpost: 0.18, Connected: 0.05, Backward: 0.10, BadBishop: 0.03}
+
+// ShapeWeights is the tunable form of the above. Hand-picked values
+// measured -11 +/- 17 stacked with a passed-pawn bonus, so the weights
+// are exposed to SPSA rather than guessed again: the terms describe real
+// features of a position, and being wrong about how much they are worth
+// is a different failure from the features being useless.
+type ShapeWeights struct{ Outpost, Connected, Backward, BadBishop float64 }
+
+func DefaultShapeWeights() ShapeWeights {
+	return ShapeWeights{defaultShape.Outpost, defaultShape.Connected,
+		defaultShape.Backward, defaultShape.BadBishop}
+}
+
+// shapeScore evaluates pawn shape and minor-piece placement for one side.
+//
+// All four are things the piece-square tables cannot express, because
+// each depends on where the *other* pieces are: whether a square is an
+// outpost depends on enemy pawns, whether a bishop is bad depends on
+// one's own.
+func shapeScore(pieces []board.ColoredPiece, color board.Color,
+	own, enemy pawnFiles, w shapeWeights) float64 {
+
+	score := 0.0
+	// Count own pawns on each square colour, for the bad-bishop term.
+	pawnsOnColour := [2]int{}
+	for _, p := range pieces {
+		if p.Color == color && p.Type == board.Pawn {
+			pawnsOnColour[(p.Sq.File+p.Sq.Rank)%2]++
+		}
+	}
+
+	for _, p := range pieces {
+		if p.Color != color {
+			continue
+		}
+		file := p.Sq.File
+		rank := p.Sq.Rank
+		if color == board.Black {
+			rank = 7 - rank
+		}
+
+		switch p.Type {
+		case board.Pawn:
+			// Connected: a friendly pawn on a neighbouring file no more
+			// than one rank behind can defend or replace it.
+			for _, f := range [2]int{file - 1, file + 1} {
+				if f < 0 || f > 7 {
+					continue
+				}
+				if own.count[f] > 0 && own.mostAdv[f] >= rank-1 {
+					score += w.Connected
+					break
+				}
+			}
+			// Backward: both neighbouring files have advanced past it, so
+			// it cannot be defended by a pawn and must be defended by
+			// pieces for the rest of the game.
+			behind := true
+			hasNeighbour := false
+			for _, f := range [2]int{file - 1, file + 1} {
+				if f < 0 || f > 7 || own.count[f] == 0 {
+					continue
+				}
+				hasNeighbour = true
+				if own.mostAdv[f] <= rank {
+					behind = false
+				}
+			}
+			if hasNeighbour && behind {
+				score -= w.Backward
+			}
+
+		case board.Knight:
+			// Outpost: far enough forward to matter, defended by a pawn,
+			// and no enemy pawn on either neighbouring file can ever
+			// come forward to challenge it.
+			if rank < 3 || rank > 5 {
+				continue
+			}
+			defended := false
+			for _, f := range [2]int{file - 1, file + 1} {
+				if f >= 0 && f <= 7 && own.count[f] > 0 && own.mostAdv[f] == rank-1 {
+					defended = true
+				}
+			}
+			if !defended {
+				continue
+			}
+			challenged := false
+			for _, f := range [2]int{file - 1, file + 1} {
+				if f < 0 || f > 7 || enemy.mostAdv[f] < 0 {
+					continue
+				}
+				// enemy.mostAdv is from the enemy's side; convert.
+				if 7-enemy.mostAdv[f] > rank {
+					challenged = true
+				}
+			}
+			if !challenged {
+				score += w.Outpost
+			}
+
+		case board.Bishop:
+			// Bad bishop: its own pawns standing on the squares it moves
+			// through are the ones that block it.
+			score -= w.BadBishop * float64(pawnsOnColour[(p.Sq.File+p.Sq.Rank)%2])
+		}
+	}
+	return score
+}
