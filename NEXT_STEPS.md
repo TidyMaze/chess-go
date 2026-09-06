@@ -166,6 +166,7 @@ in the file.
 | rook on 7th + doubled rooks + tempo | (not tested small) | +3 +/- 17 (1500) |
 | outposts, connected/backward pawns, bad bishops | (not tested small) | -11 +/- 17 (1500) |
 | piece-square tables scaled 1.3x | (single parameter) | -10 +/- 24 (800) |
+| scaled LMR + passed pawns, at depth 6 | +14 +/- 28 and +9 +/- 24 apart | **+7 +/- 17 together (1600)** |
 | futility pruning | +55 +/- 63 (120) | kept for the 25% node reduction, not for Elo |
 
 Six hand-weighted evaluation terms have now been added and measured in
