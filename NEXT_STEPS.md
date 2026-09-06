@@ -85,6 +85,13 @@ like.
 **Measure networks at the depth the engine plays at, not at the depth
 that is cheap to measure.**
 
+The effect is specific to the network, not to evaluation terms in
+general. A passed-pawn bonus measures +7 +/- 12 at depth 4 and +9 +/- 24
+at depth 6: the same small unconfirmed positive at both. That makes
+sense: one term shifts the evaluation slightly, while the network
+replaces it wholesale, so only the network's interaction with search
+depth is large enough to change a sign.
+
 Confirmed at power, and it half survived:
 
 | depth | Elo | games |
