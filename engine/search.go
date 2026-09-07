@@ -2,6 +2,7 @@ package engine
 
 import (
 	"math/rand"
+	"sync/atomic"
 
 	"chess/board"
 	"chess/game"
@@ -19,7 +20,7 @@ const mateScore = 1000
 
 // quiesceNodes counts quiescence nodes so nodes-per-second reflects the
 // whole search, not just the main tree.
-var quiesceNodes int
+var quiesceNodes int64
 
 func terminalScore(g *game.Game, color, maximizingFor board.Color, depthLeft int) float64 {
 	if moves.IsInCheck(&g.Board, color) {
@@ -186,7 +187,7 @@ const posInf = 1e18
 const maxQuiescePly = 4
 
 func quiesce(g *game.Game, color, maximizingFor board.Color, alpha, beta float64, ev *Eval, ply int) float64 {
-	quiesceNodes++
+	atomic.AddInt64(&quiesceNodes, 1)
 	standPat := evalPosition(g, maximizingFor, ev)
 	if ply >= ev.quiescePly() {
 		return standPat

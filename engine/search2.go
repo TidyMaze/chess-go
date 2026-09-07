@@ -3,6 +3,7 @@ package engine
 import (
 	"math"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"chess/board"
@@ -50,6 +51,37 @@ const maxSearchPly = 64
 // still will. Stale killers are harmless for the same reason.
 var searchCtxPool = sync.Pool{New: func() any { return new(searchCtx) }}
 
+// reset clears everything a previous search left behind.
+//
+// The pool hands back a used context and nothing was clearing it. Three
+// separate corruptions followed, and the first is the serious one:
+//
+//   - `path` holds the Zobrist key of every position on the current line,
+//     and `isRepetition` scans path[0..ply]. PlayerScoreWith never set
+//     path[0], so at ply 1 the search compared against the root key of
+//     some earlier, unrelated search. In self-play those positions recur
+//     constantly, so a legitimate position was scored as a draw. That is
+//     a wrong number, not a slow one, and PlayerScoreWith is what labels
+//     the training data.
+//   - `deadline` and `aborted` survived from a timed search, so a later
+//     untimed call could abort at its first node and return 0.
+//   - `killers` and `history` carried over, changing move ordering. That
+//     alone should not change a value in sound alpha-beta, and measuring
+//     whether it does is now possible because the other two are gone.
+//
+// Called once per top-level search, not per iteration: iterative
+// deepening wants its killers and history to persist across depths, which
+// is the whole point of keeping them on the context.
+func (c *searchCtx) reset() {
+	c.killers = [maxSearchPly][2]game.Move{}
+	c.history = [2][64][64]int32{}
+	c.path = [maxSearchPly]uint64{}
+	c.played = nil
+	c.nodes = 0
+	c.aborted = false
+	c.deadline = time.Time{}
+}
+
 // futilityMargin is how much a single move is assumed to be worth, per
 // remaining ply, in pawns. A position further than this from the bound is
 // treated as unreachable. Indexed by depth; only 1..3 are used.
@@ -83,10 +115,17 @@ func lmrTable(depth, moveIndex int) int {
 	return lmrReductions[d][m]
 }
 
-// LastSearchNodes is the node count of the most recent search, for
+// lastSearchNodes is the node count of the most recent search, for
 // reporting nodes per second. Not safe to read from concurrent searches;
 // intended for single-threaded benchmarking.
-var LastSearchNodes int
+var lastSearchNodes int64
+
+// LastSearchNodes is the node count of the most recent search.
+//
+// Diagnostic only: nothing in the search reads it, so the races it used to
+// have could not change a game. They could still change a measurement, and
+// did: a depth diagnostic read it while ten parallel games were writing it.
+func LastSearchNodesValue() int { return int(atomic.LoadInt64(&lastSearchNodes)) }
 
 type searchCtx struct {
 	ev         *Eval
@@ -518,10 +557,8 @@ func ChooseMoveIterativeTimed(g *game.Game, color board.Color, maxDepth int, ev 
 	}
 	ctx := searchCtxPool.Get().(*searchCtx)
 	defer searchCtxPool.Put(ctx)
+	ctx.reset()
 	ctx.ev, ctx.quiescence, ctx.extensions = ev, useQuiescence, ev.Extensions
-	ctx.nodes = 0
-	ctx.aborted = false
-	ctx.deadline = time.Time{}
 	if budget > 0 {
 		// A little past the budget, so the in-search abort is a backstop
 		// for the between-iteration check rather than the usual path: an
@@ -530,7 +567,7 @@ func ChooseMoveIterativeTimed(g *game.Game, color board.Color, maxDepth int, ev 
 	}
 	ctx.played = playedKeys(g)
 	ctx.path[0] = zobristHash(g)
-	defer func() { LastSearchNodes = ctx.nodes }()
+	defer func() { atomic.StoreInt64(&lastSearchNodes, int64(ctx.nodes)) }()
 
 	best := legal[0]
 	prevScore := 0.0
@@ -631,10 +668,15 @@ func ChooseMoveIterativeTimed(g *game.Game, color board.Color, maxDepth int, ev 
 
 // TotalNodes reports nodes visited by the most recent search, including
 // quiescence nodes.
-func TotalNodes() int { return LastSearchNodes + quiesceNodes }
+func TotalNodes() int {
+	return int(atomic.LoadInt64(&lastSearchNodes) + atomic.LoadInt64(&quiesceNodes))
+}
 
 // ResetNodes clears the counters between measurements.
-func ResetNodes() { LastSearchNodes, quiesceNodes = 0, 0 }
+func ResetNodes() {
+	atomic.StoreInt64(&lastSearchNodes, 0)
+	atomic.StoreInt64(&quiesceNodes, 0)
+}
 
 // playedKeys hashes the positions already seen in the game, so the search
 // can recognise that reaching one again is a repetition.

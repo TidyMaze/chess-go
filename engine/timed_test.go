@@ -51,7 +51,7 @@ func TestMoreTimeSearchesDeeper(t *testing.T) {
 		p := Strong(4)
 		p.TimeBudget = budget
 		PlayerPick(p, g)
-		return LastSearchNodes
+		return LastSearchNodesValue()
 	}
 	small, large := nodes(10*time.Millisecond), nodes(200*time.Millisecond)
 	t.Logf("10ms searched %d nodes, 200ms searched %d", small, large)

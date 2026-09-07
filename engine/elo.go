@@ -619,8 +619,12 @@ func PlayerScoreWith(p Player, g *game.Game, reuse *TranspositionTable) (float64
 	}
 	ctx := searchCtxPool.Get().(*searchCtx)
 	defer searchCtxPool.Put(ctx)
+	ctx.reset()
 	ctx.ev, ctx.quiescence, ctx.extensions = ev, p.Quiescence, ev.Extensions
-	ctx.nodes, ctx.played = 0, nil
+	// The root's own key, so a repetition at ply 1 is compared against this
+	// position rather than against whatever the pooled context last held.
+	ctx.path[0] = zobristHash(g)
+	ctx.played = playedKeys(g)
 	score := ctx.search(g, g.Turn, g.Turn, depth, 0, negInf, posInf)
 	return score, true
 }

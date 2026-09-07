@@ -30,7 +30,7 @@ func TestTimeBudgetCalibration(t *testing.T) {
 				if !ok {
 					break
 				}
-				nodes += LastSearchNodes
+				nodes += LastSearchNodesValue()
 				g.ApplyMove(m.From, m.To)
 				moves++
 			}

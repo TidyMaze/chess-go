@@ -27,8 +27,8 @@ import "math"
 
 // SPRT holds the state of a running sequential test.
 type SPRT struct {
-	Elo0, Elo1  float64 // the two hypotheses, in Elo
-	Alpha, Beta float64 // false-positive and false-negative rates
+	Elo0, Elo1          float64 // the two hypotheses, in Elo
+	Alpha, Beta         float64 // false-positive and false-negative rates
 	wins, draws, losses int
 }
 
