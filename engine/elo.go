@@ -159,47 +159,7 @@ func (p Player) pickWith(g *game.Game, reuse *TranspositionTable) (game.Move, bo
 		}
 		return moves[randIntn(len(moves))], true
 	}
-	ev := &Eval{Weights: p.Weights, UsePST: p.UsePST, NullMove: p.NullMove, MaterialOnly: p.MaterialOnly, QuiescePly: p.QuiescePly, Tapered: p.Tapered,
-		Extensions: p.Extensions, Aspiration: p.Aspiration, SEEPruning: p.SEEPruning,
-		Structure: p.Structure, Futility: p.Futility}
-	ev.Net = p.Net
-	ev.Tablebases = p.Tablebases
-	ev.HalfKP = p.HalfKP
-	ev.HalfKPBlend = p.HalfKPBlend
-	ev.NoCastle = p.NoCastle
-	ev.NoLMR = p.NoLMR
-	ev.ScaledLMR = p.ScaledLMR
-	ev.NoRepetition = p.NoRepetition
-	ev.KeepNullMoveEP = p.KeepNullMoveEP
-	ev.NullReduction = p.NullReduction
-	ev.NullScale = p.NullScale
-	ev.Mobility = p.Mobility
-	ev.KingSafety = p.KingSafety
-	ev.Extras = p.Extras
-	ev.Shape = p.Shape
-	ev.ShapeW = p.ShapeW
-	if p.PSTScale != nil {
-		ev.PSTScale = p.PSTScale
-	}
-	if p.MobilityW != nil {
-		ev.MobilityW = p.MobilityW
-	}
-	if p.StructureW != nil {
-		ev.StructureW = p.StructureW
-	}
-	if p.Tuned {
-		if p.Weights == nil {
-			ev.Weights = TunedWeights()
-		}
-		scale := TunedPSTScale()
-		sw := TunedStructure()
-		mob := TunedMobility()
-		ev.PSTScale, ev.StructureW = &scale, &sw
-		// The set was fitted with mobility in it, so the values are only
-		// correct together: using them without the term double-counts what
-		// mobility was absorbing.
-		ev.Mobility, ev.MobilityW = true, &mob
-	}
+	ev := evalForPlayer(p)
 	switch {
 	case reuse != nil:
 		ev.Table = reuse
@@ -590,6 +550,47 @@ func PlayerScore(p Player, g *game.Game) (float64, bool) {
 	return PlayerScoreWith(p, g, nil)
 }
 
+// evalForPlayer is the one place a Player's settings become the Eval the
+// search runs on.
+//
+// It exists because there used to be two: PlayerPick built one list of
+// fields and PlayerScoreWith built another, and the second was missing
+// HalfKPBlend, the tuned weight vectors, and every null-move and
+// late-move-reduction setting. PlayerScoreWith is what labels training
+// positions, so the teacher that produced the labels was quietly a
+// different player from the one that was raced afterwards: the champion
+// plays with 45% of the hand evaluation blended in and labelled with none
+// of it.
+func evalForPlayer(p Player) *Eval {
+	ev := &Eval{
+		Weights: p.Weights, UsePST: p.UsePST, NullMove: p.NullMove,
+		MaterialOnly: p.MaterialOnly, QuiescePly: p.QuiescePly, Tapered: p.Tapered,
+		Extensions: p.Extensions, Aspiration: p.Aspiration, SEEPruning: p.SEEPruning,
+		Structure: p.Structure, Futility: p.Futility, Mobility: p.Mobility,
+		KingSafety: p.KingSafety, Net: p.Net, HalfKP: p.HalfKP,
+		HalfKPBlend: p.HalfKPBlend, Tablebases: p.Tablebases,
+		NoCastle: p.NoCastle, NoLMR: p.NoLMR, ScaledLMR: p.ScaledLMR,
+		NoRepetition: p.NoRepetition, KeepNullMoveEP: p.KeepNullMoveEP,
+		NullReduction: p.NullReduction, NullScale: p.NullScale,
+		Extras: p.Extras, Shape: p.Shape, ShapeW: p.ShapeW,
+		PSTScale: p.PSTScale, MobilityW: p.MobilityW, StructureW: p.StructureW,
+	}
+	if p.Tuned {
+		if p.Weights == nil {
+			ev.Weights = TunedWeights()
+		}
+		scale := TunedPSTScale()
+		sw := TunedStructure()
+		mob := TunedMobility()
+		ev.PSTScale, ev.StructureW = &scale, &sw
+		// The set was fitted with mobility in it, so the values are only
+		// correct together: using them without the term double-counts what
+		// mobility was absorbing.
+		ev.Mobility, ev.MobilityW = true, &mob
+	}
+	return ev
+}
+
 // PlayerScoreWith is PlayerScore with a caller-supplied transposition
 // table.
 //
@@ -599,11 +600,7 @@ func PlayerScore(p Player, g *game.Game) (float64, bool) {
 // to label a single generation. Passing one table per worker removes it
 // entirely, and reuse across positions also makes each search cheaper.
 func PlayerScoreWith(p Player, g *game.Game, reuse *TranspositionTable) (float64, bool) {
-	ev := &Eval{Weights: p.Weights, UsePST: p.UsePST, NullMove: p.NullMove,
-		MaterialOnly: p.MaterialOnly, QuiescePly: p.QuiescePly, Tapered: p.Tapered,
-		Extensions: p.Extensions, Aspiration: p.Aspiration, SEEPruning: p.SEEPruning,
-		Structure: p.Structure, Futility: p.Futility, Mobility: p.Mobility,
-		KingSafety: p.KingSafety, Net: p.Net, HalfKP: p.HalfKP}
+	ev := evalForPlayer(p)
 	switch {
 	case reuse != nil:
 		ev.Table = reuse

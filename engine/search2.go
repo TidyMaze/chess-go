@@ -263,7 +263,19 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 	tt := c.ev.table()
 
 	var ttMove game.Move
-	key := zobristHash(g)
+	// Hashed with `color`, the side to move at this node, and not with
+	// g.Turn.
+	//
+	// This search makes and unmakes moves on g.Board and never touches
+	// g.Turn, so g.Turn stays whatever it was at the root for the whole
+	// tree. Hashing it meant every node was keyed as though the root's
+	// side were to move, and two positions that differ only in whose turn
+	// it is shared a key. The table then handed one node's score to the
+	// other: at depth 4 in the Kiwipete position it returned +1.107833 for
+	// a node actually worth -6.333333, and the root played a move 3.6
+	// pawns worse than the best one while reporting the correct score for
+	// the move it did not play.
+	key := zobristBoard(&g.Board, color)
 	if ply > 0 && depth > 0 && !(c.ev != nil && c.ev.NoRepetition) && c.isRepetition(key, ply) {
 		// A draw, scored 0 regardless of whose turn it is. This is
 		// deliberately checked before the transposition table: the table
