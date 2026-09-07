@@ -751,6 +751,7 @@ func main() {
 	importResume := flag.Bool("import-resume", true, "skip records already imported into this pool")
 	extractOpenings := flag.String("extract-openings", "", "write an opening book of FENs from the dump named by -import and exit")
 	extractBook := flag.String("extract-book", "", "write a playable opening book of FEN|move lines from the dump and exit")
+	countPool := flag.String("count-pool", "", "print how many positions a pool file holds and exit")
 	emitCheck := flag.String("emit-eval-check", "", "write FENs, their HalfKP features and this engine's evaluation of them, for cross-checking a PyTorch export")
 	importPGNPath := flag.String("import-pgn", "", "import a PGN games file ('-' for stdin): moves and results only, labels computed here")
 	pgnSkipPlies := flag.Int("pgn-skip-plies", 8, "opening plies to skip when importing games")
@@ -785,6 +786,19 @@ func main() {
 	// Importing is a separate job from training: it fills the pool from a
 	// file rather than from self-play, and the training run that follows
 	// reads that pool as usual.
+	// Counting is exact where a file-size estimate is a guess: positions
+	// average 96 bytes on real-game pools and 82 on self-play ones, so a
+	// single constant misjudges completeness by a fifth, and a resumed
+	// generation would call a pool finished at 80% of its target.
+	if *countPool != "" {
+		p, err := loadPool(*countPool, 0)
+		if err != nil {
+			fmt.Println("count-pool:", err)
+			os.Exit(1)
+		}
+		fmt.Println(len(p))
+		return
+	}
 	if *emitCheck != "" {
 		if err := emitEvalCheck(*emitCheck, *netFile); err != nil {
 			fmt.Println("emit-eval-check:", err)

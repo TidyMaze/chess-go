@@ -193,6 +193,20 @@ func (c *searchCtx) orderMoves(g *game.Game, ms []game.Move, ttMove game.Move, p
 // search is a negamax-style alpha-beta from `color`'s point of view,
 // with the score always relative to `maximizingFor`.
 func (c *searchCtx) search(g *game.Game, color, maximizingFor board.Color, depth, ply int, alpha, beta float64) float64 {
+	return c.searchNull(g, color, maximizingFor, depth, ply, alpha, beta, false)
+}
+
+// searchNull carries whether the parent node just played a null move.
+//
+// Two nulls in a row hand the move back to the side that passed, on an
+// unchanged position, so the search evaluates a line neither player can
+// reach and returns a bound derived from it. Every engine forbids it and
+// this one did not, and the arithmetic says exactly where it starts to
+// bite: a null costs three plies, so depth 5 reaches depth 2 and cannot
+// null again, while depth 6 reaches depth 3 and can. Measured across that
+// boundary with the same evaluation on both sides, depth 6 lost to depth 5
+// by 125 +/- 36 Elo, when a ply is normally worth 50 to 100 the other way.
+func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, depth, ply int, alpha, beta float64, afterNull bool) float64 {
 	// The clock is read every 2048 nodes rather than every node: time.Now
 	// is a syscall-ish read and this is the hottest loop in the engine.
 	// 2048 nodes is well under a millisecond, so the overrun it allows is
@@ -281,7 +295,7 @@ func (c *searchCtx) search(g *game.Game, color, maximizingFor board.Color, depth
 		}
 	}
 
-	if c.ev.useNullMove() && depth >= 3 && !inCheck {
+	if c.ev.useNullMove() && depth >= 3 && !inCheck && !afterNull {
 		// Clear the en passant square across the null move.
 		//
 		// A null hands the move to the opponent without a move being
@@ -299,11 +313,18 @@ func (c *searchCtx) search(g *game.Game, color, maximizingFor board.Color, depth
 		// silently corrupted self-play generation too, where a wrong
 		// position does not announce itself: the engine simply searched
 		// and labelled a position that never occurred.
+		r := c.ev.NullReduction
+		if r <= 0 {
+			r = 3
+		}
+		if c.ev.NullScale {
+			r += depth / 6
+		}
 		ep, hadEP := g.Board.EPSquare()
 		if !c.ev.KeepNullMoveEP {
 			g.Board.SetEPSquare(board.Sq{}, false)
 		}
-		score := c.search(g, color.Other(), maximizingFor, depth-3, ply+1, alpha, beta)
+		score := c.searchNull(g, color.Other(), maximizingFor, depth-r, ply+1, alpha, beta, true)
 		g.Board.SetEPSquare(ep, hadEP)
 		if maximizing && score >= beta {
 			return score

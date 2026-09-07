@@ -34,7 +34,8 @@ func main() {
 	depth := flag.Int("depth", 5, "this engine's search depth")
 	maxMoves := flag.Int("max-moves", 200, "ply cap")
 	label := flag.String("label", "current", "name for this configuration")
-	config := flag.String("config", "current", "which engine build: base | search | current")
+	config := flag.String("config", "current", "which engine build: base | search | current | champion")
+	champFile := flag.String("champion", "champion.json", "used when -config champion: the configuration to calibrate")
 	out := flag.String("out", "", "append the result to this JSON file")
 	workers := flag.Int("workers", runtime.NumCPU(), "games played in parallel")
 	probe := flag.Int("probe", 8, "games per level in the first pass")
@@ -51,7 +52,27 @@ func main() {
 		me = engine.Strong(*depth)
 		me.Name = *label
 	}
+	// "champion" calibrates whatever is actually being played, network
+	// included. Without it this command could only measure the hand-written
+	// evaluation, so the champion's rating was never anchored to anything:
+	// it was the 1955 baseline plus a chain of relative deltas, each
+	// measured against the previous champion rather than a fixed reference,
+	// with the errors compounding and never checked.
+	if *config == "champion" {
+		c := engine.ReadChampion(*champFile)
+		p, err := c.PlayerOrError()
+		if err != nil {
+			fmt.Println("champion:", err)
+			return
+		}
+		me = p
+		me.Depth = *depth
+		me.Name = c.Label
+		fmt.Printf("calibrating the champion: %s (claimed %.0f Elo)\n", c.Label, c.Elo)
+	}
+
 	switch *config {
+	case "champion": // already built above
 	case "base": // Go port as first completed: PST, quiescence, TT, null-move, tapered, ID.
 	case "search": // + check extensions, aspiration windows, SEE pruning.
 		me.Extensions, me.Aspiration, me.SEEPruning = true, true, true

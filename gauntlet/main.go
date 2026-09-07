@@ -36,6 +36,9 @@ func main() {
 	blend := flag.Float64("blend", 0, "weight on the hand evaluation when a network is used")
 	refNoCastle := flag.Bool("ref-no-castle", false, "reference refuses to castle")
 	refNoRep := flag.Bool("ref-no-repetition", false, "reference has no repetition detection")
+	nullR := flag.Int("null-reduction", 0, "challenger's null-move reduction in plies (0 = the historical 3)")
+	nullScale := flag.Bool("null-scale", false, "challenger scales the null-move reduction with depth")
+	refChampion := flag.String("ref-champion", "", "reference plays the champion described by this file, network included. Without it the reference is the plain hand-written evaluation, so a network is measured against the original baseline and not against whatever it is supposed to have improved on.")
 	refKeepEP := flag.Bool("ref-nullmove-ep-bug", false, "reference keeps the en passant square across a null move, reproducing the bug fixed on 2026-09-06")
 	noLMR := flag.Bool("no-lmr", false, "challenger disables late move reductions")
 	scaledLMR := flag.Bool("scaled-lmr", false, "challenger scales reductions with depth and move number")
@@ -83,6 +86,8 @@ func main() {
 	}
 	challenger := full("challenger", cd)
 	challenger.Futility = *futility
+	challenger.NullReduction = *nullR
+	challenger.NullScale = *nullScale
 	challenger.Tuned = *tuned
 	challenger.NoLMR = *noLMR
 	challenger.ScaledLMR = *scaledLMR
@@ -195,6 +200,27 @@ func main() {
 		challenger.TimeBudget = time.Duration(*timeMS) * time.Millisecond
 		fmt.Printf("challenger plays to %d ms per move; the reference stays at depth %d\n",
 			*timeMS, *depth)
+	}
+
+	// The reference is the plain hand-written evaluation unless told
+	// otherwise, and that default silently invalidated a whole ladder: each
+	// rung was raced against the original baseline rather than against the
+	// champion that taught it, so seven deltas all measured the same
+	// comparison and were then summed as if they compounded. The claimed
+	// 2146 was 1955 + 191; calibration against Stockfish said 2041, and the
+	// same instrument put the baseline at 1987, a real gain of about +54.
+	if *refChampion != "" {
+		c := engine.ReadChampion(*refChampion)
+		rp, err := c.PlayerOrError()
+		if err != nil {
+			fmt.Println("ref-champion:", err)
+			return
+		}
+		d := reference.Depth
+		reference = rp
+		reference.Depth = d
+		reference.Name = "reference: " + c.Label
+		fmt.Printf("reference is the champion: %s\n", c.Label)
 	}
 
 	engine.MatchOpeningOffset = *openingOffset

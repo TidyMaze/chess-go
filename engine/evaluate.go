@@ -172,6 +172,18 @@ type Eval struct {
 	// Tablebases gives exact results for small endgames. When a position
 	// is covered, the score is not an estimate at all.
 	Tablebases *TablebaseSet
+	// NullReduction is how many plies a null move gives up. 0 means the
+	// historical default of 3.
+	//
+	// Never tuned: it was written as `depth-3` and left there. The one piece
+	// of evidence about it is accidental. A bug that left the en passant
+	// square set across the null made the null-move search return garbage
+	// that pruned harder, and removing it cost 21 +/- 22 Elo. That is a
+	// strong hint this engine prunes too little here.
+	NullReduction int
+	// NullScale adds depth/6 to the reduction, so deep nodes prune harder
+	// than shallow ones. Standard practice and absent here.
+	NullScale bool
 	// KeepNullMoveEP reproduces a bug for measurement only: it leaves the
 	// en passant square set across a null move, which is what the engine
 	// did until it was found. Never set in play. It exists so the cost of

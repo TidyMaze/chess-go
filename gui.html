@@ -80,6 +80,28 @@
 <div class="bar"><div class="fill" id="fill"></div><div class="barlabel" id="barlabel"></div></div>
 <div class="note" id="phase"></div>
 
+<!-- The bootstrap ladder. Each rung labels its training positions with the
+     current champion, trains, races, and is adopted only if the 95% lower
+     bound clears zero, so every rung's teacher is stronger than the last. -->
+<div id="ladderbox" style="display:none;margin-top:18px">
+  <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap">
+    <h2 style="margin:0;font-size:15px">Bootstrap ladder</h2>
+    <span class="note" id="ladderphase" style="margin:0"></span>
+  </div>
+  <div class="note" id="ladderwhy" style="margin:4px 0 10px 0"></div>
+  <table id="laddertable" style="border-collapse:collapse;font-size:13px;width:100%;max-width:640px">
+    <thead><tr style="text-align:left;opacity:.65">
+      <th style="padding:3px 10px 3px 0">rung</th>
+      <th style="padding:3px 10px 3px 0">positions</th>
+      <th style="padding:3px 10px 3px 0">explains</th>
+      <th style="padding:3px 10px 3px 0">Elo</th>
+      <th style="padding:3px 10px 3px 0">games</th>
+      <th style="padding:3px 0">verdict</th>
+    </tr></thead>
+    <tbody id="ladderrows"></tbody>
+  </table>
+</div>
+
 <div class="row">
   <div class="board small" id="nnueBoard"></div>
   <div style="flex:1 1 320px">
@@ -98,8 +120,8 @@
   <tbody id="nnueBody"></tbody>
 </table>
 
-<details>
-  <summary>Play the engine</summary>
+<details open>
+  <summary>Play the engine <span id="playSummary" style="opacity:.75;font-weight:400"></span></summary>
   <div>
     <div class="note" id="playMeta"></div>
     <div class="board" id="playBoard"></div>
@@ -290,13 +312,33 @@ document.getElementById("playHint").addEventListener("click", async () => {
   } else setStatus("no suggestion", "bad");
 });
 
-fetch("/api/engine").then(r => r.json()).then(d => {
-  document.getElementById("playMeta").textContent =
-    `Opponent: ${d.description}.`;
-}).catch(() => {
-  document.getElementById("playMeta").textContent =
-    "Engine API not reachable: start ./play-bin instead of a static file server.";
-});
+// The opponent is always the current champion, and it changes underneath
+// the page: the ladder adopts a new network every hour or so and the play
+// server picks it up within a second. Fetching this once at page load meant
+// the panel named whichever rung was champion when the tab was opened, so
+// it was quietly wrong for most of the time it was on screen.
+async function refreshOpponent() {
+  try {
+    const d = await fetch("/api/engine?t=" + Date.now()).then(r => r.json());
+    const elo = d.elo ? `~${d.elo} Elo` : "";
+    document.getElementById("playSummary").textContent =
+      d.champion ? `\u2014 ${d.champion}, ${elo}` : "";
+    document.getElementById("playMeta").innerHTML =
+      `<b>You are playing the strongest network measured so far: ${d.champion}` +
+      (d.elo ? `, about ${d.elo} Elo (\u00b1${d.margin}).` : ".") + `</b><br>` +
+      `Evaluation: ${d.eval}. Search: depth ${d.depth}, iterative deepening with ` +
+      `PVS, killers, history, late move reductions, null-move and futility pruning, ` +
+      `quiescence with static exchange evaluation.<br>` +
+      `Adopted ${d.adopted ? new Date(d.adopted).toLocaleString() : "unknown"}. ` +
+      `This panel follows the ladder: when a new rung is adopted the opponent ` +
+      `changes here without reloading.`;
+  } catch (e) {
+    document.getElementById("playMeta").textContent =
+      "Engine API not reachable: start ./play-bin instead of a static file server.";
+  }
+}
+refreshOpponent();
+setInterval(refreshOpponent, 5000);
 
 newGame();
 
@@ -379,19 +421,29 @@ async function pollNNUE() {
 
     if (st.arch) {
       const a = st.arch;
+      // Only rows the trainer actually reported. The Go trainer published
+      // self-play depths and an evaluation schedule; the PyTorch one has
+      // neither, because generation and racing moved out of it into the
+      // ladder script. Printing them anyway rendered "undefined", which
+      // reads as a broken page rather than an absent field.
       const rows = [
         ["Features", a.features],
         ["Topology", a.layers],
         ["Activation", a.activation],
-        ["Parameters", a.params.toLocaleString()],
+        ["Parameters", a.params ? a.params.toLocaleString() : null],
+        ["Trainer", a.trainer],
+        ["Optimiser", a.optimiser],
+        ["Stops after", a.patience ? `${a.patience} epochs without improvement` : null],
         ["Training target", a.target],
-        ["Self-play / label depth", `${a.play_depth} / ${a.label_depth}`],
-        ["Tested every", `${a.eval_every} generations, ${a.eval_games} games`],
+        ["Self-play / label depth", (a.play_depth && a.label_depth)
+          ? `${a.play_depth} / ${a.label_depth}` : null],
+        ["Tested every", (a.eval_every && a.eval_games)
+          ? `${a.eval_every} generations, ${a.eval_games} games` : null],
         ["Tested as", a.eval_blend > 0
           ? `${Math.round((1 - a.eval_blend) * 100)}% network + ${Math.round(a.eval_blend * 100)}% hand evaluation`
-          : "network alone"],
-        ["Next test", `generation ${st.next_eval}`],
-      ];
+          : null],
+        ["Next test", st.next_eval ? `generation ${st.next_eval}` : null],
+      ].filter(([, v]) => v !== null && v !== undefined && v !== "");
       document.getElementById("arch").innerHTML =
         rows.map(([k, v]) => `<div>${k}: <b>${v}</b></div>`).join("");
     }
@@ -509,6 +561,14 @@ async function pollNNUE() {
           lastTested ? (lastTested.elo >= 0 ? "+" : "") + lastTested.elo + " &plusmn; " + lastTested.elo_margin : "not tested yet"}</div>
         <div class="n">${lastTested ? "generation " + lastTested.generation : "first test at generation " + (last.generation - last.generation % 8 + 8)}</div></div>`;
 
+    // The ladder supersedes these numbers when it is running.
+    //
+    // nnue.json is the old Go trainer's history and nothing updates it any
+    // more, so the cards froze on generation 5 reading "+1 +/- 34" while
+    // the ladder was six rungs further on at +33 +/- 14. A stale verdict
+    // presented as the current one is worse than no verdict.
+    await overlayLadderVerdict();
+
     const body = document.getElementById("nnueBody");
     body.innerHTML = "";
     for (const h of hist.slice().reverse().slice(0, 25)) {
@@ -571,6 +631,89 @@ async function pollNNUE() {
 
 
 pollNNUE();
+// ---- bootstrap ladder ---------------------------------------------------
+
+// overlayLadderVerdict replaces the Elo card with the ladder's most recent
+// raced rung, which is the live verdict once the ladder has taken over.
+async function overlayLadderVerdict() {
+  let st;
+  try {
+    st = await fetch("ladder.json?t=" + Date.now()).then(r => r.json());
+  } catch (e) { return; }
+  if (!st || !st.rungs) return;
+  const raced = st.rungs.filter(r => r.elo !== undefined);
+  if (!raced.length) return;
+  const r = raced[raced.length - 1];
+
+  const cards = document.getElementById("cards");
+  const card = cards && cards.lastElementChild;
+  if (!card) return;
+  const pass = r.state === "adopted";
+  card.innerHTML =
+    '<div class="k">Elo vs champion (verdict)</div>' +
+    '<div class="v ' + (pass ? "pass" : "fail") + '">' +
+    (r.elo >= 0 ? "+" : "") + r.elo + " \u00b1 " + r.margin + "</div>" +
+    '<div class="n">ladder rung ' + r.rung + ", " + (r.games || 0).toLocaleString() +
+    " games, " + r.state + "</div>";
+}
+
+async function pollLadder() {
+  let st;
+  try {
+    const r = await fetch("ladder.json?t=" + Date.now());
+    if (!r.ok) return;
+    st = await r.json();
+  } catch (e) { return; }
+  if (!st || !st.rungs || !st.rungs.length) return;
+
+  document.getElementById("ladderbox").style.display = "";
+
+  const phases = {
+    generating: "generating training positions, labelled by the current champion",
+    training:   "training on every pool accumulated so far",
+    racing:     "racing the new network against the champion that taught it",
+    idle:       "between rungs",
+    stopped:    "stopped: a rung failed to beat its teacher",
+    finished:   "finished every rung",
+  };
+  const cur = st.current ? ("rung " + st.current + ", ") : "";
+  document.getElementById("ladderphase").textContent =
+    cur + (phases[st.phase] || st.phase) +
+    (st.log_age_sec > 900 ? "  (no activity for " + Math.round(st.log_age_sec / 60) + " min)" : "");
+
+  const c = st.champion || {};
+  document.getElementById("ladderwhy").textContent =
+    (c.elo ? "Champion " + c.elo + " Elo. " : "") +
+    st.adopted + " of " + st.rungs.length + " rungs adopted. " +
+    "A rung is kept only when the lower bound of its 95% interval clears zero, " +
+    "so the climb cannot drift upward on noise.";
+
+  const rows = st.rungs.map(r => {
+    const colour = r.state === "adopted" ? "#7fd67f"
+                 : r.state === "rejected" ? "#e08a8a" : "#d9c46a";
+    const verdict = r.state === "adopted"
+        ? "adopted, lower bound " + (r.lower >= 0 ? "+" : "") + r.lower
+        : r.state === "rejected"
+        ? "rejected, lower bound " + r.lower
+        : (r.phase || "running");
+    const elo = (r.elo === undefined) ? "" :
+        (r.elo >= 0 ? "+" : "") + r.elo + " \u00b1 " + r.margin;
+    const pos = r.positions ? r.positions.toLocaleString()
+              : (r.have ? r.have.toLocaleString() + " / " + r.target.toLocaleString() : "");
+    return "<tr>" +
+      "<td style='padding:3px 10px 3px 0'>" + r.rung + "</td>" +
+      "<td style='padding:3px 10px 3px 0;opacity:.8'>" + pos + "</td>" +
+      "<td style='padding:3px 10px 3px 0;opacity:.8'>" + (r.explains ? r.explains.toFixed(1) + "%" : "") + "</td>" +
+      "<td style='padding:3px 10px 3px 0'>" + elo + "</td>" +
+      "<td style='padding:3px 10px 3px 0;opacity:.8'>" + (r.games ? r.games.toLocaleString() : "") + "</td>" +
+      "<td style='padding:3px 0;color:" + colour + "'>" + verdict + "</td>" +
+      "</tr>";
+  }).join("");
+  document.getElementById("ladderrows").innerHTML = rows;
+}
+setInterval(pollLadder, 3000);
+pollLadder();
+
 setInterval(pollNNUE, 2000);
 pollNNUELive();
 setInterval(pollNNUELive, 900);

@@ -77,6 +77,9 @@ type Player struct {
 	ScaledLMR bool
 	// NoRepetition disables repetition detection. Measurement only.
 	NoRepetition bool
+	// NullReduction and NullScale tune null-move pruning. 0 means 3.
+	NullReduction int
+	NullScale     bool
 	// KeepNullMoveEP reproduces the null-move en passant bug. Measurement
 	// only, so its cost can be measured rather than guessed at.
 	KeepNullMoveEP bool
@@ -168,6 +171,8 @@ func (p Player) pickWith(g *game.Game, reuse *TranspositionTable) (game.Move, bo
 	ev.ScaledLMR = p.ScaledLMR
 	ev.NoRepetition = p.NoRepetition
 	ev.KeepNullMoveEP = p.KeepNullMoveEP
+	ev.NullReduction = p.NullReduction
+	ev.NullScale = p.NullScale
 	ev.Mobility = p.Mobility
 	ev.KingSafety = p.KingSafety
 	ev.Extras = p.Extras
@@ -675,7 +680,20 @@ func Strong(depth int) Player {
 		Name: "strong", Depth: depth,
 		UsePST: true, Quiescence: true, Tapered: true, Structure: true,
 		TTBits: 20, NullMove: true, Iterative: true,
-		Extensions: true, Aspiration: true, SEEPruning: true, Futility: true,
+		// Aspiration is off, and that is a measured decision rather than an
+		// oversight. Searching a narrow window around the previous
+		// iteration's score is a standard speed optimisation, and here it
+		// cost strength badly: at depth 5, turning it off measured
+		// +86 +/- 35 Elo over 400 games. It also broke the search's most
+		// basic property, that deeper is better. Depth 6 lost to depth 5 by
+		// 185 +/- 62 with it on and by 11 +/- 54 with it off.
+		//
+		// The transposition table's probe and store both look correct
+		// (bounds are flagged against the node's entry window, and the
+		// probe honours the flags), so the mechanism is not yet identified.
+		// The measurement is unambiguous and the feature is an optimisation,
+		// so it goes; the diagnosis can follow.
+		Extensions: true, Aspiration: false, SEEPruning: true, Futility: true,
 		Mobility: true, KingSafety: 0.01,
 	}
 }

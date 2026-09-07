@@ -30,7 +30,18 @@ cd "$(dirname "$0")/.." || exit 1
 RUNGS=${1:-20}
 DEPTH=${2:-5}
 POSITIONS=${3:-400000}
-GAMES=${4:-1000}
+# 2500 games, not 1000.
+#
+# The ladder produces roughly +20 to +30 Elo per rung, and 1000 games has a
+# margin of +/- 22, so a genuine +25 fails the "lower bound clears zero"
+# test about half the time. Rung 2 measured +21 +/- 22 and stopped the
+# ladder on a lower bound of -1. The effect was real; the ruler was too
+# short. 2500 games gives about +/- 14.
+GAMES=${4:-2500}
+# Where to resume. Rungs already adopted must not be re-run: their pools
+# were labelled by an older champion, so retraining them against the
+# current one races stale data and stops the ladder on a false negative.
+START=${5:-1}
 LOG=/tmp/chesslogs/ladder.log
 PGN=lichess_games_2015-01.pgn.zst
 
@@ -39,7 +50,7 @@ say() { echo "$(date +%H:%M:%S)  $*" | tee -a "$LOG"; }
 mkdir -p /tmp/chesslogs nets_torch
 say "ladder starting: $RUNGS rungs, depth $DEPTH labels, $POSITIONS positions, $GAMES games per race"
 
-for rung in $(seq 1 "$RUNGS"); do
+for rung in $(seq "$START" $((START + RUNGS - 1))); do
   pool="ladder_r${rung}.bin"
   net="nets_torch/ladder_r${rung}.json"
   ckpt="nets_torch/ladder_r${rung}.ckpt"
@@ -55,17 +66,24 @@ for rung in $(seq 1 "$RUNGS"); do
   # fraction of its data and blame the labels. Positions average about 86
   # bytes, so compare against that and let the import resume, which it does
   # from a marker written only after the samples are on disk.
-  want_bytes=$((POSITIONS * 86 * 9 / 10))
-  have_bytes=$(stat -f%z "$pool" 2>/dev/null || echo 0)
-  if [ "$have_bytes" -lt "$want_bytes" ]; then
-    say "rung $rung: generating (have ${have_bytes} bytes, want about ${want_bytes})"
+  # Counted, not estimated from the file size. Positions average 96 bytes
+  # on real-game pools and 82 on self-play ones, so one constant misjudges
+  # completeness by a fifth and a resumed rung would call its pool finished
+  # at 80% of target and train on four fifths of the data.
+  have=$([ -f "$pool" ] && ./nnue-bin -count-pool "$pool" 2>/dev/null || echo 0)
+  if [ "${have:-0}" -lt "$POSITIONS" ]; then
+    need=$((POSITIONS - have))
+    say "rung $rung: generating $need more positions (have $have of $POSITIONS)"
+    # -import-max counts this run only, so ask for the shortfall. Asking for
+    # the full target after a resume overshoots by whatever was already
+    # there, which is how rung 1 ended up with 730k instead of 600k.
     zstd -dcq "$PGN" 2>/dev/null | ./nnue-bin -import-pgn - \
-      -pool-file "$pool" -import-max "$POSITIONS" -label-depth "$DEPTH" \
+      -pool-file "$pool" -import-max "$need" -label-depth "$DEPTH" \
       -pgn-skip-plies 8 -label-champion champion.json \
       >> /tmp/chesslogs/ladder_gen_r${rung}.log 2>&1
+    have=$(./nnue-bin -count-pool "$pool" 2>/dev/null || echo 0)
   fi
-  kept=$(stat -f%z "$pool" 2>/dev/null || echo 0)
-  say "rung $rung: pool $pool is ${kept} bytes"
+  say "rung $rung: pool $pool holds $have positions"
 
   # Train on everything accumulated, not just this rung's pool.
   #
@@ -100,8 +118,19 @@ for rung in $(seq 1 "$RUNGS"); do
     exit 1
   fi
 
-  # Race it against the champion it was trained from.
+  # Race it against the champion it was trained from, network included.
+  #
+  # -ref-champion is not optional and its absence invalidated the first six
+  # rungs. Without it the gauntlet's reference is the plain hand-written
+  # evaluation, so every rung was measured against the original baseline
+  # instead of against its teacher. Seven deltas all measured the same
+  # comparison, were summed as though they compounded, and produced a
+  # claimed 2146 Elo. Calibration against Stockfish said 2041, the same
+  # instrument put the baseline at 1987, and rung 6 raced against rung 5
+  # measured +2 +/- 31. The ladder had been flat the whole time and the
+  # harness could not see it.
   ./scripts/chunked_match.sh "$GAMES" 500 -depth 4 -halfkp "$net" -blend 0.45 \
+    -ref-champion champion.json \
     -match-openings openings.txt > /tmp/chesslogs/ladder_race_r${rung}.log 2>&1
   result=$(tail -1 /tmp/chesslogs/ladder_race_r${rung}.log)
   say "rung $rung: $result"
@@ -114,6 +143,8 @@ for rung in $(seq 1 "$RUNGS"); do
   fi
 
   lower=$((elo - margin))
+  # Elo is now a gain over the previous champion, so it compounds honestly
+  # and the running total means something. It did not before.
   if [ "$lower" -gt 0 ]; then
     # Written then renamed, because the play server is live and watches
     # this file: a plain copy can be read half-written, and the watcher

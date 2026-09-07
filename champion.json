@@ -1,9 +1,10 @@
 {
-  "label": "ladder rung 1: network trained on depth-labelled real games",
+  "label": "ladder rung 6 network, aspiration window removed",
   "depth": 5,
-  "elo": 2016,
-  "margin": 22,
+  "elo": 2127,
+  "margin": 35,
   "net_file": "champion_net.json",
   "hand_blend": 0.45,
-  "adopted": "2026-09-07T01:00:51+0200"
+  "adopted": "2026-09-07T08:24:03+0200",
+  "elo_note": "2041 (direct Stockfish calibration) plus 86 +/- 35 measured head to head over 400 games for removing the aspiration window. The calibration instrument has a +/- 130 spread and cannot resolve an 86 Elo change, so the head-to-head is the number to trust; recalibrating after the change read 2049, and its best-balanced level scored exactly 0.50 against Stockfish 2200."
 }
