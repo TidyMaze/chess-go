@@ -681,20 +681,20 @@ func Strong(depth int) Player {
 		Name: "strong", Depth: depth,
 		UsePST: true, Quiescence: true, Tapered: true, Structure: true,
 		TTBits: 20, NullMove: true, Iterative: true,
-		// Aspiration is off, and that is a measured decision rather than an
-		// oversight. Searching a narrow window around the previous
-		// iteration's score is a standard speed optimisation, and here it
-		// cost strength badly: at depth 5, turning it off measured
-		// +86 +/- 35 Elo over 400 games. It also broke the search's most
-		// basic property, that deeper is better. Depth 6 lost to depth 5 by
-		// 185 +/- 62 with it on and by 11 +/- 54 with it off.
+		// Aspiration is back on. It was switched off on a measurement of
+		// +86 +/- 35 Elo for removing it, and that measurement was real but
+		// its cause was not the window: the table keyed every node on the
+		// root's side to move, and a narrow window is precisely what
+		// decides whether a poisoned entry is believed, so the window was
+		// carrying the blame for the table. Turning it off hid the bug and
+		// paid a large part of its cost anyway, which is why depth 6 could
+		// not beat depth 5 either way.
 		//
-		// The transposition table's probe and store both look correct
-		// (bounds are flagged against the node's entry window, and the
-		// probe honours the flags), so the mechanism is not yet identified.
-		// The measurement is unambiguous and the feature is an optimisation,
-		// so it goes; the diagnosis can follow.
-		Extensions: true, Aspiration: false, SEEPruning: true, Futility: true,
+		// With the key fixed it searches 1.87x fewer nodes over the test
+		// positions at depths 4 to 6, and its worst move loss against a
+		// full reference search is smaller than without it, 1.038 pawns
+		// against 1.867. Cheaper and no worse, so it stays.
+		Extensions: true, Aspiration: true, SEEPruning: true, Futility: true,
 		Mobility: true, KingSafety: 0.01,
 	}
 }
