@@ -40,5 +40,13 @@
     "games_per_level": 30,
     "label": "with mobility and king safety",
     "when": "2026-09-06T01:33:03+02:00"
+  },
+  {
+    "config": "champion",
+    "depth": 5,
+    "elo": 2244,
+    "games_per_level": 30,
+    "label": "tt-side-to-move-fix",
+    "when": "2026-09-07T23:55:01+02:00"
   }
 ]

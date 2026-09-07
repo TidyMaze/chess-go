@@ -1,10 +1,10 @@
 {
-  "label": "ladder rung 6 network, aspiration window removed",
+  "label": "ladder rung 6 network, transposition table keyed on the real side to move",
   "depth": 5,
-  "elo": 2127,
-  "margin": 35,
+  "elo": 2307,
+  "margin": 130,
   "net_file": "champion_net.json",
   "hand_blend": 0.45,
-  "adopted": "2026-09-07T08:24:03+0200",
-  "elo_note": "2041 (direct Stockfish calibration) plus 86 +/- 35 measured head to head over 400 games for removing the aspiration window. The calibration instrument has a +/- 130 spread and cannot resolve an 86 Elo change, so the head-to-head is the number to trust; recalibrating after the change read 2049, and its best-balanced level scored exactly 0.50 against Stockfish 2200."
+  "adopted": "2026-09-08T00:05:00+0200",
+  "elo_note": "Direct Stockfish calibration, 30 games per level at depth 5, after fixing the transposition table that keyed every node on the root's side to move. Two runs: the first weighted 2188 (SF 2200, score 0.48) and 2412 (SF 2400, score 0.50); the second reported 2307 overall, with 2223 at SF 2200 (score 0.53) and 2412 at SF 2400 (score 0.52). The same instrument read 2033 immediately before the fix, so +274 is well outside its own +/- 130 spread across repeats. Margin here is that instrument spread, not a within-run interval. The previous 2127 came from adding a head-to-head +86 to a 2041 calibration; both of those were measured through the broken table and are superseded."
 }
