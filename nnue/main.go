@@ -882,7 +882,7 @@ func run(args []string) int {
 			f, err := os.Open(*importPath)
 			if err != nil {
 				fmt.Println("import:", err)
-				return 0
+				return 1
 			}
 			defer f.Close()
 			src = f
@@ -890,23 +890,27 @@ func run(args []string) int {
 		if *extractTuning != "" {
 			if err := ExtractTuning(src, *extractTuning, *openingMax, *importQuiet, *quietTol); err != nil {
 				fmt.Println("extract tuning:", err)
+				return 1
 			}
 			return 0
 		}
 		if *extractBook != "" {
 			if err := ExtractBook(src, *extractBook, *openingMax, *openingMinPieces); err != nil {
 				fmt.Println("extract book:", err)
+				return 1
 			}
 			return 0
 		}
 		if *extractOpenings != "" {
 			if err := ExtractOpenings(src, *extractOpenings, *openingMax, *openingMinPieces); err != nil {
 				fmt.Println("extract openings:", err)
+				return 1
 			}
 			return 0
 		}
 		if err := ImportLichess(src, *poolFile, *importMax, *quietTol, *importQuiet, *importResume); err != nil {
 			fmt.Println("import:", err)
+			return 1
 		}
 		return 0
 	}
