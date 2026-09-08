@@ -104,6 +104,33 @@ func init() {
 	}
 }
 
+// lmrReduction is the late move reduction for a quiet move: logarithmic
+// in depth and move number, two thirds of that at a PV node, one ply
+// less for a killer, none for a promotion, never below one ply once it
+// applies and never into quiescence.
+func lmrReduction(depth, moveIndex int, pvNode, isKiller, promoted bool) int {
+	if depth < 3 || promoted {
+		return 0
+	}
+	r := lmrTable(depth, moveIndex)
+	if pvNode {
+		r = r * 2 / 3
+	}
+	if isKiller {
+		r--
+	}
+	if r > depth-2 {
+		r = depth - 2
+	}
+	if r < 1 {
+		if isKiller {
+			return 0
+		}
+		r = 1
+	}
+	return r
+}
+
 func lmrTable(depth, moveIndex int) int {
 	d, m := depth, moveIndex+1
 	if d > 63 {
@@ -478,17 +505,7 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 				// grows without ever reducing so much that a good move
 				// cannot come back, and the re-search on a fail-high
 				// catches the cases where it was wrong.
-				r := lmrTable(depth, i)
-				if r > reduction {
-					reduction = r
-				}
-				// Never reduce into quiescence: leave at least one ply.
-				if reduction > depth-2 {
-					reduction = depth - 2
-				}
-				if reduction < 1 {
-					reduction = 1
-				}
+				reduction = lmrReduction(depth, i, beta-alpha > 1e-6, c.isKiller(ply, m), promoted)
 			}
 		}
 

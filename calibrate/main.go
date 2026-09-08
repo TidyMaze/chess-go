@@ -41,7 +41,7 @@ func main() {
 	out := flag.String("out", "", "append the result to this JSON file")
 	workers := flag.Int("workers", runtime.NumCPU(), "games played in parallel")
 	probe := flag.Int("probe", 8, "games per level in the first pass")
-	features := flag.String("features", "", "comma-separated search features to switch on for the engine under test: lmp")
+	features := flag.String("features", "", "comma-separated search features to switch on for the engine under test: lmp, scaledlmr")
 	only := flag.String("levels", "", "comma-separated Stockfish Elo levels to play; empty means the whole ladder. One level skips the probe pass and plays -games there")
 	flag.Parse()
 
@@ -80,6 +80,8 @@ func main() {
 		case "":
 		case "lmp":
 			me.LMP = true
+		case "scaledlmr":
+			me.ScaledLMR = true
 		default:
 			fmt.Printf("unknown feature %q\n", f)
 			return
