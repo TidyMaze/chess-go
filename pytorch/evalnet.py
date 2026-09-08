@@ -16,6 +16,7 @@ Usage:
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
 import torch
@@ -73,8 +74,20 @@ def main():
 
     # Packed once against the widest network, so every net is scored on the
     # identical tensors and the comparison is exact.
-    pad = max(len(json.loads(Path(n).read_text())["w1"]) // json.loads(Path(n).read_text())["h"]
-              for n in args.nets)
+    def inputs_of(path):
+        """The input count a network file declares, or None if it is not a
+        network we can read; such a file is reported as skipped below rather
+        than taking the whole comparison down."""
+        try:
+            net = json.loads(Path(path).read_text())
+            return len(net["w1"]) // net["h"]
+        except Exception:
+            return None
+
+    widths = [w for w in (inputs_of(n) for n in args.nets) if w]
+    if not widths:
+        sys.exit("none of the networks could be read")
+    pad = max(widths)
     own_t = pack(own, pad, device)
     opp_t = pack(opp, pad, device)
 
@@ -88,5 +101,5 @@ def main():
               % (Path(n).name, mse, 100 * (1 - mse / baseline), jump, h))
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     main()

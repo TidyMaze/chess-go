@@ -340,13 +340,24 @@ def main():
     ckpt_path = Path(args.checkpoint or (args.out + ".ckpt"))
     start_epoch = 1
     if ckpt_path.exists() and not args.fresh:
-        ck = torch.load(ckpt_path, map_location=device, weights_only=False)
+        # A checkpoint that will not load is ignored the same way one of
+        # the wrong shape is: the run starts fresh and says so, rather than
+        # dying on a file it was only ever meant to speed things up with.
+        try:
+            ck = torch.load(ckpt_path, map_location=device, weights_only=False)
+        except Exception as exc:
+            log("ignoring %s: it does not load (%s)" % (ckpt_path, exc))
+            ck = {}
         if ck.get("hidden") == args.hidden and ck.get("buckets") == args.buckets:
-            model.load_state_dict(ck["model"])
-            opt.load_state_dict(ck["opt"])
-            start_epoch = ck["epoch"] + 1
-            log("resumed from %s at epoch %d (best held out %.4f at epoch %d)"
-                % (ckpt_path, ck["epoch"], ck["best"], ck["best_epoch"]))
+            try:
+                model.load_state_dict(ck["model"])
+                opt.load_state_dict(ck["opt"])
+                start_epoch = ck["epoch"] + 1
+                log("resumed from %s at epoch %d (best held out %.4f at epoch %d)"
+                    % (ckpt_path, ck["epoch"], ck["best"], ck["best_epoch"]))
+            except Exception as exc:
+                log("ignoring %s: it does not restore (%s)" % (ckpt_path, exc))
+                start_epoch = 1
         else:
             # A checkpoint from another architecture would load weights
             # that mean something else, and the run would look healthy
@@ -482,5 +493,5 @@ def main():
     log("wrote %s" % args.out)
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     main()

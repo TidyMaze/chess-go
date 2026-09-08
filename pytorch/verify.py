@@ -74,5 +74,5 @@ def main():
     print("the exported network evaluates identically in Go")
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     main()
