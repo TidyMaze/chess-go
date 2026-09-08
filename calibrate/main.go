@@ -84,8 +84,14 @@ func main() {
 		return
 	}
 
+	// The ladder has to reach above the engine or the result is a floor,
+	// not a rating: the run after the transposition table fix scored 0.52
+	// against the top level and had nothing above it to probe. Stockfish's
+	// UCI_Elo runs to 3190. Skill Level is ignored once UCI_LimitStrength
+	// is set, so those values only matter for the levels below 1600.
 	levels := []level{
 		{1600, 3, 4}, {1800, 5, 5}, {2000, 8, 6}, {2200, 11, 7}, {2400, 14, 8},
+		{2600, 17, 9}, {2800, 19, 10}, {3000, 20, 11},
 	}
 
 	type estimate struct {
