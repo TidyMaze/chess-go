@@ -314,6 +314,9 @@ func TestHeuristicsDoNotPickWorseMoves(t *testing.T) {
 		{"futility pruning", func(p *Player) { p.Futility = true }, 1.0},
 		{"check extensions", func(p *Player) { p.Extensions = true }, 1.0},
 		{"late move pruning", func(p *Player) { p.LMP = true }, 1.5},
+		{"main-search SEE", func(p *Player) { p.MainSEE = true }, 1.5},
+		{"countermoves", func(p *Player) { p.Countermoves = true }, 1.0},
+		{"internal iterative reduction", func(p *Player) { p.IIR = true }, 1.5},
 		{"everything at once", func(p *Player) {
 			p.TTBits, p.Aspiration, p.NullMove = 16, true, true
 			p.NoLMR, p.Futility, p.Extensions = false, true, true

@@ -86,6 +86,9 @@ type Player struct {
 	Countermoves bool
 	// IIR reduces the depth by one at deeper nodes that have no table move.
 	IIR bool
+	// MainSEE orders captures by static exchange value and prunes losing
+	// ones in the main search.
+	MainSEE bool
 	// ScaledLMR scales the reduction with depth and move number.
 	ScaledLMR bool
 	// NoRepetition disables repetition detection. Measurement only.
@@ -586,7 +589,7 @@ func evalForPlayer(p Player) *Eval {
 		KingSafety: p.KingSafety, Net: p.Net, HalfKP: p.HalfKP,
 		HalfKPBlend: p.HalfKPBlend, Tablebases: p.Tablebases,
 		NoCastle: p.NoCastle, NoLMR: p.NoLMR, ScaledLMR: p.ScaledLMR, LMP: p.LMP,
-		DeepRFP: p.DeepRFP, NullGate: p.NullGate, Countermoves: p.Countermoves, IIR: p.IIR,
+		DeepRFP: p.DeepRFP, NullGate: p.NullGate, Countermoves: p.Countermoves, IIR: p.IIR, MainSEE: p.MainSEE,
 		NoRepetition: p.NoRepetition, KeepNullMoveEP: p.KeepNullMoveEP,
 		NullReduction: p.NullReduction, NullScale: p.NullScale,
 		Extras: p.Extras, Shape: p.Shape, ShapeW: p.ShapeW,

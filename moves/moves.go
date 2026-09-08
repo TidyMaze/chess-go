@@ -375,3 +375,56 @@ func castlingMoves(dst []board.Sq, b *board.Board, sq board.Sq, color board.Colo
 	}
 	return dst
 }
+
+// AttackerOfType finds one piece of colour by and type typ that attacks
+// sq, for static exchange evaluation, which wants attackers cheapest
+// first. Sliders are found along their rays, the first piece met on a ray
+// being the only one that attacks; a queen is reported only when asked
+// for a queen, so a caller scanning for bishops does not take a queen.
+func AttackerOfType(b *board.Board, sq board.Sq, by board.Color, typ board.PieceType) (board.Sq, bool) {
+	switch typ {
+	case board.Pawn:
+		byDir := direction[by]
+		for _, df := range [2]int{-1, 1} {
+			from := board.Sq{File: sq.File + df, Rank: sq.Rank - byDir}
+			if p, ok := b.CellPiece(from); ok && p.Color == by && p.Type == board.Pawn {
+				return from, true
+			}
+		}
+	case board.Knight, board.King:
+		offsets := knightOffsets
+		if typ == board.King {
+			offsets = kingOffsets
+		}
+		for _, d := range offsets {
+			from := board.Sq{File: sq.File + d[0], Rank: sq.Rank + d[1]}
+			if p, ok := b.CellPiece(from); ok && p.Color == by && p.Type == typ {
+				return from, true
+			}
+		}
+	case board.Bishop, board.Rook, board.Queen:
+		var dirs [][2]int
+		if typ != board.Rook {
+			dirs = append(dirs, bishopDirs[:]...)
+		}
+		if typ != board.Bishop {
+			dirs = append(dirs, rookDirs[:]...)
+		}
+		for _, d := range dirs {
+			from := sq
+			for {
+				from = board.Sq{File: from.File + d[0], Rank: from.Rank + d[1]}
+				if b.CellOffBoard(from) {
+					break
+				}
+				if p, ok := b.CellPiece(from); ok {
+					if p.Color == by && p.Type == typ {
+						return from, true
+					}
+					break
+				}
+			}
+		}
+	}
+	return board.Sq{}, false
+}

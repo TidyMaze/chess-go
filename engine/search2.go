@@ -259,6 +259,15 @@ func (c *searchCtx) scoreMove(g *game.Game, m game.Move, ttMove game.Move, ply i
 			victim = board.Piece{Type: board.Pawn} // en passant
 		}
 		attacker, _ := g.Board.PieceAt(m.From)
+		if c.ev != nil && c.ev.MainSEE {
+			// Winning captures first by what they win, losing captures
+			// after every quiet move.
+			if x := see(&g.Board, m); x < 0 {
+				return -1<<20 + x*100
+			} else {
+				return 1<<20 + x*100 + mvvLvaPiece[victim.Type]
+			}
+		}
 		return 1<<20 + mvvLvaPiece[victim.Type]*100 - mvvLvaPiece[attacker.Type]
 	}
 	if ply < maxSearchPly {
@@ -518,6 +527,10 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 
 	for i, m := range legal {
 		isCapture := isCaptureMove(g, m)
+		exchange := 0
+		if isCapture && c.ev != nil && c.ev.MainSEE && depth <= 6 {
+			exchange = see(&g.Board, m)
+		}
 
 		// Make/unmake rather than copying the board into a child Game:
 		// this is the hot path, and the copy was the largest per-node cost
@@ -533,8 +546,15 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 
 		lmp := c.ev != nil && c.ev.LMP && zeroWindow(alpha, beta)
 		givesCheck := false
-		if c.extensions || futile || lmp {
+		if c.extensions || futile || lmp || (isCapture && c.ev != nil && c.ev.MainSEE) {
 			givesCheck = moves.IsInCheck(&g.Board, color.Other())
+		}
+
+		// Losing captures at shallow depth on a zero window are not worth
+		// their subtree either.
+		if isCapture && c.ev != nil && c.ev.MainSEE && i > 0 && seePrunes(depth, exchange, inCheck, givesCheck, zeroWindow(alpha, beta)) {
+			g.Board.UnmakeMove(undo)
+			continue
 		}
 
 		// Late move pruning, at zero-window nodes only: the ordering has

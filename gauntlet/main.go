@@ -41,7 +41,7 @@ func main() {
 	refChampion := flag.String("ref-champion", "", "reference plays the champion described by this file, network included. Without it the reference is the plain hand-written evaluation, so a network is measured against the original baseline and not against whatever it is supposed to have improved on.")
 	refKeepEP := flag.Bool("ref-nullmove-ep-bug", false, "reference keeps the en passant square across a null move, reproducing the bug fixed on 2026-09-06")
 	noLMR := flag.Bool("no-lmr", false, "challenger disables late move reductions")
-	features := flag.String("features", "", "comma-separated search features the challenger switches on: lmp, scaledlmr, rfp, nullgate, countermove, iir")
+	features := flag.String("features", "", "comma-separated search features the challenger switches on: lmp, scaledlmr, rfp, nullgate, countermove, iir, see")
 	scaledLMR := flag.Bool("scaled-lmr", false, "challenger scales reductions with depth and move number")
 	noNull := flag.Bool("no-null", false, "challenger disables null-move pruning")
 	qply := flag.Int("qply", 0, "challenger quiescence ply cap (0 = default)")
@@ -106,6 +106,8 @@ func main() {
 			challenger.Countermoves = true
 		case "iir":
 			challenger.IIR = true
+		case "see":
+			challenger.MainSEE = true
 		default:
 			fmt.Printf("unknown feature %q\n", f)
 			return

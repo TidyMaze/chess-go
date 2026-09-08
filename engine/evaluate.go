@@ -165,6 +165,8 @@ type Eval struct {
 	Countermoves bool
 	// IIR: see Player.
 	IIR bool
+	// MainSEE: see Player.
+	MainSEE bool
 	// ScaledLMR reduces more with depth and move number instead of a flat
 	// one ply.
 	ScaledLMR bool
