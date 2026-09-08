@@ -35,6 +35,17 @@ func TestFusedEvaluationMatchesReference(t *testing.T) {
 			return &Eval{Weights: TunedWeights(), UsePST: true, Tapered: true,
 				Structure: true, PSTScale: &scale, StructureW: &sw}
 		}()},
+		// The paths that replace or correct the hand score: the two forms
+		// of the legacy network, and the king-conditioned one with a blend.
+		{"replacing net", &Eval{Weights: DefaultWeights(), UsePST: true, Net: constantNet(0.75, false)}},
+		{"residual net", &Eval{Weights: DefaultWeights(), UsePST: true, Net: constantNet(0.75, true)}},
+		{"halfkp blended", &Eval{Weights: DefaultWeights(), UsePST: true, Tapered: true,
+			HalfKP: tinyHalfKP(4, 8, false), HalfKPBlend: 0.45}},
+		{"halfkp alone", &Eval{Weights: DefaultWeights(), UsePST: true, HalfKP: tinyHalfKP(4, 8, false)}},
+		// Mobility, king safety, extras and shape are deliberately absent:
+		// the reference predates them and never implemented them, so a
+		// comparison on those settings measures nothing.
+		{"material only", &Eval{Weights: DefaultWeights(), MaterialOnly: true}},
 	}
 
 	for _, c := range configs {
@@ -103,4 +114,13 @@ func loadTestPositions(t *testing.T, limit int) []*game.Game {
 		}
 	}
 	return out
+}
+
+// constantNet is a legacy network whose every position evaluates to the
+// same number, so the fused and reference evaluations can be compared on
+// the paths a network takes without depending on trained weights.
+func constantNet(out float32, residual bool) *Net {
+	const hidden = 4
+	return &Net{W1: make([]float32, nnueInputs*hidden), B1: make([]float32, hidden),
+		W2: make([]float32, hidden), B2: out, Scale: 1, Residual: residual}
 }
