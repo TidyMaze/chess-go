@@ -18,6 +18,7 @@ func TestParseFENRejectsMalformedRanks(t *testing.T) {
 		"rnbqkbnrr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", // nine pieces on a rank
 		"rnbqkbn/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",   // seven files
 		"rnbqkbnr/pppppppp/9/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",  // a nine
+		"8p/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",        // a piece after eight empties
 	} {
 		if _, err := ParseFEN(fen); err == nil {
 			t.Errorf("%s parsed without error", fen)
