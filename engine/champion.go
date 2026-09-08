@@ -19,8 +19,12 @@ import (
 type Champion struct {
 	// Label names the change that won its match, for the UI to display.
 	Label string `json:"label"`
-	// Depth is the search depth the UI plays at.
+	// Depth is the search depth the UI plays at, or the floor a timed
+	// search must reach when TimeMS is set.
 	Depth int `json:"depth"`
+	// TimeMS, when positive, is a per-move budget in milliseconds. Under a
+	// clock the engine deepens past Depth as time allows.
+	TimeMS int `json:"time_ms,omitempty"`
 	// Elo is the calibrated rating, and Margin its 95% interval. Both are
 	// display-only: nothing branches on them.
 	Elo    float64 `json:"elo"`
@@ -103,6 +107,9 @@ func (c Champion) Player() Player {
 func (c Champion) PlayerOrError() (Player, error) {
 	p := Strong(c.Depth)
 	p.Name = "champion"
+	if c.TimeMS > 0 {
+		p.TimeBudget = time.Duration(c.TimeMS) * time.Millisecond
+	}
 	if c.NetFile != "" {
 		n, err := LoadHalfKPNet(c.NetFile)
 		if err != nil {

@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 )
 
 // The ladder's one load-bearing assumption: the player that labels a
@@ -95,5 +96,35 @@ func TestChampionBlendReachesBothSearchPaths(t *testing.T) {
 	p.HalfKPBlend = c.HandBlend
 	if got := evalForPlayer(p).HalfKPBlend; got != 0.45 {
 		t.Errorf("the evaluation the search runs on has blend %v, not 0.45", got)
+	}
+}
+
+// A champion can name a per-move time budget instead of a fixed depth.
+//
+// Fixed depth 5 is a handicap, not a strength: under a clock the same
+// engine reaches depth 7 to 9 in the time a UI move takes anyway, and the
+// 1.87x the aspiration window saves is worth nothing at a fixed depth.
+// Everything downstream (the UI, calibration, the ladder race) builds its
+// player from this one descriptor, so the budget has to travel through it.
+func TestChampionTimeBudgetReachesThePlayer(t *testing.T) {
+	c := Champion{Depth: 5, TimeMS: 2000}
+	p, err := c.PlayerOrError()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.TimeBudget != 2000*time.Millisecond {
+		t.Errorf("champion says time_ms 2000, player has budget %v", p.TimeBudget)
+	}
+	// Depth stays as the floor the timed search must at least reach.
+	if p.Depth != 5 {
+		t.Errorf("depth floor lost: %d", p.Depth)
+	}
+	// And round-trips through the file, since that is how it is deployed.
+	path := filepath.Join(t.TempDir(), "champion.json")
+	if err := WriteChampion(path, c); err != nil {
+		t.Fatal(err)
+	}
+	if got := ReadChampion(path).TimeMS; got != 2000 {
+		t.Errorf("time_ms did not survive the file: %d", got)
 	}
 }
