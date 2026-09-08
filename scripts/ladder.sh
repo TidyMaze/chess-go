@@ -38,6 +38,29 @@ POSITIONS=${3:-400000}
 # ladder on a lower bound of -1. The effect was real; the ruler was too
 # short. 2500 games gives about +/- 14.
 GAMES=${4:-2500}
+# 2026-09-08: the ladder does not climb, and it is not a measurement
+# problem any more.
+#
+# Rung 8 was the first run with the transposition table fixed, so its
+# labels came from a search that returns what it claims. Trained on 7.5M
+# positions it measured -20 +/- 18 against its own teacher over 1500 games,
+# an interval that excludes zero. Trained on only the 400k positions
+# labelled by the fixed search, -61 +/- 18: volume beats label quality by a
+# wide margin, so regenerating the whole corpus would not rescue it either.
+#
+# The reason is structural rather than a bug. The rung is trained to
+# predict the champion's depth-5 score and then plays at depth 4, so the
+# best it can do is reproduce its teacher, and distillation error makes it
+# slightly worse. Nothing in this loop can produce information the champion
+# did not already have. Every rung ever run has landed between +2 and -20,
+# which is exactly what that predicts.
+#
+# What would change it is labelling deeper than the engine plays, so the
+# targets carry something the playing search cannot reach. That is how
+# Stockfish trains its network and it uses no outside evaluations, so it
+# stays inside the rule that only the engine's own search may score a
+# position. The earlier depth-3 against depth-5 label comparison ran
+# through the broken table and has to be redone before it means anything.
 # Where to resume. Rungs already adopted must not be re-run: their pools
 # were labelled by an older champion, so retraining them against the
 # current one races stale data and stops the ladder on a false negative.
