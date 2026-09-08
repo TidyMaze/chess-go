@@ -1,10 +1,14 @@
 package main
 
 import (
+	"math/rand"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"chess/engine"
+	"time"
 )
 
 // Synthetic lines in the shape of the Lichess evaluation dump. The real
@@ -146,5 +150,74 @@ func TestEmitEvalCheck(t *testing.T) {
 	}
 	if emitEvalCheck(filepath.Join(t.TempDir(), "no", "dir", "x.json"), "../champion_net.json") == nil {
 		t.Error("an unwritable output succeeded")
+	}
+}
+
+func TestPGNTokenAndReaderEdges(t *testing.T) {
+	for _, tok := range []string{"", "*", "$12", "1-0", "1/2-1/2", "0-1"} {
+		if _, ok := moveToken(tok); ok {
+			t.Errorf("%q accepted as a move", tok)
+		}
+	}
+	if m, ok := moveToken("12...Nf6"); !ok || m != "Nf6" {
+		t.Errorf("move number stripping: %q %v", m, ok)
+	}
+	if _, ok := moveToken("7."); ok {
+		t.Error("a bare move number is not a move")
+	}
+	// A game with no result tag is skipped by the reader.
+	out := make(chan pgnGame, 4)
+	go readPGN(strings.NewReader("[White \"a\"]\n\n1. e4 e5\n"), out)
+	n := 0
+	for range out {
+		n++
+	}
+	if n != 0 {
+		t.Errorf("a game without a result was emitted (%d)", n)
+	}
+}
+
+func TestImportPGNEdges(t *testing.T) {
+	dir := t.TempDir()
+	pool := filepath.Join(dir, "p.bin")
+	labeller := engine.Strong(1)
+	// Positions are clamped to +/-12 pawns: label from a hopeless position.
+	lopsided := "[Result \"1-0\"]\n\n1. e4 e5 2. Qh5 Nc6 3. Bc4 Nf6 4. Qxf7# 1-0\n"
+	if err := ImportPGN(strings.NewReader(lopsided), pool, 0, 1, 0, 0.8, 5.0, 0, false, labeller); err != nil {
+		t.Fatal(err)
+	}
+	// Progress reporting and the keep cap.
+	if err := ImportPGN(strings.NewReader(operaGamePGN), pool, 3, 1, 0, 0.8, 0.35, time.Nanosecond, false, labeller); err != nil {
+		t.Fatal(err)
+	}
+	// Resume from the marker.
+	if err := ImportPGN(strings.NewReader(operaGamePGN), pool, 0, 1, 0, 0.8, 0.35, 0, true, labeller); err != nil {
+		t.Fatal(err)
+	}
+	// A game whose moves do not replay is counted, not fatal.
+	if err := ImportPGN(strings.NewReader("[Result \"1-0\"]\n\n1. e4 Qh8 1-0\n"), pool, 0, 1, 0, 0.8, 0.35, 0, false, labeller); err != nil {
+		t.Fatal(err)
+	}
+	if err := ImportPGN(strings.NewReader(operaGamePGN), filepath.Join(dir, "no", "dir", "p.bin"), 0, 1, 0, 0.8, 0.35, 0, false, labeller); err == nil {
+		t.Error("an unwritable pool succeeded")
+	}
+}
+
+func TestSplitAndBaselineEdges(t *testing.T) {
+	if constantBaseline(nil) != 0 {
+		t.Error("empty baseline")
+	}
+	one := []sample{{game: 1, target: 1}}
+	// A held-out share larger than the pool keeps every game.
+	tr, ho := splitByGame(one, rand.New(rand.NewSource(1)), 100)
+	if len(tr)+len(ho) != 1 {
+		t.Errorf("split lost samples: %d + %d", len(tr), len(ho))
+	}
+}
+
+func TestOpeningFromAnExhaustedGame(t *testing.T) {
+	// 600 plies from the start reaches a finished game long before the end.
+	if g := randomOpeningGame(rand.New(rand.NewSource(1)), 600); g == nil {
+		t.Error("no game")
 	}
 }
