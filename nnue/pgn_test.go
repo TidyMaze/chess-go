@@ -203,3 +203,80 @@ func TestPGNLabellerChangesTheLabels(t *testing.T) {
 	t.Logf("%d of %d targets differ between a depth-1 and a depth-5 labeller",
 		differing, len(a))
 }
+
+// Does the label depth argument alone change the labels?
+//
+// TestPGNLabellerChangesTheLabels varies the depth and the labeller
+// together, so it stays green if the depth argument is ignored and only
+// the player matters. This holds the player fixed and varies nothing but
+// the depth, which is the flag the label-depth experiment turns.
+//
+// It is the same shape as the bug that was already found here once: a
+// -label-champion flag that was read, stored, and never used, so every
+// rung of the ladder produced identical labels and nothing in the numbers
+// said so.
+func TestPGNLabelDepthAloneChangesTheLabels(t *testing.T) {
+	dir := t.TempDir()
+	shallow := filepath.Join(dir, "shallow.bin")
+	deep := filepath.Join(dir, "deep.bin")
+
+	// One labeller, used for both runs. Its own depth is deliberately a
+	// third value, so a run that ignored the argument would produce two
+	// identical pools rather than accidentally matching one of them.
+	labeller := engine.Strong(3)
+	if err := ImportPGN(strings.NewReader(operaGamePGN), shallow, 0, 1, 6,
+		0.8, 0.35, 0, false, labeller); err != nil {
+		t.Fatal(err)
+	}
+	if err := ImportPGN(strings.NewReader(operaGamePGN), deep, 0, 6, 6,
+		0.8, 0.35, 0, false, labeller); err != nil {
+		t.Fatal(err)
+	}
+
+	a, _ := loadPool(shallow, 0)
+	b, _ := loadPool(deep, 0)
+	if len(a) == 0 || len(a) != len(b) {
+		t.Fatalf("the two runs must see the same positions: %d and %d", len(a), len(b))
+	}
+	differing := 0
+	for i := range a {
+		if a[i].target != b[i].target {
+			differing++
+		}
+	}
+	t.Logf("%d of %d labels differ between depth 1 and depth 6", differing, len(a))
+	if differing == 0 {
+		t.Error("labelling the same positions at depth 1 and depth 6 produced identical " +
+			"targets, so the depth argument is not reaching the search")
+	}
+}
+
+// The arms of a label-depth experiment have to be paired: same positions,
+// different targets. If the depth changed which positions were kept, a
+// difference in Elo could be the sample rather than the labels.
+func TestPGNLabelDepthKeepsTheSamePositions(t *testing.T) {
+	dir := t.TempDir()
+	shallow := filepath.Join(dir, "a.bin")
+	deep := filepath.Join(dir, "b.bin")
+	labeller := engine.Strong(3)
+	if err := ImportPGN(strings.NewReader(operaGamePGN), shallow, 0, 1, 6,
+		0.8, 0.35, 0, false, labeller); err != nil {
+		t.Fatal(err)
+	}
+	if err := ImportPGN(strings.NewReader(operaGamePGN), deep, 0, 6, 6,
+		0.8, 0.35, 0, false, labeller); err != nil {
+		t.Fatal(err)
+	}
+	a, _ := loadPool(shallow, 0)
+	b, _ := loadPool(deep, 0)
+	if len(a) != len(b) {
+		t.Fatalf("different position counts, %d and %d: the arms are not paired",
+			len(a), len(b))
+	}
+	for i := range a {
+		if len(a[i].own) != len(b[i].own) || a[i].static != b[i].static {
+			t.Fatalf("position %d differs between the two runs, so the label depth is "+
+				"changing which positions are kept and not only how they are scored", i)
+		}
+	}
+}

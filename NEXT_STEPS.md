@@ -496,3 +496,35 @@ go test ./...                                    # includes Stockfish rule valid
 ./agree-bin -positions 300 -oracle-depth 14      # search vs evaluation
 ./play-bin -port 8765                            # UI and play against the engine
 ```
+
+## Label depth, redone on the fixed engine, 2026-09-08
+
+The earlier depth-3 against depth-5 comparison ran through a transposition
+table that keyed every node on the root's side to move, so it measured a
+broken search and was void. Redone.
+
+Design: one PGN, read from the start with the same skip, so all arms label
+exactly the same positions and differ only in the depth of the search that
+scores them. 60000 positions per arm, which is what depth 8 can reach in a
+night at 4 positions per second. Each arm trains alone on its own pool with
+the same recipe, then plays 1000 games at depth 4.
+
+  depth 3 labels   79.8% explained   jump 0.438   reference
+  depth 5 labels   77.8% explained   jump 0.445   -21 +/- 22
+
+Shallower labels are more accurate, smoother, and no worse over the board,
+which is the opposite of what the pre-fix run reported. The engine plays at
+depth 4, so depth 3 is a ply below what it can already see and depth 5 a
+ply above, and neither position in that range makes a difference.
+
+Two guards went in with this, because a dead flag has already cost this
+project a whole ladder. TestPGNLabelDepthAloneChangesTheLabels holds the
+labeller fixed and varies only the depth argument; the older test varied
+both and would have stayed green if the argument were ignored.
+TestPGNLabelDepthKeepsTheSamePositions checks the arms are paired, so an
+Elo difference cannot be a different sample.
+
+Depth 8 is generating, four plies above play depth. If it also lands on
+zero, label depth is not the lever and the limit is elsewhere: capacity,
+volume, or the distillation ceiling that caps any network trained to
+predict its own teacher.
