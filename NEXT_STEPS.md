@@ -602,3 +602,23 @@ Coverage: board, moves, game at 100%; pytorch at 100% (scripts/
 pycoverage.sh); engine and nnue in progress (scripts/coverage.sh). Two
 defects found by the coverage tests: a corrupt checkpoint crashed the
 trainer, and evalnet read a network's shape outside its skip guard.
+
+### Measurement design: pair the arms, do not calibrate them separately
+
+Reverse futility screened at +40 +/- 34 (400 paired games, 200ms) and
+then, measured the way the campaign specified, came out inconclusive:
+
+  baseline                300 games vs SF 2400 at 1s: 64-81-155, 0.348 -> 2291
+  with reverse futility   300 games vs SF 2400 at 1s: 78-76-146, 0.387 -> 2320
+  difference: +29 +/- 59, which contains zero
+
+Not a contradiction, a design flaw. Two independent samples against a
+third party have errors that add, and nothing cancels: 600 games bought
++/- 59. Four hundred paired games head to head, the same feature against
+the same engine without it from the same openings with colours reversed,
+buy +/- 34 for two thirds of the cost, because the opening and the
+opponent are held fixed and only the feature varies.
+
+So: screen and confirm head to head, and calibrate only to place the
+adopted result on the Stockfish scale. A calibration is an instrument for
+absolute position, not for comparing two builds.
