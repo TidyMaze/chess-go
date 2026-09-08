@@ -678,36 +678,41 @@ type genRecord struct {
 	Seconds    int     `json:"seconds"`
 }
 
-func main() {
-	generations := flag.Int("generations", 200, "generations")
-	gamesPerGen := flag.Int("games", 600, "self-play games per generation")
-	playDepth := flag.Int("play-depth", 2, "search depth while generating games")
-	labelDepth := flag.Int("label-depth", 4, "shallow search used to label positions")
-	evalGames := flag.Int("eval-games", 400, "games to test a new network")
+func main() { os.Exit(run(os.Args[1:])) }
+
+// run is main with its arguments injectable, so every mode can be driven
+// from a test in-process. It returns the exit status.
+func run(args []string) int {
+	fs := flag.NewFlagSet("nnue", flag.ContinueOnError)
+	generations := fs.Int("generations", 200, "generations")
+	gamesPerGen := fs.Int("games", 600, "self-play games per generation")
+	playDepth := fs.Int("play-depth", 2, "search depth while generating games")
+	labelDepth := fs.Int("label-depth", 4, "shallow search used to label positions")
+	evalGames := fs.Int("eval-games", 400, "games to test a new network")
 	// The test match costs about as much as generating a whole
 	// generation, and early networks have no chance of being adopted, so
 	// running it every time roughly halves the rate at which data
 	// accumulates. Data is the measured constraint, so the match is run
 	// periodically instead.
-	evalEvery := flag.Int("eval-every", 5, "run the test match every N generations")
-	evalDepth := flag.Int("eval-depth", 4, "depth for the test match")
+	evalEvery := fs.Int("eval-every", 5, "run the test match every N generations")
+	evalDepth := fs.Int("eval-depth", 4, "depth for the test match")
 	// The network is tested blended with the hand-written evaluation,
 	// because that is currently much the stronger way to use it: measured
 	// over 800 games, 60% network scores -31 +/- 24 against the hand
 	// evaluation while the network alone scores -118 +/- 36. Testing the
 	// pure network would keep rejecting a combination that is close to
 	// break-even. Set to 0 to test the network alone.
-	evalBlend := flag.Float64("eval-blend", 0.4, "weight on the hand evaluation during the test match")
-	epochs := flag.Int("epochs", 6, "training epochs per generation")
+	evalBlend := fs.Float64("eval-blend", 0.4, "weight on the hand evaluation during the test match")
+	epochs := fs.Int("epochs", 6, "training epochs per generation")
 	// With Adam the update is lr * g / sqrt(v), which is order lr
 	// regardless of gradient scale, so this is much smaller than the
 	// plain-SGD rate it replaces.
-	lr := flag.Float64("lr", 0.001, "learning rate")
+	lr := fs.Float64("lr", 0.001, "learning rate")
 	// L2 weight decay. With 40,960 x hidden parameters and far fewer
 	// positions than that, the network memorises: generation 1 showed a
 	// training loss of 0.0017 against a held-out 0.0473, a 28x gap.
-	decay := flag.Float64("decay", 1e-4, "L2 weight decay on touched columns")
-	smoothing := flag.Float64("smooth", 0.05, "pull each square's weights toward its neighbours")
+	decay := fs.Float64("decay", 1e-4, "L2 weight decay on touched columns")
+	smoothing := fs.Float64("smooth", 0.05, "pull each square's weights toward its neighbours")
 	// "pawns" regresses directly on a pawn-valued target. "sigmoid" is
 	// what Stockfish does: the network outputs a score, the loss applies
 	// a sigmoid, and alpha-beta inverts it. The sigmoid version failed
@@ -715,12 +720,12 @@ func main() {
 	// single learning rate could not follow a gradient twenty times
 	// smaller. Adam rescales per parameter, which is exactly that
 	// problem, so it is worth retrying.
-	target := flag.String("target", "pawns", "training target: pawns | sigmoid")
+	target := fs.String("target", "pawns", "training target: pawns | sigmoid")
 	// How close the quiescence score must be to the static score for a
 	// position to count as quiet. Tighter means fewer positions but less
 	// tactical noise in the target, which a static evaluation cannot
 	// learn anyway.
-	quietTol := flag.Float64("quiet", 0.35, "pawns of allowed static/quiescence disagreement")
+	quietTol := fs.Float64("quiet", 0.35, "pawns of allowed static/quiescence disagreement")
 	// Where the training labels come from.
 	//
 	// "self" is a search by this engine, which is the classic bootstrap
@@ -733,38 +738,40 @@ func main() {
 	// *linear* model to Stockfish's *static* evaluation and removed the
 	// terms a shallow search depends on. This is a non-linear network
 	// learning search scores, which is what distillation normally means.
-	teacher := flag.String("teacher", "self", "label source: self | stockfish")
-	teacherDepth := flag.Int("teacher-depth", 10, "search depth for the teacher")
-	poolFile := flag.String("pool-file", "nnue_pool.bin", "append-only positions, reloaded on restart")
-	netFile := flag.String("net-file", "nnue_net.gob", "network and optimiser checkpoint")
-	fresh := flag.Bool("fresh", false, "ignore any checkpoint and start over")
-	freshPool := flag.Bool("fresh-pool", false, "discard stored positions too (fresh resets only the network)")
-	lambda := flag.Float64("lambda", 0.8, "weight on the search score against the game result")
-	k := flag.Float64("k", 0.30, "pawns-to-win-probability scale")
-	hidden := flag.Int("hidden", 32, "hidden units per perspective")
-	poolCap := flag.Int("pool", 3000000, "maximum positions kept")
-	maxPlies := flag.Int("max-plies", 160, "ply cap in self-play")
-	importPath := flag.String("import", "", "import the Lichess evaluation dump (JSONL, '-' for stdin) into the pool and exit")
-	importMax := flag.Int("import-max", 0, "stop after this many imported positions (0 = the whole stream)")
-	importQuiet := flag.Bool("import-quiet-filter", true, "keep only quiet positions when importing")
-	importResume := flag.Bool("import-resume", true, "skip records already imported into this pool")
-	extractOpenings := flag.String("extract-openings", "", "write an opening book of FENs from the dump named by -import and exit")
-	extractBook := flag.String("extract-book", "", "write a playable opening book of FEN|move lines from the dump and exit")
-	bookFromPGN := flag.String("book-from-pgn", "", "write an opening book of FEN|move lines from the moves played in the PGN named by -book-pgn, and exit")
-	bookPGN := flag.String("book-pgn", "-", "PGN source for -book-from-pgn; - reads stdin")
-	bookPlies := flag.Int("book-plies", 16, "record positions this many plies from the start")
-	bookMin := flag.Int("book-min", 20, "a move must have been played in at least this many games")
-	countPool := flag.String("count-pool", "", "print how many positions a pool file holds and exit")
-	emitCheck := flag.String("emit-eval-check", "", "write FENs, their HalfKP features and this engine's evaluation of them, for cross-checking a PyTorch export")
-	importPGNPath := flag.String("import-pgn", "", "import a PGN games file ('-' for stdin): moves and results only, labels computed here")
-	pgnSkipPlies := flag.Int("pgn-skip-plies", 8, "opening plies to skip when importing games")
-	labelChampion := flag.String("label-champion", "", "label positions with the champion described by this file, instead of the plain hand-written evaluation. This is what makes the bootstrap ladder climb.")
-	extractTuning := flag.String("extract-tuning", "", "write the dump as Texel tuning records and exit")
-	openingMinPieces := flag.Int("opening-min-pieces", 28, "pieces a position must still have to count as an opening")
-	openingMax := flag.Int("opening-max", 200000, "how many opening positions to write")
-	kingBuckets := flag.Int("king-buckets", 8, "king granularity in the feature set: 8 buckets or 32 canonical squares")
-	openingBook := flag.String("opening-book", "", "start each self-play game from a position in this book instead of ten random plies")
-	flag.Parse()
+	teacher := fs.String("teacher", "self", "label source: self | stockfish")
+	teacherDepth := fs.Int("teacher-depth", 10, "search depth for the teacher")
+	poolFile := fs.String("pool-file", "nnue_pool.bin", "append-only positions, reloaded on restart")
+	netFile := fs.String("net-file", "nnue_net.gob", "network and optimiser checkpoint")
+	fresh := fs.Bool("fresh", false, "ignore any checkpoint and start over")
+	freshPool := fs.Bool("fresh-pool", false, "discard stored positions too (fresh resets only the network)")
+	lambda := fs.Float64("lambda", 0.8, "weight on the search score against the game result")
+	k := fs.Float64("k", 0.30, "pawns-to-win-probability scale")
+	hidden := fs.Int("hidden", 32, "hidden units per perspective")
+	poolCap := fs.Int("pool", 3000000, "maximum positions kept")
+	maxPlies := fs.Int("max-plies", 160, "ply cap in self-play")
+	importPath := fs.String("import", "", "import the Lichess evaluation dump (JSONL, '-' for stdin) into the pool and exit")
+	importMax := fs.Int("import-max", 0, "stop after this many imported positions (0 = the whole stream)")
+	importQuiet := fs.Bool("import-quiet-filter", true, "keep only quiet positions when importing")
+	importResume := fs.Bool("import-resume", true, "skip records already imported into this pool")
+	extractOpenings := fs.String("extract-openings", "", "write an opening book of FENs from the dump named by -import and exit")
+	extractBook := fs.String("extract-book", "", "write a playable opening book of FEN|move lines from the dump and exit")
+	bookFromPGN := fs.String("book-from-pgn", "", "write an opening book of FEN|move lines from the moves played in the PGN named by -book-pgn, and exit")
+	bookPGN := fs.String("book-pgn", "-", "PGN source for -book-from-pgn; - reads stdin")
+	bookPlies := fs.Int("book-plies", 16, "record positions this many plies from the start")
+	bookMin := fs.Int("book-min", 20, "a move must have been played in at least this many games")
+	countPool := fs.String("count-pool", "", "print how many positions a pool file holds and exit")
+	emitCheck := fs.String("emit-eval-check", "", "write FENs, their HalfKP features and this engine's evaluation of them, for cross-checking a PyTorch export")
+	importPGNPath := fs.String("import-pgn", "", "import a PGN games file ('-' for stdin): moves and results only, labels computed here")
+	pgnSkipPlies := fs.Int("pgn-skip-plies", 8, "opening plies to skip when importing games")
+	labelChampion := fs.String("label-champion", "", "label positions with the champion described by this file, instead of the plain hand-written evaluation. This is what makes the bootstrap ladder climb.")
+	extractTuning := fs.String("extract-tuning", "", "write the dump as Texel tuning records and exit")
+	openingMinPieces := fs.Int("opening-min-pieces", 28, "pieces a position must still have to count as an opening")
+	openingMax := fs.Int("opening-max", 200000, "how many opening positions to write")
+	kingBuckets := fs.Int("king-buckets", 8, "king granularity in the feature set: 8 buckets or 32 canonical squares")
+	openingBook := fs.String("opening-book", "", "start each self-play game from a position in this book instead of ten random plies")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
 
 	if *bookFromPGN != "" {
 		var src io.Reader = os.Stdin
@@ -772,7 +779,7 @@ func main() {
 			f, err := os.Open(*bookPGN)
 			if err != nil {
 				fmt.Fprintln(os.Stderr, err)
-				os.Exit(1)
+				return 1
 			}
 			defer f.Close()
 			src = f
@@ -780,17 +787,17 @@ func main() {
 		out, err := os.Create(*bookFromPGN)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
+			return 1
 		}
 		n, err := BuildBookFromPGN(src, out, *bookPlies, *bookMin)
 		out.Close()
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
+			return 1
 		}
 		fmt.Printf("%s  wrote %d book positions to %s (plies <= %d, played in >= %d games)\n",
 			time.Now().Format("15:04:05"), n, *bookFromPGN, *bookPlies, *bookMin)
-		return
+		return 0
 	}
 
 	engine.FeatureKingBuckets = *kingBuckets
@@ -803,11 +810,11 @@ func main() {
 		b, err := LoadOpenings(*openingBook)
 		if err != nil {
 			fmt.Println("opening book:", err)
-			return
+			return 0
 		}
 		if len(b) == 0 {
 			fmt.Printf("opening book %s is empty\n", *openingBook)
-			return
+			return 0
 		}
 		openings = b
 		fmt.Printf("opening book: %d positions from %s\n", len(openings), *openingBook)
@@ -824,16 +831,16 @@ func main() {
 		p, err := loadPool(*countPool, 0)
 		if err != nil {
 			fmt.Println("count-pool:", err)
-			os.Exit(1)
+			return 1
 		}
 		fmt.Println(len(p))
-		return
+		return 0
 	}
 	if *emitCheck != "" {
 		if err := emitEvalCheck(*emitCheck, *netFile); err != nil {
 			fmt.Println("emit-eval-check:", err)
 		}
-		return
+		return 0
 	}
 	if *importPGNPath != "" {
 		src := os.Stdin
@@ -841,7 +848,7 @@ func main() {
 			f, err := os.Open(*importPGNPath)
 			if err != nil {
 				fmt.Println("import-pgn:", err)
-				return
+				return 0
 			}
 			defer f.Close()
 			src = f
@@ -856,7 +863,7 @@ func main() {
 				// loaded produces a rung identical to the previous one,
 				// and no number in the run would reveal it.
 				fmt.Printf("%s  refusing to label: %v\n", time.Now().Format("15:04:05"), err)
-				return
+				return 0
 			}
 			labeller = lp
 			labeller.Depth = *labelDepth
@@ -867,7 +874,7 @@ func main() {
 			*lambda, *quietTol, 10*time.Second, *importResume, labeller); err != nil {
 			fmt.Println("import-pgn:", err)
 		}
-		return
+		return 0
 	}
 	if *importPath != "" || *extractOpenings != "" || *extractBook != "" || *extractTuning != "" {
 		src := os.Stdin
@@ -875,7 +882,7 @@ func main() {
 			f, err := os.Open(*importPath)
 			if err != nil {
 				fmt.Println("import:", err)
-				return
+				return 0
 			}
 			defer f.Close()
 			src = f
@@ -884,24 +891,24 @@ func main() {
 			if err := ExtractTuning(src, *extractTuning, *openingMax, *importQuiet, *quietTol); err != nil {
 				fmt.Println("extract tuning:", err)
 			}
-			return
+			return 0
 		}
 		if *extractBook != "" {
 			if err := ExtractBook(src, *extractBook, *openingMax, *openingMinPieces); err != nil {
 				fmt.Println("extract book:", err)
 			}
-			return
+			return 0
 		}
 		if *extractOpenings != "" {
 			if err := ExtractOpenings(src, *extractOpenings, *openingMax, *openingMinPieces); err != nil {
 				fmt.Println("extract openings:", err)
 			}
-			return
+			return 0
 		}
 		if err := ImportLichess(src, *poolFile, *importMax, *quietTol, *importQuiet, *importResume); err != nil {
 			fmt.Println("import:", err)
 		}
-		return
+		return 0
 	}
 
 	useSigmoid := *target == "sigmoid"
@@ -916,7 +923,7 @@ func main() {
 			sf, err := engine.NewStockfish("/opt/homebrew/bin/stockfish", 20, 0)
 			if err != nil {
 				fmt.Println("stockfish:", err)
-				return
+				return 0
 			}
 			defer sf.Close()
 			teachers <- sf
@@ -1044,7 +1051,7 @@ func main() {
 			if len(pool) == 0 {
 				fmt.Printf("the pool is empty: check -pool-file, and note that -fresh " +
 					"resets the network only, not the positions\n")
-				return
+				return 0
 			}
 			continue
 		}
@@ -1233,6 +1240,7 @@ func main() {
 		}
 	}
 	writeJSON("nnue_status.json", map[string]any{"phase": "done", "cum_elo": cumElo})
+	return 0
 }
 
 var pieceCodes = map[board.PieceType]string{
