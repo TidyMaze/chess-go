@@ -528,3 +528,31 @@ Depth 8 is generating, four plies above play depth. If it also lands on
 zero, label depth is not the lever and the limit is elsewhere: capacity,
 volume, or the distillation ceiling that caps any network trained to
 predict its own teacher.
+
+### Depth 8, four plies above play depth: also nothing
+
+  depth 3 labels   79.8% explained   jump 0.438   reference     ~2000 pos/s
+  depth 5 labels   77.8% explained   jump 0.445   -21 +/- 22       186 pos/s
+  depth 8 labels   76.5% explained   jump 0.430   -15 +/- 22         4 pos/s
+
+Three arms, the same 60000 positions, the same recipe, 1000 games each at
+play depth 4. Every interval contains zero and none of them beats the
+cheapest arm. Labelling four plies deeper than the engine plays costs 500
+times more per position and buys nothing measurable.
+
+Worth noting against our own heuristic: depth 8 has the best smoothness of
+the three, 0.430, and still does not win. Smoothness predicted Elo well
+across earlier networks; at this scale it does not decide anything.
+
+The honest limit of this result. At 60000 positions all three networks are
+data-starved, and volume has already been shown to dominate here: 400k
+clean labels measured -61 against the champion where 7.5M mixed ones
+measured -20. So this cannot rule out that depth-8 labels pay off at a
+volume where the network is not starved. What it does settle is that they
+are unaffordable at that volume: matching the 7.5M corpus at 4 positions
+per second is about 21 days of labelling, against a few hours at depth 3.
+
+So the deeper-label idea for rescuing the ladder is not supported. The
+distillation ceiling stands: a network trained to predict its own teacher's
+score cannot pass the teacher, and changing how deep the teacher looks does
+not change that.
