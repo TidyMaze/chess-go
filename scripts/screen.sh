@@ -1,18 +1,26 @@
 #!/bin/bash
-# Screen one search feature quickly: the champion with the feature on
-# against the champion without it, both on a 200ms per-move clock, paired
-# openings. 400 games take about ten minutes and resolve +/- 34 Elo.
+# Screen one search feature: the champion with the feature on against the
+# champion without it, both on the same per-move clock, paired openings
+# with colours reversed. 400 games resolve +/- 34 Elo.
 #
-# Survivors go to the slow ruler (1s per move against Stockfish 2400,
-# 300 games, calibrate -levels 2400 -features X); nothing is adopted on
-# the screen alone.
+# Use the clock the engine plays on, which is the default here. A short
+# clock does not predict a long one and can invert the sign: reverse
+# futility measured +40 +/- 34 at 200ms and -1 +/- 34 at 1000ms over the
+# same 400 paired games, because at 200ms the engine is node-starved and
+# saving nodes pays, while at 1000ms the approximation costs what it
+# saves. Screening cheaply is a false economy when the answer changes.
+#
+# Calibration against Stockfish is for placing an adopted result on a
+# public scale, not for comparing two builds: two independent samples
+# against a third party have errors that add, and 600 such games resolved
+# only +/- 59 where 400 paired ones resolve +/- 34.
 #
 # Usage: scripts/screen.sh <feature[,feature]> [games] [ms]
 set -u
 cd "$(dirname "$0")/.." || exit 1
 FEATURE=${1:?feature name}
 GAMES=${2:-400}
-MS=${3:-200}
+MS=${3:-1000}
 REF=/tmp/champ_t${MS}.json
 python3 - "$MS" "$REF" <<'PY'
 import json, sys
