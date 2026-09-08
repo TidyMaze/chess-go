@@ -145,7 +145,7 @@ func main() {
 		for ply := 0; ply < *maxPlies && !g.IsOver(); ply++ {
 			myTurn := (g.Turn == board.White) == meIsWhite
 			if !myTurn {
-				m, ok := opp.BestMove(g, *oppDepth)
+				m, ok := opp.BestMove(g, *oppDepth, 0)
 				if !ok {
 					break
 				}
@@ -158,7 +158,7 @@ func main() {
 			if g.Turn == board.Black {
 				before = -before
 			}
-			best, _ := judge.BestMove(g, *judgeDepth)
+			best, _ := judge.BestMove(g, *judgeDepth, 0)
 
 			m, ok := engine.PlayerPick(me, g)
 			if !ok {

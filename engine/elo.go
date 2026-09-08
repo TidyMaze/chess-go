@@ -114,6 +114,9 @@ type Player struct {
 	// against this engine's own ancestors.
 	UCI      *UCIEngine
 	UCIDepth int
+	// UCIMoveTimeMS, when positive, gives the external engine a per-move
+	// clock instead of UCIDepth, so a timed match is timed on both sides.
+	UCIMoveTimeMS int
 }
 
 // withTable is the transposition table this player reuses for the whole
@@ -139,7 +142,7 @@ func (p Player) pickWith(g *game.Game, reuse *TranspositionTable) (game.Move, bo
 		if depth <= 0 {
 			depth = 1
 		}
-		return p.UCI.BestMove(g, depth)
+		return p.UCI.BestMove(g, depth, p.UCIMoveTimeMS)
 	}
 	if p.Random || p.Greedy {
 		moves := g.AllLegalMoves(g.Turn)

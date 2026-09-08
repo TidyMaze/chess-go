@@ -109,7 +109,9 @@ func main() {
 			if err != nil {
 				return engine.Player{}, func() {}, err
 			}
-			return engine.Player{Name: fmt.Sprintf("sf%d", lv.elo), UCI: sf, UCIDepth: lv.depth},
+			// Same clock on both sides when the champion plays under one.
+			return engine.Player{Name: fmt.Sprintf("sf%d", lv.elo), UCI: sf, UCIDepth: lv.depth,
+					UCIMoveTimeMS: int(me.TimeBudget / time.Millisecond)},
 				func() { sf.Close() }, nil
 		}, n, *maxMoves, *workers)
 	}

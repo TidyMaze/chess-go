@@ -88,7 +88,7 @@ func main() {
 	haveBest := make([]bool, len(games))
 	t0 := time.Now()
 	for i, g := range games {
-		best[i], haveBest[i] = sf.BestMove(g, *oracleDepth)
+		best[i], haveBest[i] = sf.BestMove(g, *oracleDepth, 0)
 	}
 	fmt.Printf("  done in %.0fs\n\n", time.Since(t0).Seconds())
 

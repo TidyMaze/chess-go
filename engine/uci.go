@@ -70,12 +70,21 @@ func (e *UCIEngine) waitFor(token string) string {
 }
 
 // BestMove asks the external engine for its move in the given position.
-func (e *UCIEngine) BestMove(g *game.Game, depth int) (game.Move, bool) {
+//
+// moveTimeMS, when positive, gives the engine a clock instead of a depth.
+// A timed calibration has to hand both sides a clock: our engine under a
+// budget against Stockfish at a fixed depth measures the budget, not the
+// engine.
+func (e *UCIEngine) BestMove(g *game.Game, depth, moveTimeMS int) (game.Move, bool) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
 	e.send("position fen " + g.FEN())
-	e.send(fmt.Sprintf("go depth %d", depth))
+	if moveTimeMS > 0 {
+		e.send(fmt.Sprintf("go movetime %d", moveTimeMS))
+	} else {
+		e.send(fmt.Sprintf("go depth %d", depth))
+	}
 	line := e.waitFor("bestmove")
 	fields := strings.Fields(line)
 	if len(fields) < 2 || fields[1] == "(none)" {
