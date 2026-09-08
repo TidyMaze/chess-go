@@ -195,7 +195,11 @@ func (c *searchCtx) scoreMove(g *game.Game, m game.Move, ttMove game.Move, ply i
 	if m == ttMove {
 		return 1 << 30
 	}
-	if victim, isCapture := g.Board.PieceAt(m.To); isCapture {
+	if isCaptureMove(g, m) {
+		victim, onSquare := g.Board.PieceAt(m.To)
+		if !onSquare {
+			victim = board.Piece{Type: board.Pawn} // en passant
+		}
 		attacker, _ := g.Board.PieceAt(m.From)
 		return 1<<20 + mvvLvaPiece[victim.Type]*100 - mvvLvaPiece[attacker.Type]
 	}
@@ -286,6 +290,9 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 	if ply < maxSearchPly {
 		c.path[ply] = key
 	}
+	if deadPosition(&g.Board) {
+		return 0
+	}
 	if tt != nil && depth > 0 {
 		if score, ok := tt.probe(key, depth, maximizingFor, alpha, beta); ok {
 			return score
@@ -305,7 +312,7 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 		if c.quiescence {
 			return quiesce(g, color, maximizingFor, alpha, beta, c.ev, 0)
 		}
-		return evalPosition(g, maximizingFor, c.ev)
+		return evalPositionFor(g, color, maximizingFor, c.ev)
 	}
 
 	maximizing := color == maximizingFor
@@ -336,7 +343,7 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 		alpha > negInf && beta < posInf &&
 		alpha > -mateBound && beta < mateBound
 	if futile {
-		staticEval = evalPosition(g, maximizingFor, c.ev)
+		staticEval = evalPositionFor(g, color, maximizingFor, c.ev)
 		margin := futilityMargin[depth]
 		if maximizing && staticEval-margin >= beta {
 			return staticEval - margin
@@ -377,6 +384,9 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 		}
 		score := c.searchNull(g, color.Other(), maximizingFor, depth-r, ply+1, alpha, beta, true)
 		g.Board.SetEPSquare(ep, hadEP)
+		if c.aborted {
+			return 0
+		}
 		if maximizing && score >= beta {
 			return score
 		}
@@ -394,20 +404,13 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 	bestMove := legal[0]
 
 	for i, m := range legal {
-		_, isCapture := g.Board.PieceAt(m.To)
+		isCapture := isCaptureMove(g, m)
 
 		// Make/unmake rather than copying the board into a child Game:
 		// this is the hot path, and the copy was the largest per-node cost
 		// left. Promotion is handled here because the board layer does not
 		// know the rule.
-		undo := g.Board.MakeMove(m.From, m.To)
-		promoted := false
-		if p, ok := g.Board.PieceAt(m.To); ok && p.Type == board.Pawn {
-			if (p.Color == board.White && m.To.Rank == 7) || (p.Color == board.Black && m.To.Rank == 0) {
-				g.Board.SetPiece(m.To, board.Piece{Color: p.Color, Type: board.Queen})
-				promoted = true
-			}
-		}
+		undo, promoted := makeSearchMove(g, m)
 		// Recurse on the same Game: search reads the board through g and
 		// takes the side to move as a parameter, so there is no need to
 		// build a child object at all.
@@ -489,6 +492,13 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 		}
 
 		g.Board.UnmakeMove(undo)
+		// An aborted child returned 0, not a score. Unwind without
+		// storing: the table is reused for the rest of the game, and a
+		// timed search that ran out of clock was leaving zeros in it for
+		// the next move to believe.
+		if c.aborted {
+			return 0
+		}
 
 		if maximizing {
 			if value > best {
@@ -626,12 +636,7 @@ func ChooseMoveIterativeTimed(g *game.Game, color board.Color, maxDepth int, ev 
 		ctx.orderMoves(g, ordered, best, 0, color)
 
 		for _, m := range ordered {
-			undo := g.Board.MakeMove(m.From, m.To)
-			if p, ok := g.Board.PieceAt(m.To); ok && p.Type == board.Pawn {
-				if (p.Color == board.White && m.To.Rank == 7) || (p.Color == board.Black && m.To.Rank == 0) {
-					g.Board.SetPiece(m.To, board.Piece{Color: p.Color, Type: board.Queen})
-				}
-			}
+			undo, _ := makeSearchMove(g, m)
 			score := ctx.search(g, color.Other(), color, depth-1, 1, alpha, beta)
 			g.Board.UnmakeMove(undo)
 			if score > bestScore {
@@ -712,4 +717,68 @@ func playedKeys(g *game.Game) map[uint64]int {
 		turn = turn.Other()
 	}
 	return out
+}
+
+// isCaptureMove reports whether m takes a piece, en passant included.
+//
+// Every pruning rule used to ask "is there a piece on the destination",
+// and for en passant there is not, so the one capture that removes a pawn
+// from a third square was quiet to the ordering, to futility pruning, to
+// reductions, and invisible to quiescence.
+func isCaptureMove(g *game.Game, m game.Move) bool {
+	if _, ok := g.Board.PieceAt(m.To); ok {
+		return true
+	}
+	if p, ok := g.Board.PieceAt(m.From); ok && p.Type == board.Pawn && m.From.File != m.To.File {
+		if ep, has := g.Board.EPSquare(); has && ep == m.To {
+			return true
+		}
+	}
+	return false
+}
+
+// pawnReachesLastRank reports whether m is a promotion.
+func pawnReachesLastRank(g *game.Game, m game.Move) bool {
+	p, ok := g.Board.PieceAt(m.From)
+	return ok && p.Type == board.Pawn && (m.To.Rank == 7 || m.To.Rank == 0)
+}
+
+// makeSearchMove plays m on the board and applies promotion, which the
+// board layer does not know. One copy of the rule: the main search, the
+// root and quiescence each had their own, and quiescence's had none.
+func makeSearchMove(g *game.Game, m game.Move) (board.Undo, bool) {
+	undo := g.Board.MakeMove(m.From, m.To)
+	if p, ok := g.Board.PieceAt(m.To); ok && p.Type == board.Pawn &&
+		((p.Color == board.White && m.To.Rank == 7) || (p.Color == board.Black && m.To.Rank == 0)) {
+		g.Board.SetPiece(m.To, board.Piece{Color: p.Color, Type: board.Queen})
+		return undo, true
+	}
+	return undo, false
+}
+
+// deadPosition reports a position no legal sequence can mate from: bare
+// kings, one minor piece, or bishops all on one colour. Scored as the
+// draw it is, where a bishop used to be worth three pawns and the search
+// steered into dead endings as though they were won.
+func deadPosition(b *board.Board) bool {
+	var buf [32]board.ColoredPiece
+	minors, bishopShade, sameShade := 0, -1, true
+	for _, p := range b.AppendAllPieces(buf[:0]) {
+		switch p.Type {
+		case board.Pawn, board.Rook, board.Queen:
+			return false
+		case board.Knight:
+			minors++
+			sameShade = false
+		case board.Bishop:
+			minors++
+			shade := (p.Sq.File + p.Sq.Rank) & 1
+			if bishopShade == -1 {
+				bishopShade = shade
+			} else if shade != bishopShade {
+				sameShade = false
+			}
+		}
+	}
+	return minors <= 1 || sameShade
 }

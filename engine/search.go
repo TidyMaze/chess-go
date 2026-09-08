@@ -188,7 +188,18 @@ const maxQuiescePly = 4
 
 func quiesce(g *game.Game, color, maximizingFor board.Color, alpha, beta float64, ev *Eval, ply int) float64 {
 	atomic.AddInt64(&quiesceNodes, 1)
-	standPat := evalPosition(g, maximizingFor, ev)
+	if deadPosition(&g.Board) {
+		return 0
+	}
+	// Terminal first. Quiescence used to stand pat in any position at all,
+	// so a capture that delivered mate was scored as the material it took
+	// and a stalemate as the material on the board.
+	var moveBuf [48]game.Move
+	legal, inCheck := g.AppendLegalMovesInCheck(moveBuf[:0], color)
+	if len(legal) == 0 {
+		return terminalScore(g, color, maximizingFor, 0)
+	}
+	standPat := evalPositionFor(g, color, maximizingFor, ev)
 	if ply >= ev.quiescePly() {
 		return standPat
 	}
@@ -196,7 +207,15 @@ func quiesce(g *game.Game, color, maximizingFor board.Color, alpha, beta float64
 
 	// Stand-pat: the side to move can decline to capture, so a quiet
 	// evaluation is a lower bound for the maximizer (upper for minimizer).
-	if maximizing {
+	// Not in check: a check cannot be declined, so every evasion is
+	// searched and the static score bounds nothing.
+	best := standPat
+	if inCheck {
+		best = negInf
+		if !maximizing {
+			best = posInf
+		}
+	} else if maximizing {
 		if standPat >= beta {
 			return standPat
 		}
@@ -212,24 +231,31 @@ func quiesce(g *game.Game, color, maximizingFor board.Color, alpha, beta float64
 		}
 	}
 
-	var moveBuf [48]game.Move
-	best := standPat
-	for _, m := range g.AppendLegalMoves(moveBuf[:0], color) {
-		victim, isCapture := g.Board.PieceAt(m.To)
-		if !isCapture {
+	for _, m := range legal {
+		isCapture := isCaptureMove(g, m)
+		promotes := pawnReachesLastRank(g, m)
+		if !inCheck && !isCapture && !promotes {
 			continue
 		}
 		// Static exchange pruning: skip captures that lose material on
 		// their face (a big attacker taking a small defended victim).
-		// Quiescence otherwise searches every capture, including plainly
-		// losing ones, which is where its node count explodes.
-		if ev.useSEEPruning() {
-			attacker, _ := g.Board.PieceAt(m.From)
-			if mvvLvaPiece[attacker.Type] > mvvLvaPiece[victim.Type] && moves.IsAttackedBy(&g.Board, m.To, color.Other()) {
-				continue
+		// Never a checking capture: Qxf7 mate is a queen taking a defended
+		// pawn, and it was being pruned as one.
+		losesOnItsFace := false
+		if !inCheck && isCapture && !promotes && ev.useSEEPruning() {
+			victim, onSquare := g.Board.PieceAt(m.To)
+			if !onSquare {
+				victim = board.Piece{Type: board.Pawn}
 			}
+			attacker, _ := g.Board.PieceAt(m.From)
+			losesOnItsFace = mvvLvaPiece[attacker.Type] > mvvLvaPiece[victim.Type] &&
+				moves.IsAttackedBy(&g.Board, m.To, color.Other())
 		}
-		undo := g.Board.MakeMove(m.From, m.To)
+		undo, _ := makeSearchMove(g, m)
+		if losesOnItsFace && !moves.IsInCheck(&g.Board, color.Other()) {
+			g.Board.UnmakeMove(undo)
+			continue
+		}
 		value := quiesce(g, color.Other(), maximizingFor, alpha, beta, ev, ply+1)
 		g.Board.UnmakeMove(undo)
 		if maximizing {

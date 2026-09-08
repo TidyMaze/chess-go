@@ -591,3 +591,15 @@ func evalPosition(g *game.Game, maximizingFor board.Color, ev *Eval) float64 {
 	}
 	return PositionScoreEval(&g.Board, maximizingFor, ev)
 }
+
+// evalPositionFor is evalPosition told which side is to move, for the
+// search, which makes moves on the board without touching g.Turn.
+//
+// g.Turn is the root's side for the whole tree, so anything that reads
+// it (today the tablebase probe) saw the wrong colour on every odd ply.
+func evalPositionFor(g *game.Game, sideToMove, maximizingFor board.Color, ev *Eval) float64 {
+	if ev != nil {
+		ev.STM = sideToMove
+	}
+	return PositionScoreEval(&g.Board, maximizingFor, ev)
+}
