@@ -651,20 +651,10 @@ func PlayerScoreWith(p Player, g *game.Game, reuse *TranspositionTable) (float64
 // itself. Training it on the full score makes the engine count the
 // evaluation twice.
 func PlayerStaticEval(p Player, b *board.Board) float64 {
-	ev := &Eval{Weights: p.Weights, UsePST: p.UsePST, MaterialOnly: p.MaterialOnly,
-		Tapered: p.Tapered, Structure: p.Structure, Mobility: p.Mobility,
-		KingSafety: p.KingSafety, Net: p.Net, HalfKP: p.HalfKP}
-	if p.Tuned {
-		if p.Weights == nil {
-			ev.Weights = TunedWeights()
-		}
-		scale := TunedPSTScale()
-		sw := TunedStructure()
-		mob := TunedMobility()
-		ev.PSTScale, ev.StructureW = &scale, &sw
-		ev.Mobility, ev.MobilityW = true, &mob
-	}
-	return PositionScoreEval(b, board.White, ev)
+	// The same constructor the search uses, so every evaluation setting a
+	// player carries (extras, shape terms, tuned weights, the blend) shows
+	// up here too. A hand-built list here had already drifted from it.
+	return PositionScoreEval(b, board.White, evalForPlayer(p))
 }
 
 // QuiescenceScore is the position's score after resolving captures, from
