@@ -194,7 +194,7 @@ func quiesce(g *game.Game, color, maximizingFor board.Color, alpha, beta float64
 	// Terminal first. Quiescence used to stand pat in any position at all,
 	// so a capture that delivered mate was scored as the material it took
 	// and a stalemate as the material on the board.
-	var moveBuf [48]game.Move
+	var moveBuf [96]game.Move
 	legal, inCheck := g.AppendLegalMovesInCheck(moveBuf[:0], color)
 	if len(legal) == 0 {
 		return terminalScore(g, color, maximizingFor, 0)

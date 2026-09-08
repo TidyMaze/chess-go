@@ -218,7 +218,14 @@ func (c *searchCtx) orderMoves(g *game.Game, ms []game.Move, ttMove game.Move, p
 	// Insertion sort by descending score: move lists are short (tens of
 	// entries), so this beats a general sort with its allocation and
 	// comparator indirection.
-	scores := make([]int, len(ms))
+	// On the stack for any realistic move list; a fresh slice per node
+	// was 8% of all bytes allocated.
+	var scoreBuf [96]int
+	scores := scoreBuf[:0]
+	if len(ms) > len(scoreBuf) {
+		scores = make([]int, 0, len(ms))
+	}
+	scores = scores[:len(ms)]
 	for i, m := range ms {
 		scores[i] = c.scoreMove(g, m, ttMove, ply, color)
 	}
@@ -303,7 +310,10 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 	}
 	origAlpha, origBeta := alpha, beta
 
-	var moveBuf [64]game.Move
+	// 96, not 64: a middlegame with the queens out has 50 to 60 legal
+	// moves, and every position past the buffer's capacity reallocated
+	// on the heap. The allocation profile put 48% of all bytes there.
+	var moveBuf [96]game.Move
 	legal, inCheck := g.AppendLegalMovesInCheck(moveBuf[:0], color)
 	if len(legal) == 0 {
 		return terminalScore(g, color, maximizingFor, depth)
