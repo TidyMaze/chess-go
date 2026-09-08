@@ -175,6 +175,11 @@ func (c *searchCtx) isRepetition(key uint64, ply int) bool {
 
 func sqIndex(s board.Sq) int { return s.Rank*8 + s.File }
 
+// isKiller reports whether m is one of this ply's killer moves.
+func (c *searchCtx) isKiller(ply int, m game.Move) bool {
+	return ply < maxSearchPly && (c.killers[ply][0] == m || c.killers[ply][1] == m)
+}
+
 func (c *searchCtx) recordKiller(ply int, m game.Move) {
 	if ply >= maxSearchPly {
 		return
@@ -430,9 +435,18 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 		// takes the side to move as a parameter, so there is no need to
 		// build a child object at all.
 
+		lmp := c.ev != nil && c.ev.LMP && beta-alpha <= 1e-6
 		givesCheck := false
-		if c.extensions || futile {
+		if c.extensions || futile || lmp {
 			givesCheck = moves.IsInCheck(&g.Board, color.Other())
+		}
+
+		// Late move pruning, at zero-window nodes only: the ordering has
+		// put this quiet move far down the list at a depth where even a
+		// reduced search of it is not worth the nodes.
+		if lmp && i > 0 && lateMovePruned(depth, i, false, inCheck, isCapture, promoted, givesCheck, c.isKiller(ply, m)) {
+			g.Board.UnmakeMove(undo)
+			continue
 		}
 
 		// Forward futility: a quiet, non-checking, non-promoting move this
@@ -816,4 +830,25 @@ func deadPosition(b *board.Board) bool {
 		}
 	}
 	return minors <= 1 || sameShade
+}
+
+// lateMovePruned reports whether a quiet move this late in the list, at
+// this depth, is not worth searching at all.
+//
+// Late move reductions look at such moves shallower; this stops looking.
+// The threshold is Stockfish's: (3 + depth^2) / (2 - improving) moves,
+// so at depth 3 the seventh quiet move is the first to go and at depth 5
+// the fifteenth. Never a capture, a promotion, a check, a killer, or any
+// move while in check, since those are exactly the moves the ordering
+// cannot vouch for, and never past depth 5, where a pruned move's
+// subtree would have been large enough to matter.
+func lateMovePruned(depth, moveIndex int, improving, inCheck, isCapture, promoted, givesCheck, isKiller bool) bool {
+	if depth > 5 || inCheck || isCapture || promoted || givesCheck || isKiller {
+		return false
+	}
+	div := 2
+	if improving {
+		div = 1
+	}
+	return moveIndex >= (3+depth*depth)/div
 }

@@ -73,6 +73,9 @@ type Player struct {
 	NoCastle bool
 	// NoLMR disables late move reductions.
 	NoLMR bool
+	// LMP enables late move pruning: quiet moves past a depth-dependent
+	// count are not searched at all.
+	LMP bool
 	// ScaledLMR scales the reduction with depth and move number.
 	ScaledLMR bool
 	// NoRepetition disables repetition detection. Measurement only.
@@ -572,7 +575,7 @@ func evalForPlayer(p Player) *Eval {
 		Structure: p.Structure, Futility: p.Futility, Mobility: p.Mobility,
 		KingSafety: p.KingSafety, Net: p.Net, HalfKP: p.HalfKP,
 		HalfKPBlend: p.HalfKPBlend, Tablebases: p.Tablebases,
-		NoCastle: p.NoCastle, NoLMR: p.NoLMR, ScaledLMR: p.ScaledLMR,
+		NoCastle: p.NoCastle, NoLMR: p.NoLMR, ScaledLMR: p.ScaledLMR, LMP: p.LMP,
 		NoRepetition: p.NoRepetition, KeepNullMoveEP: p.KeepNullMoveEP,
 		NullReduction: p.NullReduction, NullScale: p.NullScale,
 		Extras: p.Extras, Shape: p.Shape, ShapeW: p.ShapeW,

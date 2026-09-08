@@ -16,6 +16,8 @@ import (
 	"os"
 	"runtime"
 	"sort"
+	"strconv"
+	"strings"
 	"time"
 
 	"chess/engine"
@@ -39,6 +41,8 @@ func main() {
 	out := flag.String("out", "", "append the result to this JSON file")
 	workers := flag.Int("workers", runtime.NumCPU(), "games played in parallel")
 	probe := flag.Int("probe", 8, "games per level in the first pass")
+	features := flag.String("features", "", "comma-separated search features to switch on for the engine under test: lmp")
+	only := flag.String("levels", "", "comma-separated Stockfish Elo levels to play; empty means the whole ladder. One level skips the probe pass and plays -games there")
 	flag.Parse()
 
 	// Every milestone has to be measured on the same Stockfish scale for the
@@ -71,6 +75,17 @@ func main() {
 		fmt.Printf("calibrating the champion: %s (claimed %.0f Elo)\n", c.Label, c.Elo)
 	}
 
+	for _, f := range strings.Split(*features, ",") {
+		switch strings.TrimSpace(f) {
+		case "":
+		case "lmp":
+			me.LMP = true
+		default:
+			fmt.Printf("unknown feature %q\n", f)
+			return
+		}
+	}
+
 	switch *config {
 	case "champion": // already built above
 	case "base": // Go port as first completed: PST, quiescence, TT, null-move, tapered, ID.
@@ -92,6 +107,29 @@ func main() {
 	levels := []level{
 		{1600, 3, 4}, {1800, 5, 5}, {2000, 8, 6}, {2200, 11, 7}, {2400, 14, 8},
 		{2600, 17, 9}, {2800, 19, 10}, {3000, 20, 11},
+	}
+
+	if *only != "" {
+		want := map[int]bool{}
+		for _, f := range strings.Split(*only, ",") {
+			n, err := strconv.Atoi(strings.TrimSpace(f))
+			if err != nil {
+				fmt.Println("bad -levels:", err)
+				return
+			}
+			want[n] = true
+		}
+		kept := levels[:0]
+		for _, lv := range levels {
+			if want[lv.elo] {
+				kept = append(kept, lv)
+			}
+		}
+		levels = kept
+		if len(levels) == 1 {
+			// A single profile: no probe, every game counts, one line out.
+			*probe = *games
+		}
 	}
 
 	type estimate struct {

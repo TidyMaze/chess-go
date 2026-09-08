@@ -156,6 +156,8 @@ type Eval struct {
 	// is good enough that anything after the first few is not worth full
 	// depth, which is a much bigger assumption at depth 4 than at 20.
 	NoLMR bool
+	// LMP enables late move pruning in the search.
+	LMP bool
 	// ScaledLMR reduces more with depth and move number instead of a flat
 	// one ply.
 	ScaledLMR bool
