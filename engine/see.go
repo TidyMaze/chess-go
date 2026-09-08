@@ -53,10 +53,10 @@ func see(b *board.Board, m game.Move) int {
 		sim.Place(m.To, board.Piece{Color: side, Type: typ})
 		side = side.Other()
 	}
+	// Each side may stop the sequence, so a capture is worth the better
+	// of stopping and continuing: gain[d-1] = -max(-gain[d-1], gain[d]).
 	for ; d > 0; d-- {
-		if -gain[d-1] > gain[d] {
-			gain[d-1] = gain[d-1]
-		} else {
+		if gain[d] > -gain[d-1] {
 			gain[d-1] = -gain[d]
 		}
 	}
