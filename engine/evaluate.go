@@ -218,6 +218,11 @@ type Eval struct {
 	// threshold misfire. Blending keeps the smooth backbone and scales
 	// the network's noise by (1 - blend).
 	HalfKPBlend float64
+	// acc is the search's per-ply accumulator stack, accCur the slot for
+	// the node being evaluated. Unset outside the search.
+	acc      *[accSlots]halfKPAcc
+	accCur   *halfKPAcc
+	accStats halfKPAccStats
 	// Net replaces the hand-written evaluation with a trained network.
 	// When set, the material, table and structure terms are not used at
 	// all: the network was fitted to the same target they were and is a
@@ -250,6 +255,31 @@ func (e *Eval) quiescePly() int {
 }
 
 func (e *Eval) useNullMove() bool { return e != nil && e.NullMove }
+
+// halfKPScore is the network's score, from the search's per-ply
+// accumulator when one is current and valid, else recomputed.
+func (e *Eval) halfKPScore(b *board.Board) float64 {
+	if e.accCur != nil && e.accCur.valid {
+		return e.HalfKP.output(e.accCur)
+	}
+	return e.HalfKP.Evaluate(b)
+}
+
+// setAccPly makes ply's slot current, refreshing it from the parent's.
+// A no-op without a stack, so callers outside the search evaluate in
+// full as before.
+func (e *Eval) setAccPly(b *board.Board, ply int) {
+	if e == nil || e.acc == nil || e.HalfKP == nil || ply < 0 || ply >= accSlots {
+		return
+	}
+	self := &e.acc[ply]
+	var parent *halfKPAcc
+	if ply > 0 {
+		parent = &e.acc[ply-1]
+	}
+	e.HalfKP.refresh(b, self, parent, &e.accStats)
+	e.accCur = self
+}
 
 func (e *Eval) table() *TranspositionTable {
 	if e == nil {
@@ -301,7 +331,7 @@ func PositionScore(b *board.Board, color board.Color, weights Weights) float64 {
 // used in play.
 func positionScoreEvalReference(b *board.Board, color board.Color, ev *Eval) float64 {
 	if ev != nil && ev.HalfKP != nil {
-		score := ev.HalfKP.Evaluate(b)
+		score := ev.halfKPScore(b)
 		if color == board.Black {
 			score = -score
 		}
@@ -415,7 +445,7 @@ func PositionScoreEval(b *board.Board, color board.Color, ev *Eval) float64 {
 		}
 	}
 	if ev != nil && ev.HalfKP != nil {
-		score := ev.HalfKP.Evaluate(b)
+		score := ev.halfKPScore(b)
 		if color == board.Black {
 			score = -score
 		}

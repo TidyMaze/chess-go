@@ -354,3 +354,152 @@ func (n *HalfKPNet) Save(path string) error {
 	}
 	return os.WriteFile(path, data, 0644)
 }
+
+// halfKPAcc is one ply's accumulator state, kept by the search so a child
+// can be derived from its parent instead of recomputed.
+//
+// This is the trick that makes NNUE affordable. A move changes two to
+// four of the thirty-odd active features per perspective; recomputing
+// every row per node was 21% of the engine's CPU.
+type halfKPAcc struct {
+	valid bool
+	nfeat [2]int
+	feat  [2][32]int32
+	acc   [2][maxHalfKPHidden]float32
+}
+
+// halfKPAccStats counts how the accumulator was obtained.
+type halfKPAccStats struct{ incremental, full int }
+
+// accSlots is one per search ply plus room for quiescence below it.
+const accSlots = maxSearchPly + 48
+
+// refresh makes self valid for b: derived from parent by applying only
+// the rows whose feature changed when parent is valid, else in full.
+// Networks wider than the stack bound leave self invalid and evaluate
+// the slow way.
+func (n *HalfKPNet) refresh(b *board.Board, self, parent *halfKPAcc, st *halfKPAccStats) {
+	self.valid = false
+	if n == nil || n.H == 0 || n.H > maxHalfKPHidden || len(n.W1) != HalfKPInputsFor(n.buckets())*n.H {
+		return
+	}
+	h := n.H
+	for side, persp := range [2]board.Color{board.White, board.Black} {
+		fs := AppendHalfKPFeaturesN(self.feat[side][:0], b, persp, n.buckets())
+		self.nfeat[side] = len(fs)
+		sortInt32(fs)
+	}
+	if parent != nil && parent.valid {
+		for side := 0; side < 2; side++ {
+			a := self.acc[side][:h]
+			copy(a, parent.acc[side][:h])
+			pf := parent.feat[side][:parent.nfeat[side]]
+			cf := self.feat[side][:self.nfeat[side]]
+			i, j := 0, 0
+			for i < len(pf) || j < len(cf) {
+				switch {
+				case j >= len(cf) || (i < len(pf) && pf[i] < cf[j]):
+					n.addRow(a, pf[i], -1)
+					i++
+				case i >= len(pf) || cf[j] < pf[i]:
+					n.addRow(a, cf[j], 1)
+					j++
+				default:
+					i++
+					j++
+				}
+			}
+		}
+		if st != nil {
+			st.incremental++
+		}
+	} else {
+		for side := 0; side < 2; side++ {
+			a := self.acc[side][:h]
+			copy(a, n.B1)
+			for _, f := range self.feat[side][:self.nfeat[side]] {
+				n.addRow(a, f, 1)
+			}
+		}
+		if st != nil {
+			st.full++
+		}
+	}
+	self.valid = true
+}
+
+// addRow adds (sign +1) or subtracts (sign -1) one feature's first-layer
+// row into a, unrolled by eight like Evaluate's loop.
+func (n *HalfKPNet) addRow(a []float32, f int32, sign float32) {
+	h := n.H
+	col := int(f) * h
+	w := n.W1[col : col+h : col+h]
+	a = a[:h:h]
+	i := 0
+	for ; i+8 <= h; i += 8 {
+		a8 := a[i : i+8 : i+8]
+		w8 := w[i : i+8 : i+8]
+		a8[0] += sign * w8[0]
+		a8[1] += sign * w8[1]
+		a8[2] += sign * w8[2]
+		a8[3] += sign * w8[3]
+		a8[4] += sign * w8[4]
+		a8[5] += sign * w8[5]
+		a8[6] += sign * w8[6]
+		a8[7] += sign * w8[7]
+	}
+	for ; i < h; i++ {
+		a[i] += sign * w[i]
+	}
+}
+
+// output is the second layer applied to a valid accumulator.
+func (n *HalfKPNet) output(acc *halfKPAcc) float64 {
+	h := n.H
+	out := n.B2
+	for side := 0; side < 2; side++ {
+		a := acc.acc[side][:h]
+		w := n.W2[side*h : side*h+h]
+		for i := 0; i < h; i++ {
+			v := a[i]
+			if v < 0 {
+				v = 0
+			} else if v > 1 {
+				v = 1
+			}
+			out += w[i] * v
+		}
+	}
+	if n.Sigmoid {
+		k := n.K
+		if k == 0 {
+			k = 0.30
+		}
+		return probabilityToPawns(float64(out), k)
+	}
+	return float64(out * n.Scale)
+}
+
+// EvaluateWith is Evaluate with the accumulator taken from, and left in,
+// self, derived from parent when parent is valid.
+func (n *HalfKPNet) EvaluateWith(b *board.Board, self, parent *halfKPAcc, st *halfKPAccStats) float64 {
+	if !self.valid {
+		n.refresh(b, self, parent, st)
+	}
+	if !self.valid {
+		return n.Evaluate(b)
+	}
+	return n.output(self)
+}
+
+func sortInt32(a []int32) {
+	for i := 1; i < len(a); i++ {
+		v := a[i]
+		j := i - 1
+		for j >= 0 && a[j] > v {
+			a[j+1] = a[j]
+			j--
+		}
+		a[j+1] = v
+	}
+}

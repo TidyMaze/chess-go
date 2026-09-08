@@ -667,7 +667,7 @@ func QuiescenceScore(p Player, g *game.Game) float64 {
 		QuiescePly: p.QuiescePly, Tapered: p.Tapered, SEEPruning: p.SEEPruning,
 		Structure: p.Structure, Mobility: p.Mobility, KingSafety: p.KingSafety,
 		Net: p.Net}
-	return quiesce(g, g.Turn, g.Turn, negInf, posInf, ev, 0)
+	return quiesce(g, g.Turn, g.Turn, negInf, posInf, ev, 0, 0)
 }
 
 // Strong is the engine's standard configuration, in one place.

@@ -157,6 +157,7 @@ type searchCtx struct {
 	// position ran for minutes inside a 32 ms budget.
 	deadline time.Time
 	aborted  bool
+	acc      [accSlots]halfKPAcc
 }
 
 // isRepetition reports whether this position already appears on the
@@ -300,6 +301,8 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 	if deadPosition(&g.Board) {
 		return 0
 	}
+	// The network accumulator for this node, derived from the parent's.
+	c.ev.setAccPly(&g.Board, ply)
 	if tt != nil && depth > 0 {
 		if score, ok := tt.probe(key, depth, maximizingFor, alpha, beta); ok {
 			return score
@@ -320,7 +323,7 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 	}
 	if depth <= 0 {
 		if c.quiescence {
-			return quiesce(g, color, maximizingFor, alpha, beta, c.ev, 0)
+			return quiesce(g, color, maximizingFor, alpha, beta, c.ev, 0, ply)
 		}
 		return evalPositionFor(g, color, maximizingFor, c.ev)
 	}
@@ -591,6 +594,8 @@ func ChooseMoveIterativeTimed(g *game.Game, color board.Color, maxDepth int, ev 
 	defer searchCtxPool.Put(ctx)
 	ctx.reset()
 	ctx.ev, ctx.quiescence, ctx.extensions = ev, useQuiescence, ev.Extensions
+	ctx.ev.acc = &ctx.acc
+	ctx.acc[0].valid = false
 	if budget > 0 {
 		// A little past the budget, so the in-search abort is a backstop
 		// for the between-iteration check rather than the usual path: an

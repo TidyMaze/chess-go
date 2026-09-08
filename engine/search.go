@@ -102,7 +102,7 @@ func minimaxOpts(g *game.Game, color, maximizingFor board.Color, depth int, alph
 	}
 	if depth == 0 {
 		if useQuiescence {
-			return quiesce(g, color, maximizingFor, alpha, beta, ev, 0)
+			return quiesce(g, color, maximizingFor, alpha, beta, ev, 0, 0)
 		}
 		return evalPosition(g, maximizingFor, ev)
 	}
@@ -186,11 +186,14 @@ const posInf = 1e18
 // rare, and an unbounded extension can blow up the node count.
 const maxQuiescePly = 4
 
-func quiesce(g *game.Game, color, maximizingFor board.Color, alpha, beta float64, ev *Eval, ply int) float64 {
+// basePly is the search ply of the node quiescence started from, so the
+// accumulator stack keeps counting below it.
+func quiesce(g *game.Game, color, maximizingFor board.Color, alpha, beta float64, ev *Eval, ply, basePly int) float64 {
 	atomic.AddInt64(&quiesceNodes, 1)
 	if deadPosition(&g.Board) {
 		return 0
 	}
+	ev.setAccPly(&g.Board, basePly+ply+1)
 	// Terminal first. Quiescence used to stand pat in any position at all,
 	// so a capture that delivered mate was scored as the material it took
 	// and a stalemate as the material on the board.
@@ -256,7 +259,7 @@ func quiesce(g *game.Game, color, maximizingFor board.Color, alpha, beta float64
 			g.Board.UnmakeMove(undo)
 			continue
 		}
-		value := quiesce(g, color.Other(), maximizingFor, alpha, beta, ev, ply+1)
+		value := quiesce(g, color.Other(), maximizingFor, alpha, beta, ev, ply+1, basePly)
 		g.Board.UnmakeMove(undo)
 		if maximizing {
 			if value > best {

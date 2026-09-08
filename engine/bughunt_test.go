@@ -32,7 +32,7 @@ func TestQuiescenceSeesEnPassant(t *testing.T) {
 	g := mustFEN(t, "4k3/8/8/3pP3/8/8/8/4K3 w - d6 0 2")
 	ev := plainEval(false)
 	static := evalPosition(g, board.White, ev)
-	q := quiesce(g, board.White, board.White, negInf, posInf, ev, 0)
+	q := quiesce(g, board.White, board.White, negInf, posInf, ev, 0, 0)
 	if q < static+0.5 {
 		t.Errorf("exd6 wins a pawn en passant, but quiescence returned %.3f against a "+
 			"static %.3f: it never saw the capture", q, static)
@@ -45,12 +45,12 @@ func TestQuiescenceRecognisesMateAndStalemate(t *testing.T) {
 	const mateBound = mateScore - maxSearchPly
 	// Qxf7# is a capture, so quiescence reaches the mated position itself.
 	g := mustFEN(t, "r1bqkb1r/pppp1ppp/2n2n2/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR w KQkq - 4 4")
-	if q := quiesce(g, board.White, board.White, negInf, posInf, plainEval(false), 0); q < mateBound {
+	if q := quiesce(g, board.White, board.White, negInf, posInf, plainEval(false), 0, 0); q < mateBound {
 		t.Errorf("Qxf7 is mate and quiescence scored it %.3f", q)
 	}
 	// Black to move, stalemated: the score is 0, not the material count.
 	s := mustFEN(t, "7k/5Q2/6K1/8/8/8/8/8 b - - 0 1")
-	if q := quiesce(s, board.Black, board.White, negInf, posInf, plainEval(false), 0); math.Abs(q) > 1e-9 {
+	if q := quiesce(s, board.Black, board.White, negInf, posInf, plainEval(false), 0, 0); math.Abs(q) > 1e-9 {
 		t.Errorf("stalemate scored %.3f from quiescence, want 0", q)
 	}
 }
@@ -62,7 +62,7 @@ func TestQuiescencePromotesOnCapture(t *testing.T) {
 	g := mustFEN(t, "3r3k/4P3/8/8/8/8/8/K7 w - - 0 1")
 	ev := plainEval(false)
 	static := evalPosition(g, board.White, ev)
-	q := quiesce(g, board.White, board.White, negInf, posInf, ev, 0)
+	q := quiesce(g, board.White, board.White, negInf, posInf, ev, 0, 0)
 	// Pawn for rook is about -4; queen against nothing about +9.
 	if q < static+10 {
 		t.Errorf("exd8 wins a rook and makes a queen: quiescence %.3f, static %.3f, "+
@@ -76,7 +76,7 @@ func TestQuiescenceConsidersQuietPromotion(t *testing.T) {
 	g := mustFEN(t, "7k/4P3/8/8/8/8/8/K7 w - - 0 1")
 	ev := plainEval(false)
 	static := evalPosition(g, board.White, ev)
-	q := quiesce(g, board.White, board.White, negInf, posInf, ev, 0)
+	q := quiesce(g, board.White, board.White, negInf, posInf, ev, 0, 0)
 	if q < static+6 {
 		t.Errorf("e8=Q is available: quiescence %.3f, static %.3f", q, static)
 	}
@@ -87,7 +87,7 @@ func TestQuiescenceConsidersQuietPromotion(t *testing.T) {
 func TestSEEPruningKeepsCheckingCaptures(t *testing.T) {
 	const mateBound = mateScore - maxSearchPly
 	g := mustFEN(t, "r1bqkb1r/pppp1ppp/2n2n2/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR w KQkq - 4 4")
-	if q := quiesce(g, board.White, board.White, negInf, posInf, plainEval(true), 0); q < mateBound {
+	if q := quiesce(g, board.White, board.White, negInf, posInf, plainEval(true), 0, 0); q < mateBound {
 		t.Errorf("with SEE pruning on, Qxf7# scored %.3f: the mating capture was pruned", q)
 	}
 }
