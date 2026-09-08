@@ -599,14 +599,20 @@ func ChooseMoveIterativeTimed(g *game.Game, color board.Color, maxDepth int, ev 
 	ctx.ev.acc = &ctx.acc
 	ctx.acc[0].valid = false
 	if budget > 0 {
-		// A little past the budget, so the in-search abort is a backstop
-		// for the between-iteration check rather than the usual path: an
-		// iteration abandoned halfway is wasted work.
-		ctx.deadline = time.Now().Add(budget * 3 / 2)
+		// Five percent past the budget, hard. The between-iteration check
+		// below deliberately starts iterations that may not finish, so
+		// this abort is the usual way a move ends, not a backstop; an
+		// aborted iteration is discarded and costs nothing now that its
+		// parents no longer store half-finished scores.
+		ctx.deadline = time.Now().Add(budget * 21 / 20)
 	}
 	ctx.played = playedKeys(g)
 	ctx.path[0] = zobristHash(g)
-	defer func() { atomic.StoreInt64(&lastSearchNodes, int64(ctx.nodes)) }()
+	completed := 0
+	defer func() {
+		atomic.StoreInt64(&lastSearchNodes, int64(ctx.nodes))
+		atomic.StoreInt64(&lastSearchDepth, int64(completed))
+	}()
 
 	best := legal[0]
 	prevScore := 0.0
@@ -624,11 +630,15 @@ func ChooseMoveIterativeTimed(g *game.Game, color board.Color, maxDepth int, ev 
 			if elapsed >= budget {
 				break
 			}
-			// Otherwise predict the next iteration from the last one and
-			// stop if it would not fit. Three times is the measured
-			// branching factor of this search, which runs 1.9 to 4.6 per
-			// ply depending on the position.
-			if elapsed+lastIter*3 > budget {
+			// Start another iteration while under 55% of the budget, or
+			// whenever twice the last iteration still fits. The old rule
+			// demanded three times the last iteration, and at 1s per move
+			// that stopped at 37-59% of the clock, reaching the depth a
+			// fixed depth 6 reaches anyway: the clock was buying nothing.
+			// An iteration that does not finish is abandoned at the hard
+			// deadline and the previous one's move stands, so starting
+			// optimistically only ever costs idle time.
+			if elapsed >= budget*55/100 && elapsed+lastIter*2 > budget {
 				break
 			}
 		}
@@ -677,6 +687,7 @@ func ChooseMoveIterativeTimed(g *game.Game, color board.Color, maxDepth int, ev 
 			break
 		}
 		prevScore = bestScore
+		completed = depth
 		lastIter = time.Since(iterStart)
 
 		if len(tied) > 1 {
@@ -702,6 +713,13 @@ func ChooseMoveIterativeTimed(g *game.Game, color board.Color, maxDepth int, ev 
 
 // TotalNodes reports nodes visited by the most recent search, including
 // quiescence nodes.
+// lastSearchDepth is the deepest iteration the most recent move choice
+// completed, for seeing what a time budget actually buys.
+var lastSearchDepth int64
+
+// LastSearchDepth reports it.
+func LastSearchDepth() int { return int(atomic.LoadInt64(&lastSearchDepth)) }
+
 func TotalNodes() int {
 	return int(atomic.LoadInt64(&lastSearchNodes) + atomic.LoadInt64(&quiesceNodes))
 }

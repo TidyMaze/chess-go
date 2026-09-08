@@ -1,0 +1,93 @@
+package engine
+
+import (
+	"os"
+	"testing"
+	"time"
+
+	"chess/game"
+)
+
+func TestLastSearchDepthReportsTheCompletedIteration(t *testing.T) {
+	g, _ := game.ParseFEN("r1bq1rk1/pp2bppp/2n1pn2/3p4/3P4/2NBPN2/PP3PPP/R1BQ1RK1 w - - 0 9")
+	PlayerPick(Strong(3), g)
+	if d := LastSearchDepth(); d != 3 {
+		t.Errorf("fixed depth 3 completed depth %d", d)
+	}
+}
+
+// What a per-move budget buys: depth reached and share of the budget
+// spent, on the profiling positions. PROFILE=1 to run.
+func TestBudgetUsage(t *testing.T) {
+	if os.Getenv("PROFILE") == "" {
+		t.Skip("set PROFILE=1")
+	}
+	net, err := LoadHalfKPNet("../champion_net.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fens := []string{
+		"r1bq1rk1/pp2bppp/2n1pn2/3p4/3P4/2NBPN2/PP3PPP/R1BQ1RK1 w - - 0 9",
+		"r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
+		"r2q1rk1/1b1nbppp/p2ppn2/1p6/3NPP2/1BN1B3/PPPQ2PP/2KR3R w - - 0 12",
+		"2rq1rk1/pp1bppbp/2np1np1/8/2BNP3/2N1BP2/PPPQ2PP/2KR3R w - - 0 11",
+		"rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
+		"8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1",
+	}
+	for _, budget := range []time.Duration{1000 * time.Millisecond, 3000 * time.Millisecond} {
+		for _, fen := range fens {
+			g, _ := game.ParseFEN(fen)
+			p := Strong(5)
+			p.HalfKP, p.HalfKPBlend, p.TimeBudget = net, 0.45, budget
+			start := time.Now()
+			PlayerPick(p, g)
+			el := time.Since(start)
+			t.Logf("budget %4dms  depth %2d  used %5dms (%3.0f%%)  %s",
+				budget.Milliseconds(), LastSearchDepth(), el.Milliseconds(),
+				100*float64(el)/float64(budget), fen[:20])
+		}
+	}
+	for _, fen := range fens[:4] {
+		g, _ := game.ParseFEN(fen)
+		p := Strong(6)
+		p.HalfKP, p.HalfKPBlend = net, 0.45
+		start := time.Now()
+		PlayerPick(p, g)
+		t.Logf("fixed depth 6: %5dms  %s", time.Since(start).Milliseconds(), fen[:20])
+	}
+}
+
+// A timed search must spend its budget. Predicting the next iteration at
+// three times the last one stopped the search at 37-59% of the clock in
+// middlegame positions, and reached the same depth a fixed depth 6 does,
+// so the clock was buying nothing. It may also not overrun: the previous
+// policy let one position run to 112%.
+func TestTimedSearchUsesItsBudget(t *testing.T) {
+	net, err := LoadHalfKPNet("../champion_net.json")
+	if err != nil {
+		t.Skip("no champion network:", err)
+	}
+	const budget = 800 * time.Millisecond
+	total, worst := time.Duration(0), time.Duration(0)
+	for _, fen := range correctnessPositions[3:8] {
+		g, _ := game.ParseFEN(fen)
+		p := Strong(4)
+		p.HalfKP, p.HalfKPBlend, p.TimeBudget = net, 0.45, budget
+		start := time.Now()
+		PlayerPick(p, g)
+		el := time.Since(start)
+		total += el
+		if el > worst {
+			worst = el
+		}
+	}
+	mean := total / 5
+	t.Logf("budget %v: mean used %v (%.0f%%), worst %v (%.0f%%)", budget, mean,
+		100*float64(mean)/float64(budget), worst, 100*float64(worst)/float64(budget))
+	if float64(mean) < 0.70*float64(budget) {
+		t.Errorf("the search used only %.0f%% of its budget on average", 100*float64(mean)/float64(budget))
+	}
+	if float64(worst) > 1.12*float64(budget) {
+		t.Errorf("the search overran its budget by %.0f%%", 100*float64(worst)/float64(budget)-100)
+	}
+}
