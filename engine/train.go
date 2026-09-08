@@ -70,7 +70,12 @@ type GameResult struct {
 type LiveHook func(g *game.Game, plies int, from, to board.Sq)
 
 func PlayGame(white, black Weights, depth, maxMoves int, live LiveHook) GameResult {
-	g := game.New()
+	return playGameFrom(game.New(), white, black, depth, maxMoves, live)
+}
+
+// playGameFrom is PlayGame from a given position, so an ending can be
+// reached in a test without playing a whole game to it.
+func playGameFrom(g *game.Game, white, black Weights, depth, maxMoves int, live LiveHook) GameResult {
 	plies := 0
 	for plies < maxMoves && !g.IsOver() {
 		weights := white

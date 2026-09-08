@@ -3,6 +3,7 @@ package engine
 import (
 	"encoding/binary"
 	"fmt"
+	"io"
 	"os"
 
 	"chess/board"
@@ -240,6 +241,13 @@ func (t *TablebaseSet) Save(path string) error {
 		return err
 	}
 	defer f.Close()
+	return t.writeSet(f)
+}
+
+// writeSet writes the set in its file format. Separate from Save so a test
+// can hand it a writer that fails, which a real file only does when the
+// disk is full.
+func (t *TablebaseSet) writeSet(f io.Writer) error {
 	if err := binary.Write(f, binary.LittleEndian, uint32(len(t.byKey))); err != nil {
 		return err
 	}
@@ -270,11 +278,11 @@ func (t *TablebaseSet) Save(path string) error {
 	return nil
 }
 
-func writeString(f *os.File, s string) error {
+func writeString(f io.Writer, s string) error {
 	if err := binary.Write(f, binary.LittleEndian, uint32(len(s))); err != nil {
 		return err
 	}
-	_, err := f.WriteString(s)
+	_, err := io.WriteString(f, s)
 	return err
 }
 

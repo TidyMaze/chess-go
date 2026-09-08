@@ -585,3 +585,20 @@ same clock both sides, or it did not happen.
  9. Speed I: pin-based legality, no make/unmake per candidate when in
     check or pinned. Exit: identical node count, less time. ~10%.
 10. Speed II: bitboards. 1.6-1.8x nodes/s, +50-70. Days; last.
+
+## Stockfish-ideas campaign and the 100% coverage requirement, 2026-09-08 evening
+
+Screen: feature on against off, both on a 200ms clock, 400 paired games
+(scripts/screen.sh). Adoption only on the slow ruler: 1s/move against
+Stockfish 2400, 300 games, against a 300-game baseline (queued).
+
+  late move pruning       -57 +/- 35   rejected: needs ordering we lack
+  logarithmic LMR         +23 +/- 34   survivor, to the slow ruler
+  deep reverse futility   +40 +/- 34   past the margin on the screen
+  null-move gate          +31 +/- 49   at 200 games, running
+  countermoves, IIR, SEE  implemented, screening next
+
+Coverage: board, moves, game at 100%; pytorch at 100% (scripts/
+pycoverage.sh); engine and nnue in progress (scripts/coverage.sh). Two
+defects found by the coverage tests: a corrupt checkpoint crashed the
+trainer, and evalnet read a network's shape outside its skip guard.
