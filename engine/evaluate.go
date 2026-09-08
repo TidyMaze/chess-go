@@ -158,6 +158,9 @@ type Eval struct {
 	NoLMR bool
 	// LMP enables late move pruning in the search.
 	LMP bool
+	// DeepRFP and NullGate: see Player.
+	DeepRFP  bool
+	NullGate bool
 	// ScaledLMR reduces more with depth and move number instead of a flat
 	// one ply.
 	ScaledLMR bool

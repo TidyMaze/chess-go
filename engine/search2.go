@@ -385,12 +385,12 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 	// kept because it costs two comparisons on a path that already
 	// evaluates the position.
 	const mateBound = mateScore - maxSearchPly
-	staticEval := 0.0
+	staticEval, haveStatic := 0.0, false
 	futile := c.ev != nil && c.ev.Futility && !inCheck && depth <= 3 &&
 		alpha > negInf && beta < posInf &&
 		alpha > -mateBound && beta < mateBound
 	if futile {
-		staticEval = evalPositionFor(g, color, maximizingFor, c.ev)
+		staticEval, haveStatic = evalPositionFor(g, color, maximizingFor, c.ev), true
 		margin := futilityMargin[depth]
 		if maximizing && staticEval-margin >= beta {
 			return staticEval - margin
@@ -400,7 +400,27 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 		}
 	}
 
-	if c.ev.useNullMove() && depth >= 3 && !inCheck && !afterNull {
+	// Deep reverse futility, depths 4 to 7 at zero-window nodes.
+	if c.ev != nil && c.ev.DeepRFP && depth >= 4 && depth <= 7 && !inCheck && zeroWindow(alpha, beta) {
+		if !haveStatic {
+			staticEval, haveStatic = evalPositionFor(g, color, maximizingFor, c.ev), true
+		}
+		if reverseFutilityCuts(depth, staticEval, alpha, beta, maximizing, inCheck) {
+			return staticEval
+		}
+	}
+	nullOK := true
+	if c.ev.useNullMove() && c.ev.NullGate && depth >= 3 && !inCheck && !afterNull {
+		if !haveStatic {
+			staticEval, haveStatic = evalPositionFor(g, color, maximizingFor, c.ev), true
+		}
+		bound := beta
+		if !maximizing {
+			bound = alpha
+		}
+		nullOK = nullMoveAllowed(staticEval, bound, maximizing)
+	}
+	if c.ev.useNullMove() && depth >= 3 && !inCheck && !afterNull && nullOK {
 		// Clear the en passant square across the null move.
 		//
 		// A null hands the move to the opponent without a move being
@@ -424,6 +444,13 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 		}
 		if c.ev.NullScale {
 			r += depth / 6
+		}
+		if c.ev.NullGate {
+			over := staticEval - beta
+			if !maximizing {
+				over = alpha - staticEval
+			}
+			r = nullMoveReduction(depth, over)
 		}
 		ep, hadEP := g.Board.EPSquare()
 		if !c.ev.KeepNullMoveEP {
@@ -462,7 +489,7 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 		// takes the side to move as a parameter, so there is no need to
 		// build a child object at all.
 
-		lmp := c.ev != nil && c.ev.LMP && beta-alpha <= 1e-6
+		lmp := c.ev != nil && c.ev.LMP && zeroWindow(alpha, beta)
 		givesCheck := false
 		if c.extensions || futile || lmp {
 			givesCheck = moves.IsInCheck(&g.Board, color.Other())
@@ -505,7 +532,7 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 				// grows without ever reducing so much that a good move
 				// cannot come back, and the re-search on a fail-high
 				// catches the cases where it was wrong.
-				reduction = lmrReduction(depth, i, beta-alpha > 1e-6, c.isKiller(ply, m), promoted)
+				reduction = lmrReduction(depth, i, !zeroWindow(alpha, beta), c.isKiller(ply, m), promoted)
 			}
 		}
 
@@ -869,3 +896,57 @@ func lateMovePruned(depth, moveIndex int, improving, inCheck, isCapture, promote
 	}
 	return moveIndex >= (3+depth*depth)/div
 }
+
+// reverseFutilityMargin is how far a static evaluation must stand beyond
+// the bound, in pawns, for a zero-window node at this depth to return it
+// unsearched. Half a pawn plus a third per ply: 1.9 at depth 4, 2.95 at
+// depth 7.
+func reverseFutilityMargin(depth int) float64 { return 0.5 + 0.35*float64(depth) }
+
+// reverseFutilityCuts is the deep reverse futility rule: depths 4 to 7,
+// zero-window nodes only, not in check, not on a mate-bound window.
+func reverseFutilityCuts(depth int, staticEval, alpha, beta float64, maximizing, inCheck bool) bool {
+	const mateBound = mateScore - maxSearchPly
+	if depth < 4 || depth > 7 || inCheck || !zeroWindow(alpha, beta) || alpha <= -mateBound || beta >= mateBound {
+		return false
+	}
+	margin := reverseFutilityMargin(depth)
+	if maximizing {
+		return staticEval-margin >= beta
+	}
+	return staticEval+margin <= alpha
+}
+
+// nullMoveAllowed gates the null move on the static evaluation standing
+// at or beyond the bound: from below it almost never cuts.
+func nullMoveAllowed(staticEval, bound float64, maximizing bool) bool {
+	if maximizing {
+		return staticEval >= bound
+	}
+	return staticEval <= bound
+}
+
+// nullMoveReduction is the historical 3 plus a ply per four of depth plus
+// a ply per pawn and a half the static evaluation stands beyond the
+// bound, capped at two for the margin and at the depth itself, so the null
+// search ends in quiescence at worst.
+func nullMoveReduction(depth int, marginOverBound float64) int {
+	r := 3 + depth/4
+	bonus := int(marginOverBound / 1.5)
+	if bonus > 2 {
+		bonus = 2
+	}
+	if bonus > 0 {
+		r += bonus
+	}
+	if r > depth {
+		r = depth
+	}
+	return r
+}
+
+// zeroWindow reports a principal-variation-search null window. The
+// windows are built as alpha+1e-6, and beta-alpha then comes out a hair
+// above 1e-6 in floating point, so a test against exactly 1e-6 fired for
+// some alphas and not others.
+func zeroWindow(alpha, beta float64) bool { return beta-alpha <= 2e-6 }

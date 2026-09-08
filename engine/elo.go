@@ -76,6 +76,11 @@ type Player struct {
 	// LMP enables late move pruning: quiet moves past a depth-dependent
 	// count are not searched at all.
 	LMP bool
+	// DeepRFP extends reverse futility pruning to depths 4 to 7.
+	DeepRFP bool
+	// NullGate tries a null move only when the static evaluation stands at
+	// or beyond the bound, with a reduction that grows with depth and margin.
+	NullGate bool
 	// ScaledLMR scales the reduction with depth and move number.
 	ScaledLMR bool
 	// NoRepetition disables repetition detection. Measurement only.
@@ -576,6 +581,7 @@ func evalForPlayer(p Player) *Eval {
 		KingSafety: p.KingSafety, Net: p.Net, HalfKP: p.HalfKP,
 		HalfKPBlend: p.HalfKPBlend, Tablebases: p.Tablebases,
 		NoCastle: p.NoCastle, NoLMR: p.NoLMR, ScaledLMR: p.ScaledLMR, LMP: p.LMP,
+		DeepRFP: p.DeepRFP, NullGate: p.NullGate,
 		NoRepetition: p.NoRepetition, KeepNullMoveEP: p.KeepNullMoveEP,
 		NullReduction: p.NullReduction, NullScale: p.NullScale,
 		Extras: p.Extras, Shape: p.Shape, ShapeW: p.ShapeW,

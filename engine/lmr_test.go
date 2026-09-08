@@ -27,6 +27,10 @@ func TestLMRReductionShape(t *testing.T) {
 			}
 		}
 	}
+	// A non-killer whose table value rounds to zero is still reduced a ply.
+	if lmrReduction(3, 1, false, false, false) != 1 {
+		t.Errorf("depth 3 move 1: %d, want 1", lmrReduction(3, 1, false, false, false))
+	}
 	// Below depth 3 nothing is reduced.
 	if lmrReduction(2, 30, false, false, false) != 0 {
 		t.Error("reduced at depth 2")
