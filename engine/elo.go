@@ -432,10 +432,6 @@ func randomOpening(rnd *rand.Rand, plies int) *game.Game {
 	return g
 }
 
-func playPlayersLive(white, black Player, maxMoves int, live LiveHook) (board.Color, bool) {
-	return playFrom(game.New(), white, black, maxMoves, live)
-}
-
 func playFrom(g *game.Game, white, black Player, maxMoves int, live LiveHook) (board.Color, bool) {
 	// One table per player per game, not one per move. They must not be
 	// shared between the two players: a stored score is from one side's

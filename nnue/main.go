@@ -456,8 +456,6 @@ const (
 	eps   = float32(1e-8)
 )
 
-func sqrt32(x float32) float32 { return float32(math.Sqrt(float64(x))) }
-
 // ---------------------------------------------------------------------
 // data generation
 

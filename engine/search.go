@@ -72,10 +72,6 @@ func orderInPlace(g *game.Game, out []game.Move) []game.Move {
 	return out
 }
 
-func Minimax(g *game.Game, color, maximizingFor board.Color, depth int, alpha, beta float64, weights Weights) float64 {
-	return minimaxOpts(g, color, maximizingFor, depth, alpha, beta, &Eval{Weights: weights}, false)
-}
-
 // minimaxOpts adds quiescence: at the search horizon, keep following
 // captures until the position is quiet. Without it the engine happily
 // stops mid-exchange and scores a position it has only half-evaluated
