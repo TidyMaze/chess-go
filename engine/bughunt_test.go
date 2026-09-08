@@ -177,3 +177,26 @@ func TestSearchClassifiesEnPassantAsCapture(t *testing.T) {
 		t.Error("exd6 en passant is a capture and the search says it is quiet")
 	}
 }
+
+// 10. The game history must be keyed on the side that was to move in each
+// past position, or in-search repetition detection against the game never
+// fires. Nf3 Nf6 Ng1 Ng8 returns to the start: that position has now
+// occurred twice, both times with White to move.
+func TestPlayedKeysCountOccurrencesWithTheRightSideToMove(t *testing.T) {
+	g := game.New()
+	g.TrackRepetition = true
+	sq := func(f, r int) board.Sq { return board.Sq{File: f, Rank: r} }
+	for _, mv := range [][2]board.Sq{
+		{sq(6, 0), sq(5, 2)}, {sq(6, 7), sq(5, 5)}, {sq(5, 2), sq(6, 0)}, {sq(5, 5), sq(6, 7)},
+	} {
+		g.ApplyMove(mv[0], mv[1])
+	}
+	start := game.New()
+	keys := playedKeys(g)
+	if n := keys[zobristBoard(&start.Board, board.White)]; n != 2 {
+		t.Errorf("start position, White to move, occurred twice; history counts %d", n)
+	}
+	if n := keys[zobristBoard(&start.Board, board.Black)]; n != 0 {
+		t.Errorf("start position never occurred with Black to move; history counts %d", n)
+	}
+}
