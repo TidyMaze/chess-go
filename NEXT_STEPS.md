@@ -556,3 +556,32 @@ So the deeper-label idea for rescuing the ladder is not supported. The
 distillation ceiling stands: a network trained to predict its own teacher's
 score cannot pass the teacher, and changing how deep the teacher looks does
 not change that.
+
+## Plan toward Deep Blue 1997 (~2700), set 2026-09-08
+
+Standing at 2465 on the Stockfish ladder at fixed depth 6. Ordered by
+expected yield per hour; gains are this session's own yardsticks (a ply
+measured +130, a speed doubling is about a ply), not promises. Each has
+the measurement that closes it. Adoption rule everywhere: past the margin,
+same clock both sides, or it did not happen.
+
+ 1. Trust the ruler: two timed calibrations, same clock both sides, agree
+    within +/- 50 on the 3000-ladder. First one running at 1s/move.
+ 2. Play on the clock (time_ms in champion.json) if the timed number beats
+    fixed depth 6. Expected +100-200.
+ 3. Time management: iteration-cost prediction, use of the whole budget.
+    Exit: mean depth reached per second, up. Expected +20-40.
+ 4. Re-tune pruning on the corrected search: null-move reduction, LMR
+    scaling, futility margins were all tuned through the broken table.
+    1500 games each. Expected +30-80.
+ 5. Move ordering: countermoves, history aging, SEE-ordered captures.
+    Exit: fewer nodes to the same depth, then Elo. Expected +20-50.
+ 6. Endgames: re-measure the tablebase probe now that it indexes the right
+    colour (it read -13 +/- 18 through the bug). Expected +10-20.
+ 7. Opening book from the PGN database (match history is allowed, scores
+    are not). Exit: 1000 games past the margin. Expected +10-30.
+ 8. Evaluation on clean labels, then the lambda (game-outcome) sweep whose
+    400k pools exist (lam_*.bin). Honest expectation 0-30.
+ 9. Speed I: pin-based legality, no make/unmake per candidate when in
+    check or pinned. Exit: identical node count, less time. ~10%.
+10. Speed II: bitboards. 1.6-1.8x nodes/s, +50-70. Days; last.
