@@ -301,8 +301,6 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 	if deadPosition(&g.Board) {
 		return 0
 	}
-	// The network accumulator for this node, derived from the parent's.
-	c.ev.setAccPly(&g.Board, ply)
 	if tt != nil && depth > 0 {
 		if score, ok := tt.probe(key, depth, maximizingFor, alpha, beta); ok {
 			return score
@@ -311,6 +309,10 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 			ttMove = game.Move{From: indexToSq(e.from), To: indexToSq(e.to)}
 		}
 	}
+	// The network accumulator for this node, derived from the parent's.
+	// After the table probe on purpose: a node that cuts off there has no
+	// children and no evaluation, so it never needs one.
+	c.ev.setAccPly(&g.Board, ply)
 	origAlpha, origBeta := alpha, beta
 
 	// 96, not 64: a middlegame with the queens out has 50 to 60 legal
