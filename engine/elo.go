@@ -81,6 +81,11 @@ type Player struct {
 	// NullGate tries a null move only when the static evaluation stands at
 	// or beyond the bound, with a reduction that grows with depth and margin.
 	NullGate bool
+	// Countermoves orders the quiet move that last refuted the previous
+	// move right after the killers.
+	Countermoves bool
+	// IIR reduces the depth by one at deeper nodes that have no table move.
+	IIR bool
 	// ScaledLMR scales the reduction with depth and move number.
 	ScaledLMR bool
 	// NoRepetition disables repetition detection. Measurement only.
@@ -581,7 +586,7 @@ func evalForPlayer(p Player) *Eval {
 		KingSafety: p.KingSafety, Net: p.Net, HalfKP: p.HalfKP,
 		HalfKPBlend: p.HalfKPBlend, Tablebases: p.Tablebases,
 		NoCastle: p.NoCastle, NoLMR: p.NoLMR, ScaledLMR: p.ScaledLMR, LMP: p.LMP,
-		DeepRFP: p.DeepRFP, NullGate: p.NullGate,
+		DeepRFP: p.DeepRFP, NullGate: p.NullGate, Countermoves: p.Countermoves, IIR: p.IIR,
 		NoRepetition: p.NoRepetition, KeepNullMoveEP: p.KeepNullMoveEP,
 		NullReduction: p.NullReduction, NullScale: p.NullScale,
 		Extras: p.Extras, Shape: p.Shape, ShapeW: p.ShapeW,

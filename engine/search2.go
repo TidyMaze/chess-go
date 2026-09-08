@@ -74,6 +74,9 @@ var searchCtxPool = sync.Pool{New: func() any { return new(searchCtx) }}
 // is the whole point of keeping them on the context.
 func (c *searchCtx) reset() {
 	c.killers = [maxSearchPly][2]game.Move{}
+	c.counter = [2][64][64]game.Move{}
+	c.moveStack = [maxSearchPly]game.Move{}
+	c.prevMove = game.Move{}
 	c.history = [2][64][64]int32{}
 	c.path = [maxSearchPly]uint64{}
 	c.played = nil
@@ -185,6 +188,28 @@ type searchCtx struct {
 	deadline time.Time
 	aborted  bool
 	acc      [accSlots]halfKPAcc
+	// counter[colour][from][to] is the quiet move that last refuted the
+	// move from->to played by the other side; moveStack[ply] is the move
+	// that led to ply+1, so a node's previous move is moveStack[ply-1].
+	counter   [2][64][64]game.Move
+	moveStack [maxSearchPly]game.Move
+	prevMove  game.Move
+}
+
+// recordCounter remembers reply as the refutation of prev by colour.
+func (c *searchCtx) recordCounter(colour board.Color, prev, reply game.Move) {
+	if prev == (game.Move{}) {
+		return
+	}
+	c.counter[colour][sqIndex(prev.From)][sqIndex(prev.To)] = reply
+}
+
+// counterFor is the remembered refutation of prev by colour, or zero.
+func (c *searchCtx) counterFor(colour board.Color, prev game.Move) game.Move {
+	if prev == (game.Move{}) {
+		return game.Move{}
+	}
+	return c.counter[colour][sqIndex(prev.From)][sqIndex(prev.To)]
 }
 
 // isRepetition reports whether this position already appears on the
@@ -243,6 +268,9 @@ func (c *searchCtx) scoreMove(g *game.Game, m game.Move, ttMove game.Move, ply i
 		if c.killers[ply][1] == m {
 			return 1<<19 - 1
 		}
+	}
+	if c.ev != nil && c.ev.Countermoves && m == c.counterFor(color, c.prevMove) {
+		return 1 << 18
 	}
 	return int(c.history[color][sqIndex(m.From)][sqIndex(m.To)])
 }
@@ -340,6 +368,9 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 		if e := &tt.entries[key&tt.mask]; e.key32 == keyUpper(key) {
 			ttMove = game.Move{From: indexToSq(e.from), To: indexToSq(e.to)}
 		}
+	}
+	if c.ev != nil && c.ev.IIR && iirReduces(depth, ttMove != (game.Move{})) {
+		depth--
 	}
 	// The network accumulator for this node, derived from the parent's.
 	// After the table probe on purpose: a node that cuts off there has no
@@ -456,6 +487,9 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 		if !c.ev.KeepNullMoveEP {
 			g.Board.SetEPSquare(board.Sq{}, false)
 		}
+		if ply < maxSearchPly {
+			c.moveStack[ply] = game.Move{}
+		}
 		score := c.searchNull(g, color.Other(), maximizingFor, depth-r, ply+1, alpha, beta, true)
 		g.Board.SetEPSquare(ep, hadEP)
 		if c.aborted {
@@ -469,6 +503,11 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 		}
 	}
 
+	if ply > 0 {
+		c.prevMove = c.moveStack[ply-1]
+	} else {
+		c.prevMove = game.Move{}
+	}
 	c.orderMoves(g, legal, ttMove, ply, color)
 
 	best := negInf
@@ -485,6 +524,9 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 		// left. Promotion is handled here because the board layer does not
 		// know the rule.
 		undo, promoted := makeSearchMove(g, m)
+		if ply < maxSearchPly {
+			c.moveStack[ply] = m
+		}
 		// Recurse on the same Game: search reads the board through g and
 		// takes the side to move as a parameter, so there is no need to
 		// build a child object at all.
@@ -592,6 +634,9 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 			if !isCapture {
 				c.recordKiller(ply, m)
 				c.recordHistory(color, m, depth)
+				if ply > 0 {
+					c.recordCounter(color, c.moveStack[ply-1], m)
+				}
 			}
 			break
 		}
@@ -950,3 +995,10 @@ func nullMoveReduction(depth int, marginOverBound float64) int {
 // above 1e-6 in floating point, so a test against exactly 1e-6 fired for
 // some alphas and not others.
 func zeroWindow(alpha, beta float64) bool { return beta-alpha <= 2e-6 }
+
+// iirReduces is internal iterative reduction: a node at depth 6 or more
+// with no table move is searched a ply shallower. Without a table move
+// the ordering is weak and a full-depth search here mostly serves to
+// find one; the shallower search finds it too, and the re-search that
+// iterative deepening amounts to is cheaper than the wasted depth.
+func iirReduces(depth int, hasTTMove bool) bool { return depth >= 6 && !hasTTMove }

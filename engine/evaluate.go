@@ -161,6 +161,10 @@ type Eval struct {
 	// DeepRFP and NullGate: see Player.
 	DeepRFP  bool
 	NullGate bool
+	// Countermoves: see Player.
+	Countermoves bool
+	// IIR: see Player.
+	IIR bool
 	// ScaledLMR reduces more with depth and move number instead of a flat
 	// one ply.
 	ScaledLMR bool
