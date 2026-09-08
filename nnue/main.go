@@ -29,6 +29,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"math"
 	"math/rand"
 	"os"
@@ -751,6 +752,10 @@ func main() {
 	importResume := flag.Bool("import-resume", true, "skip records already imported into this pool")
 	extractOpenings := flag.String("extract-openings", "", "write an opening book of FENs from the dump named by -import and exit")
 	extractBook := flag.String("extract-book", "", "write a playable opening book of FEN|move lines from the dump and exit")
+	bookFromPGN := flag.String("book-from-pgn", "", "write an opening book of FEN|move lines from the moves played in the PGN named by -book-pgn, and exit")
+	bookPGN := flag.String("book-pgn", "-", "PGN source for -book-from-pgn; - reads stdin")
+	bookPlies := flag.Int("book-plies", 16, "record positions this many plies from the start")
+	bookMin := flag.Int("book-min", 20, "a move must have been played in at least this many games")
 	countPool := flag.String("count-pool", "", "print how many positions a pool file holds and exit")
 	emitCheck := flag.String("emit-eval-check", "", "write FENs, their HalfKP features and this engine's evaluation of them, for cross-checking a PyTorch export")
 	importPGNPath := flag.String("import-pgn", "", "import a PGN games file ('-' for stdin): moves and results only, labels computed here")
@@ -762,6 +767,33 @@ func main() {
 	kingBuckets := flag.Int("king-buckets", 8, "king granularity in the feature set: 8 buckets or 32 canonical squares")
 	openingBook := flag.String("opening-book", "", "start each self-play game from a position in this book instead of ten random plies")
 	flag.Parse()
+
+	if *bookFromPGN != "" {
+		var src io.Reader = os.Stdin
+		if *bookPGN != "-" {
+			f, err := os.Open(*bookPGN)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(1)
+			}
+			defer f.Close()
+			src = f
+		}
+		out, err := os.Create(*bookFromPGN)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		n, err := BuildBookFromPGN(src, out, *bookPlies, *bookMin)
+		out.Close()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		fmt.Printf("%s  wrote %d book positions to %s (plies <= %d, played in >= %d games)\n",
+			time.Now().Format("15:04:05"), n, *bookFromPGN, *bookPlies, *bookMin)
+		return
+	}
 
 	engine.FeatureKingBuckets = *kingBuckets
 

@@ -1,6 +1,9 @@
 package main
 
 import (
+	"chess/board"
+	"chess/game"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -278,5 +281,43 @@ func TestPGNLabelDepthKeepsTheSamePositions(t *testing.T) {
 			t.Fatalf("position %d differs between the two runs, so the label depth is "+
 				"changing which positions are kept and not only how they are scored", i)
 		}
+	}
+}
+
+// A book built from the games people actually played, not from engine
+// evaluations. The Opera Game opens 1.e4 e5 2.Nf3 d6, so a book built
+// from it alone must answer e2e4 at the start and g1f3 after 1.e4 e5.
+func TestBookFromPGNRecordsTheMovesPlayed(t *testing.T) {
+	var out strings.Builder
+	n, err := BuildBookFromPGN(strings.NewReader(operaGamePGN), &out, 6, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n == 0 {
+		t.Fatal("no positions written")
+	}
+	path := filepath.Join(t.TempDir(), "book.txt")
+	if err := os.WriteFile(path, []byte(out.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	book, err := engine.LoadBook(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := game.New()
+	m, ok := book.Move(g)
+	if !ok || m.From != (board.Sq{File: 4, Rank: 1}) || m.To != (board.Sq{File: 4, Rank: 3}) {
+		t.Fatalf("book at the start: %v %v, want e2e4", m, ok)
+	}
+	g.ApplyMove(m.From, m.To)
+	e5, _ := game.MoveFromSAN(g, "e5")
+	g.ApplyMove(e5.From, e5.To)
+	m, ok = book.Move(g)
+	if !ok || m.From != (board.Sq{File: 6, Rank: 0}) || m.To != (board.Sq{File: 5, Rank: 2}) {
+		t.Fatalf("book after 1.e4 e5: %v %v, want g1f3", m, ok)
+	}
+	// Past the ply cap nothing is recorded.
+	if n > 6 {
+		t.Errorf("%d positions from a 6-ply cap on one game", n)
 	}
 }
