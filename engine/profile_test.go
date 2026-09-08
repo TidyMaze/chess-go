@@ -2,6 +2,7 @@ package engine
 
 import (
 	"os"
+	"strconv"
 	"testing"
 
 	"chess/game"
@@ -23,6 +24,15 @@ func TestProfileWorkload(t *testing.T) {
 	}
 	p := Strong(6)
 	p.HalfKP, p.HalfKPBlend = net, 0.45
+	// TTBITS overrides the table size, for measuring probe cost against
+	// hit rate.
+	if v := os.Getenv("TTBITS"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			t.Fatal(err)
+		}
+		p.TTBits = uint(n)
+	}
 	ResetNodes()
 	for _, fen := range []string{
 		"r1bq1rk1/pp2bppp/2n1pn2/3p4/3P4/2NBPN2/PP3PPP/R1BQ1RK1 w - - 0 9",
