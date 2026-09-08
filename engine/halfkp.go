@@ -274,7 +274,26 @@ func (n *HalfKPNet) Evaluate(b *board.Board) float64 {
 			col := int(f) * h
 			w := n.W1[col : col+h : col+h]
 			a := acc[off : off+h]
-			for i := 0; i < h; i++ {
+			// Unrolled by eight. Go does not vectorise this loop and it
+			// is the hottest in the engine: one add per hidden unit per
+			// active feature per evaluation. Each a[i] still receives its
+			// features in the same order, so the result is bit-identical
+			// to the plain loop and the node count of a search does not
+			// move by one.
+			i := 0
+			for ; i+8 <= h; i += 8 {
+				a8 := a[i : i+8 : i+8]
+				w8 := w[i : i+8 : i+8]
+				a8[0] += w8[0]
+				a8[1] += w8[1]
+				a8[2] += w8[2]
+				a8[3] += w8[3]
+				a8[4] += w8[4]
+				a8[5] += w8[5]
+				a8[6] += w8[6]
+				a8[7] += w8[7]
+			}
+			for ; i < h; i++ {
 				a[i] += w[i]
 			}
 		}
