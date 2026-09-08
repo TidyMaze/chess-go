@@ -1,10 +1,10 @@
 {
-  "label": "ladder rung 6 network, transposition table keyed on the real side to move",
-  "depth": 5,
-  "elo": 2307,
+  "label": "ladder rung 6 network, depth 6, nine search fixes",
+  "depth": 6,
+  "elo": 2465,
   "margin": 130,
   "net_file": "champion_net.json",
   "hand_blend": 0.45,
-  "adopted": "2026-09-08T00:05:00+0200",
-  "elo_note": "Direct Stockfish calibration, 30 games per level at depth 5, after fixing the transposition table that keyed every node on the root's side to move. Two runs: the first weighted 2188 (SF 2200, score 0.48) and 2412 (SF 2400, score 0.50); the second reported 2307 overall, with 2223 at SF 2200 (score 0.53) and 2412 at SF 2400 (score 0.52). The same instrument read 2033 immediately before the fix, so +274 is well outside its own +/- 130 spread across repeats. Margin here is that instrument spread, not a within-run interval. The previous 2127 came from adding a head-to-head +86 to a 2041 calibration; both of those were measured through the broken table and are superseded."
+  "adopted": "2026-09-08T19:50:00+0200",
+  "elo_note": "Direct Stockfish calibration, 30 games per level, ladder extended to SF 3000, at fixed depth 6. Same build at depth 5 read 2325; the pre-fix build at depth 5 read 2356 on the same ladder, so the nine search fixes are Elo-neutral at fixed depth and the extra ply is worth about +140 here, matching a 400-game head-to-head of depth 6 against depth 5 at +133 +/- 37. Margin is the instrument's spread across repeats. Fixed depth on both sides, not a time control: Stockfish plays its per-level fixed depth."
 }
