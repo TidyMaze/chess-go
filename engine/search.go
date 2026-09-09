@@ -2,19 +2,50 @@ package engine
 
 import (
 	"math/rand"
+	"sync"
 	"sync/atomic"
+	"time"
 
 	"chess/board"
 	"chess/game"
 	"chess/moves"
 )
 
-func randIntn(n int) int { return rand.Intn(n) }
+// The tie-break source, owned rather than borrowed from math/rand's
+// global one.
+//
+// SeedRandom used to call rand.Seed, which Go turned into a no-op: the
+// global source is auto-seeded and the deprecated setter stopped taking
+// effect, so every "seeded" run drew a different sequence. Two arms of an
+// A/B then played different games while the harness reported them as
+// paired, which is the worst failure a measurement harness has. Holding
+// our own source makes seeding mean something again.
+//
+// Guarded by a mutex because matches play games in parallel and a
+// *rand.Rand is not safe for concurrent use; the tie-break is drawn once
+// per move choice, so the lock is nothing against a search.
+var (
+	tieMu   sync.Mutex
+	tieRand = rand.New(rand.NewSource(time.Now().UnixNano()))
+)
 
-// SeedRandom fixes the tie-break RNG so that two runs of a measurement
+func randIntn(n int) int {
+	if n <= 1 {
+		return 0
+	}
+	tieMu.Lock()
+	defer tieMu.Unlock()
+	return tieRand.Intn(n)
+}
+
+// SeedRandom fixes the tie-break source so that two runs of a measurement
 // see the same positions and the same tie-breaks, making arms comparable
 // instead of each arm getting its own sample.
-func SeedRandom(seed int64) { rand.Seed(seed) }
+func SeedRandom(seed int64) {
+	tieMu.Lock()
+	defer tieMu.Unlock()
+	tieRand = rand.New(rand.NewSource(seed))
+}
 
 const mateScore = 1000
 
@@ -326,5 +357,5 @@ func chooseMoveOpts(g *game.Game, color board.Color, depth int, ev *Eval, useQui
 			best = fresh
 		}
 	}
-	return best[rand.Intn(len(best))], true
+	return best[randIntn(len(best))], true
 }

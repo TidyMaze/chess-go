@@ -694,6 +694,15 @@ func ChooseMoveIterative(g *game.Game, color board.Color, maxDepth int, ev *Eval
 // would need every partial result discarded, and a search that returns a
 // half-explored score is worse than one ply less of a complete one.
 func ChooseMoveIterativeTimed(g *game.Game, color board.Color, maxDepth int, ev *Eval, useQuiescence bool, budget time.Duration) (game.Move, bool) {
+	m, _, ok := chooseMoveIterativeScored(g, color, maxDepth, ev, useQuiescence, budget)
+	return m, ok
+}
+
+// chooseMoveIterativeScored also returns the score of the move it chose,
+// from the point of view of the side to move. Returned rather than stored
+// in a package variable because games run in parallel: a global would be
+// whichever game wrote last.
+func chooseMoveIterativeScored(g *game.Game, color board.Color, maxDepth int, ev *Eval, useQuiescence bool, budget time.Duration) (game.Move, float64, bool) {
 	legal := g.AllLegalMoves(color)
 	if ev != nil && ev.NoCastle {
 		kept := legal[:0]
@@ -707,7 +716,7 @@ func ChooseMoveIterativeTimed(g *game.Game, color board.Color, maxDepth int, ev 
 		legal = kept
 	}
 	if len(legal) == 0 {
-		return game.Move{}, false
+		return game.Move{}, 0, false
 	}
 	if ev == nil {
 		ev = &Eval{}
@@ -831,7 +840,7 @@ func ChooseMoveIterativeTimed(g *game.Game, color board.Color, maxDepth int, ev 
 		}
 		best = iterBest
 	}
-	return best, true
+	return best, prevScore, true
 }
 
 // TotalNodes reports nodes visited by the most recent search, including

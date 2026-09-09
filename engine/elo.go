@@ -147,23 +147,32 @@ func (p Player) pick(g *game.Game) (game.Move, bool) {
 }
 
 func (p Player) pickWith(g *game.Game, reuse *TranspositionTable) (game.Move, bool) {
+	m, _, ok := p.pickScored(g, reuse)
+	return m, ok
+}
+
+// pickScored is pickWith with the score of the chosen move, from the
+// mover's point of view, for the adjudicator. Zero when the player does
+// not search (book, random, an external engine).
+func (p Player) pickScored(g *game.Game, reuse *TranspositionTable) (game.Move, float64, bool) {
 	// The book comes first: a hit is a move from a far deeper search than
 	// this engine can run, so searching the position instead would be
 	// slower and worse.
 	if m, ok := p.Book.Move(g); ok {
-		return m, true
+		return m, 0, true
 	}
 	if p.UCI != nil {
 		depth := p.UCIDepth
 		if depth <= 0 {
 			depth = 1
 		}
-		return p.UCI.BestMove(g, depth, p.UCIMoveTimeMS)
+		m, ok := p.UCI.BestMove(g, depth, p.UCIMoveTimeMS)
+		return m, 0, ok
 	}
 	if p.Random || p.Greedy {
 		moves := g.AllLegalMoves(g.Turn)
 		if len(moves) == 0 {
-			return game.Move{}, false
+			return game.Move{}, 0, false
 		}
 		if p.Greedy {
 			captures := moves[:0:0]
@@ -173,10 +182,10 @@ func (p Player) pickWith(g *game.Game, reuse *TranspositionTable) (game.Move, bo
 				}
 			}
 			if len(captures) > 0 {
-				return captures[randIntn(len(captures))], true
+				return captures[randIntn(len(captures))], 0, true
 			}
 		}
-		return moves[randIntn(len(moves))], true
+		return moves[randIntn(len(moves))], 0, true
 	}
 	ev := evalForPlayer(p)
 	switch {
@@ -192,9 +201,10 @@ func (p Player) pickWith(g *game.Game, reuse *TranspositionTable) (game.Move, bo
 			// not a target, so the ceiling is raised out of the way.
 			depth = maxTimedDepth
 		}
-		return ChooseMoveIterativeTimed(g, g.Turn, depth, ev, p.Quiescence, p.TimeBudget)
+		return chooseMoveIterativeScored(g, g.Turn, depth, ev, p.Quiescence, p.TimeBudget)
 	}
-	return chooseMoveOpts(g, g.Turn, p.Depth, ev, p.Quiescence)
+	m, ok := chooseMoveOpts(g, g.Turn, p.Depth, ev, p.Quiescence)
+	return m, 0, ok
 }
 
 // maxTimedDepth caps a time-budgeted search, so a trivially simple
@@ -443,18 +453,34 @@ func playFrom(g *game.Game, white, black Player, maxMoves int, live LiveHook) (b
 			tables[c] = NewTranspositionTable(p.TTBits)
 		}
 	}
+	var adj adjudicator
 	for plies := 0; plies < maxMoves && !g.IsOver(); plies++ {
 		p := white
 		if g.Turn == board.Black {
 			p = black
 		}
-		move, ok := p.pickWith(g, tables[g.Turn])
+		mover := g.Turn
+		move, score, ok := p.pickScored(g, tables[g.Turn])
 		if !ok {
 			break
 		}
 		g.ApplyMove(move.From, move.To)
 		if live != nil {
 			live(g, plies+1, move.From, move.To)
+		}
+		// Adjudication, on the score the mover just reported. Consecutive
+		// plies are the two engines alternately confirming the same thing,
+		// which is what makes it safe to stop.
+		favours := mover
+		gap := score
+		if gap < 0 {
+			favours, gap = mover.Other(), -gap
+		}
+		if winner, decided := adj.observe(favours, gap, plies); decided {
+			return winner, true
+		}
+		if _, _, drawn := adj.observeDraw(gap, plies); drawn {
+			return board.White, false
 		}
 	}
 	if g.IsCheckmate(g.Turn) || g.KingCaptured {
