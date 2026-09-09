@@ -31,6 +31,12 @@ cd "$(dirname "$0")/.." || exit 1
 FEATURE=${1:?feature name}
 GAMES=${2:-200}
 MS=${3:-1000}
+# What the reference already has. A feature whose precondition is another
+# feature has to be measured on top of it: late move pruning measured -71
+# Elo against a baseline ordering cutoffs 75% of the time on the first
+# move, and its whole premise is that late moves are bad, which is a
+# statement about ordering.
+REF_FEATURES=${4:-}
 REF=/tmp/champ_t${MS}.json
 python3 - "$MS" "$REF" <<'PY'
 import json, sys
@@ -40,17 +46,18 @@ c["time_ms"], c["depth"] = ms, 5
 c["label"] = "champion on a %dms clock (screening reference)" % ms
 json.dump(c, open(out, "w"), indent=2)
 PY
-LOG=/tmp/chesslogs/screen_${FEATURE//,/_}_${MS}ms.log
+LOG=/tmp/chesslogs/screen_${FEATURE//,/_}${REF_FEATURES:+_over_${REF_FEATURES//,/_}}_${MS}ms.log
 
 # The binary must know the feature, or the whole screen fails in under a
 # second and the chain runs on as though it had measured something. Three
 # screens were lost that way to a gauntlet-bin built before the features
 # it was being asked for.
 go build -o gauntlet-bin ./gauntlet || exit 1
-if ! ./gauntlet-bin -features "$FEATURE" -games 2 -depth 1 -max-moves 4 >/dev/null 2>&1; then
+if ! ./gauntlet-bin -features "$FEATURE" -ref-features "$REF_FEATURES" -games 2 -depth 1 -max-moves 4 >/dev/null 2>&1; then
   echo "gauntlet does not accept -features $FEATURE"; exit 1
 fi
-echo "$(date +%H:%M:%S)  screening [$FEATURE] at ${MS}ms/move, $GAMES games -> $LOG"
+echo "$(date +%H:%M:%S)  screening [$FEATURE] over [${REF_FEATURES:-nothing}] at ${MS}ms/move, $GAMES games -> $LOG"
 ./scripts/chunked_match.sh "$GAMES" 200 -depth 5 -halfkp champion_net.json -blend 0.45 \
-  -time-ms "$MS" -features "$FEATURE" -ref-champion "$REF" -match-openings openings.txt > "$LOG" 2>&1
+  -time-ms "$MS" -features "$FEATURE" -ref-features "$REF_FEATURES" \
+  -ref-champion "$REF" -match-openings openings.txt > "$LOG" 2>&1
 tail -1 "$LOG"

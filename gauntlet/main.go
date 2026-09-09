@@ -42,6 +42,7 @@ func main() {
 	refKeepEP := flag.Bool("ref-nullmove-ep-bug", false, "reference keeps the en passant square across a null move, reproducing the bug fixed on 2026-09-06")
 	noLMR := flag.Bool("no-lmr", false, "challenger disables late move reductions")
 	features := flag.String("features", "", "comma-separated search features the challenger switches on: lmp, scaledlmr, rfp, nullgate, countermove, iir, see")
+	refFeatures := flag.String("ref-features", "", "search features the reference switches on too, so a feature can be measured on top of another")
 	scaledLMR := flag.Bool("scaled-lmr", false, "challenger scales reductions with depth and move number")
 	noNull := flag.Bool("no-null", false, "challenger disables null-move pruning")
 	qply := flag.Int("qply", 0, "challenger quiescence ply cap (0 = default)")
@@ -244,6 +245,31 @@ func main() {
 		reference.Depth = d
 		reference.Name = "reference: " + c.Label
 		fmt.Printf("reference is the champion: %s\n", c.Label)
+	}
+
+	// After -ref-champion, which replaces the reference wholesale: set
+	// before it, these would be silently discarded.
+	for _, f := range strings.Split(*refFeatures, ",") {
+		switch strings.TrimSpace(f) {
+		case "":
+		case "lmp":
+			reference.LMP = true
+		case "scaledlmr":
+			reference.ScaledLMR = true
+		case "rfp":
+			reference.DeepRFP = true
+		case "nullgate":
+			reference.NullGate = true
+		case "countermove":
+			reference.Countermoves = true
+		case "iir":
+			reference.IIR = true
+		case "see":
+			reference.MainSEE = true
+		default:
+			fmt.Printf("unknown feature %q\n", f)
+			return
+		}
 	}
 
 	engine.MatchOpeningOffset = *openingOffset
