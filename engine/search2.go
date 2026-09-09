@@ -651,6 +651,9 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 			}
 		}
 		if beta <= alpha {
+			if OrderingStats {
+				recordCutoff(i)
+			}
 			if !isCapture {
 				c.recordKiller(ply, m)
 				c.recordHistory(color, m, depth)
@@ -1031,3 +1034,50 @@ func zeroWindow(alpha, beta float64) bool { return beta-alpha <= 2e-6 }
 // find one; the shallower search finds it too, and the re-search that
 // iterative deepening amounts to is cheaper than the wasted depth.
 func iirReduces(depth int, hasTTMove bool) bool { return depth >= 6 && !hasTTMove }
+
+// Move ordering quality, measured rather than assumed.
+//
+// Alpha-beta's cost is set by how often a cutoff is found with the first
+// move searched: first-move cutoffs cost one subtree, fifth-move cutoffs
+// cost five. This records, at every node that cuts, which move did it, so
+// the ordering can be improved against a number instead of a hunch.
+//
+// Off by default and read through atomics, since matches search in
+// parallel; when off the recording is one branch on a package bool.
+var OrderingStats bool
+
+var (
+	cutoffAtIndex [8]int64
+	cutoffTotal   int64
+)
+
+// recordCutoff notes that the move at index i caused a cutoff.
+func recordCutoff(i int) {
+	if i > len(cutoffAtIndex)-1 {
+		i = len(cutoffAtIndex) - 1
+	}
+	atomic.AddInt64(&cutoffAtIndex[i], 1)
+	atomic.AddInt64(&cutoffTotal, 1)
+}
+
+// OrderingReport gives the share of cutoffs found with the first move
+// searched, the distribution by move index (the last bucket is that index
+// and beyond), and the total number of cutoffs seen.
+func OrderingReport() (firstMoveRate float64, dist [8]int64, total int64) {
+	total = atomic.LoadInt64(&cutoffTotal)
+	for i := range cutoffAtIndex {
+		dist[i] = atomic.LoadInt64(&cutoffAtIndex[i])
+	}
+	if total > 0 {
+		firstMoveRate = float64(dist[0]) / float64(total)
+	}
+	return firstMoveRate, dist, total
+}
+
+// ResetOrderingStats clears the counters between measurements.
+func ResetOrderingStats() {
+	for i := range cutoffAtIndex {
+		atomic.StoreInt64(&cutoffAtIndex[i], 0)
+	}
+	atomic.StoreInt64(&cutoffTotal, 0)
+}
