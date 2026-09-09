@@ -9,11 +9,21 @@
 #
 # Usage:
 #   scripts/chunked_match.sh <total-games> <chunk-size> [gauntlet flags...]
+# Stops early when the result has settled. A sequential test walks a
+# log-likelihood ratio between two bounds; a feature at -70 Elo crosses
+# the lower one after a hundred games and the remaining three hundred are
+# pure cost. Set CHESS_SPRT=off to play every game regardless, and
+# CHESS_SPRT_ELO1 to change what "worth having" means (default 15).
 set -u
 
 total=${1:?total games}
 chunk=${2:?chunk size}
 shift 2
+SPRT=${CHESS_SPRT:-on}
+SPRT_ELO1=${CHESS_SPRT_ELO1:-15}
+if [ "$SPRT" != "off" ]; then
+  go build -o sprtcheck-bin ./sprtcheck || exit 1
+fi
 
 w=0; d=0; l=0; done_games=0; offset=0
 while [ "$done_games" -lt "$total" ]; do
@@ -31,6 +41,13 @@ while [ "$done_games" -lt "$total" ]; do
   w=$((w + cw)); d=$((d + cd)); l=$((l + cl))
   done_games=$((done_games + n)); offset=$((offset + n))
 
+  if [ "$SPRT" != "off" ]; then
+    verdict=$(./sprtcheck-bin -w "$w" -d "$d" -l "$l" -elo0 0 -elo1 "$SPRT_ELO1" | tail -1)
+    echo "$verdict"
+  else
+    verdict=""
+  fi
+
   python3 - "$w" "$d" "$l" <<'PY'
 import math, sys
 w, d, l = (int(x) for x in sys.argv[1:4])
@@ -42,4 +59,11 @@ lo, hi = elo(max(0.001, s - 1.96 * se)), elo(min(0.999, s + 1.96 * se))
 print("  pooled %d games: W-D-L %d-%d-%d, score %.3f, Elo %+.0f +/- %.0f"
       % (n, w, d, l, s, elo(s), (hi - lo) / 2))
 PY
+
+  case "$verdict" in
+    *better|*worse)
+      echo "  stopping early: the test has settled after $done_games games"
+      break
+      ;;
+  esac
 done
