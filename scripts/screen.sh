@@ -3,6 +3,16 @@
 # champion without it, both on the same per-move clock, paired openings
 # with colours reversed. 400 games resolve +/- 34 Elo.
 #
+# Two hundred games by default, not four hundred, which resolves +/- 48.
+# That is deliberate: the target needs about +235 Elo, so a feature worth
+# +/- 20 is not the path however precisely it is measured, and six
+# features screened at four hundred games cost four hours to establish
+# that five of them sat inside +/- 20. A screen exists to find a large
+# effect cheaply; a feature that clears +/- 48 earns a 1500-game test at
+# +/- 17, and one that does not is done with. The sequential test stops a
+# clear loser sooner still, but cannot stop a genuinely neutral one,
+# which is exactly the case this cap is for.
+#
 # Use the clock the engine plays on, which is the default here. A short
 # clock does not predict a long one and can invert the sign: reverse
 # futility measured +40 +/- 34 at 200ms and -1 +/- 34 at 1000ms over the
@@ -19,7 +29,7 @@
 set -u
 cd "$(dirname "$0")/.." || exit 1
 FEATURE=${1:?feature name}
-GAMES=${2:-400}
+GAMES=${2:-200}
 MS=${3:-1000}
 REF=/tmp/champ_t${MS}.json
 python3 - "$MS" "$REF" <<'PY'
