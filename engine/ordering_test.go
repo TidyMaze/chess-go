@@ -2,6 +2,7 @@ package engine
 
 import (
 	"testing"
+	"time"
 
 	"chess/game"
 )
@@ -112,4 +113,45 @@ func TestWhichFeaturesImproveTheOrdering(t *testing.T) {
 			c.name, 100*rate, 100*(rate-base), cut, nodes,
 			100*(float64(nodes)/float64(baseNodes)-1))
 	}
+}
+
+// Do the node savings convert into depth under a clock?
+//
+// Fewer nodes only helps if the time saved buys plies. An ordering rule
+// that removes 43% of nodes but costs more per node than it saves buys
+// nothing, and the search's own node counter cannot see that: see()
+// clones the board on every call.
+func TestNodeSavingsConvertToDepth(t *testing.T) {
+	if testing.Short() {
+		t.Skip("plays timed searches")
+	}
+	net, err := LoadHalfKPNet("../champion_net.json")
+	if err != nil {
+		t.Skip("no champion network:", err)
+	}
+	fens := correctnessPositions[3:8]
+	measure := func(name string, mod func(*Player)) {
+		totalDepth, totalNodes := 0, 0
+		start := time.Now()
+		for _, fen := range fens {
+			g, _ := game.ParseFEN(fen)
+			p := Strong(5)
+			p.HalfKP, p.HalfKPBlend, p.TimeBudget = net, 0.45, time.Second
+			mod(&p)
+			ResetNodes()
+			PlayerPick(p, g)
+			totalDepth += LastSearchDepth()
+			totalNodes += TotalNodes()
+		}
+		el := time.Since(start)
+		t.Logf("%-22s mean depth %.1f  nodes %8d  %.0f knodes/s",
+			name, float64(totalDepth)/float64(len(fens)), totalNodes,
+			float64(totalNodes)/el.Seconds()/1000)
+	}
+	measure("baseline", func(*Player) {})
+	measure("SEE ordering only", func(p *Player) { p.MainSEE = true })
+	measure("the whole stack", func(p *Player) {
+		p.MainSEE, p.Countermoves, p.ScaledLMR = true, true, true
+		p.NullGate, p.IIR = true, true
+	})
 }
