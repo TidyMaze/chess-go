@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -220,4 +221,127 @@ func TestOpeningFromAnExhaustedGame(t *testing.T) {
 	if g := randomOpeningGame(rand.New(rand.NewSource(1)), 600); g == nil {
 		t.Error("no game")
 	}
+}
+
+// The deepest-analysis pickers, on the shapes a dump actually contains:
+// several depths out of order, a record whose deepest entry has an empty
+// line, a first token too short to be a move, and no usable entry at all.
+func TestBestPVAndBestLinePickTheDeepestUsableEntry(t *testing.T) {
+	line := func(specs ...[2]string) evalLine {
+		var e evalLine
+		for _, s := range specs {
+			var ev struct {
+				PVs []struct {
+					CP   *int   `json:"cp"`
+					Mate *int   `json:"mate"`
+					Line string `json:"line"`
+				} `json:"pvs"`
+				Depth int `json:"depth"`
+			}
+			d := 0
+			fmt.Sscanf(s[0], "%d", &d)
+			ev.Depth = d
+			var pv struct {
+				CP   *int   `json:"cp"`
+				Mate *int   `json:"mate"`
+				Line string `json:"line"`
+			}
+			pv.Line = s[1]
+			ev.PVs = append(ev.PVs, pv)
+			e.Evals = append(e.Evals, ev)
+		}
+		return e
+	}
+	// Depths out of order: the deepest wins, and a shallower one after it
+	// does not overwrite it.
+	e := line([2]string{"40", "d2d4 d7d5"}, [2]string{"20", "e2e4 e7e5"})
+	if pv, ok := e.bestPV(); !ok || pv[0] != "d2d4" {
+		t.Errorf("bestPV took %v %v", pv, ok)
+	}
+	if mv, ok := e.bestLine(); !ok || mv != "d2d4" {
+		t.Errorf("bestLine took %q %v", mv, ok)
+	}
+	// The deepest entry is unusable, so the next deepest is taken.
+	e = line([2]string{"40", "   "}, [2]string{"20", "e2e4"})
+	if pv, ok := e.bestPV(); !ok || pv[0] != "e2e4" {
+		t.Errorf("empty deepest line: %v %v", pv, ok)
+	}
+	if mv, ok := e.bestLine(); !ok || mv != "e2e4" {
+		t.Errorf("empty deepest line: %q %v", mv, ok)
+	}
+	// A first token too short to be a move is skipped by bestLine.
+	e = line([2]string{"40", "e2 e7e5"}, [2]string{"20", "g1f3"})
+	if mv, ok := e.bestLine(); !ok || mv != "g1f3" {
+		t.Errorf("short token: %q %v", mv, ok)
+	}
+	// One entry with no principal variation at all.
+	var empty evalLine
+	empty.Evals = append(empty.Evals, struct {
+		PVs []struct {
+			CP   *int   `json:"cp"`
+			Mate *int   `json:"mate"`
+			Line string `json:"line"`
+		} `json:"pvs"`
+		Depth int `json:"depth"`
+	}{Depth: 30})
+	if _, ok := empty.bestPV(); ok {
+		t.Error("a record with no PV produced one")
+	}
+	if _, ok := empty.bestLine(); ok {
+		t.Error("a record with no PV produced a line")
+	}
+}
+
+// The book walker's rejections: a principal variation whose moves are not
+// UCI, are illegal in the position, or run past the requested maximum.
+func TestExtractBookRejectsUnusableVariations(t *testing.T) {
+	dir := t.TempDir()
+	const start = `"fen":"rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq -"`
+	dump := "{" + start + `,"evals":[{"pvs":[{"cp":20,"line":"zzzz"}],"depth":30}]}` + "\n" +
+		"{" + start + `,"evals":[{"pvs":[{"cp":20,"line":"a1a8"}],"depth":30}]}` + "\n" +
+		`{"fen":"rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq -","evals":[{"pvs":[{"cp":20,"line":"e2e4 e7e5 g1f3 b8c6 f1b5"}],"depth":30}]}` + "\n"
+	out := filepath.Join(dir, "book.txt")
+	if err := ExtractBook(strings.NewReader(dump), out, 0, 4); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(out)
+	if !strings.Contains(string(data), "|e2e4") {
+		t.Errorf("the legal variation was not written: %q", data)
+	}
+	if strings.Contains(string(data), "zzzz") || strings.Contains(string(data), "a1a8") {
+		t.Errorf("an unusable move was written: %q", data)
+	}
+	// A maximum stops the walk part-way through a variation.
+	capped := filepath.Join(dir, "capped.txt")
+	if err := ExtractBook(strings.NewReader(dump), capped, 2, 4); err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(string(mustRead(t, capped)), "\n"); n > 2 {
+		t.Errorf("a cap of 2 wrote %d lines", n)
+	}
+}
+
+// A record whose FEN does not parse, and one seen twice, are both skipped
+// by the openings extractor.
+func TestExtractOpeningsSkipsUnparsableAndRepeated(t *testing.T) {
+	dir := t.TempDir()
+	dump := `{"fen":"not/a/board w - -","evals":[{"pvs":[{"cp":1,"line":"e2e4"}],"depth":30}]}` + "\n" +
+		`{"fen":"rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq -","evals":[{"pvs":[{"cp":1,"line":"e2e4"}],"depth":30}]}` + "\n" +
+		`{"fen":"rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq -","evals":[{"pvs":[{"cp":1,"line":"d2d4"}],"depth":30}]}` + "\n"
+	out := filepath.Join(dir, "openings.txt")
+	if err := ExtractOpenings(strings.NewReader(dump), out, 0, 4); err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(string(mustRead(t, out)), "\n"); n != 1 {
+		t.Errorf("wrote %d openings, want 1 (one unparsable, one repeat)", n)
+	}
+}
+
+func mustRead(t *testing.T, path string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
 }
