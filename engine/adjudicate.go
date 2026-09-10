@@ -20,9 +20,15 @@ var (
 	// AdjudicateWinPlies is how many consecutive plies they must report it.
 	AdjudicateWinPlies = 6
 	// AdjudicateDrawPawns is the band around zero both sides must stay in.
-	AdjudicateDrawPawns = 0.10
+	//
+	// Measured on this engine's own evaluation, not copied from Fishtest:
+	// in games that ended level, the last twenty plies had |score| median
+	// 0.121 and p75 0.316, and only 45% of them inside a 0.10 band. With a
+	// sixteen-ply streak required, 0.45^16 is one in a million, and the
+	// rule had never fired: every drawn game ran to the ply cap.
+	AdjudicateDrawPawns = 0.35
 	// AdjudicateDrawPlies is how many consecutive plies they must stay in it.
-	AdjudicateDrawPlies = 16
+	AdjudicateDrawPlies = 10
 	// AdjudicateDrawAfterPly is the earliest ply a draw may be called, so an
 	// opening that is level by nature is not called a draw.
 	AdjudicateDrawAfterPly = 60

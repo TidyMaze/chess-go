@@ -54,7 +54,7 @@ func TestAdjudicationNeverContradictsAFinishedGame(t *testing.T) {
 	run := func(adjudicate bool) []outcome {
 		if adjudicate {
 			AdjudicateWinPawns, AdjudicateWinPlies = 6, 6
-			AdjudicateDrawPawns, AdjudicateDrawPlies, AdjudicateDrawAfterPly = 0.10, 16, 60
+			AdjudicateDrawPawns, AdjudicateDrawPlies, AdjudicateDrawAfterPly = 0.35, 10, 60
 		} else {
 			AdjudicateWinPawns, AdjudicateDrawPawns = 0, 0
 		}
@@ -105,6 +105,19 @@ func TestAdjudicationNeverContradictsAFinishedGame(t *testing.T) {
 	if diff := adjScore/n - fullScore/n; diff < -0.25 || diff > 0.25 {
 		t.Errorf("adjudication moved the score per game by %+.3f", diff)
 	}
+	// The draw rule has to actually fire. On a 0.10 band with a sixteen-ply
+	// streak it never did: only 45% of late plies in level games sit that
+	// close to zero, so every drawn game ran to the ply cap and the "saved"
+	// figure above came entirely from the win rule.
+	drawsShortened := 0
+	for i := range full {
+		if !full[i].decisive && !adj[i].decisive && adj[i].plies < full[i].plies {
+			drawsShortened++
+		}
+	}
+	if drawsShortened == 0 {
+		t.Error("no drawn game was adjudicated early, so the draw rule is dead")
+	}
 	if savedPlies <= 0 {
 		t.Errorf("adjudication saved no plies (%d of %d)", savedPlies, totalPlies)
 	}
@@ -119,7 +132,7 @@ func TestAdjudicationRules(t *testing.T) {
 		AdjudicateDrawPawns, AdjudicateDrawPlies, AdjudicateDrawAfterPly = oldDraw, oldDrawPlies, oldAfter
 	}()
 	AdjudicateWinPawns, AdjudicateWinPlies = 6, 6
-	AdjudicateDrawPawns, AdjudicateDrawPlies, AdjudicateDrawAfterPly = 0.10, 16, 60
+	AdjudicateDrawPawns, AdjudicateDrawPlies, AdjudicateDrawAfterPly = 0.35, 10, 60
 
 	var a adjudicator
 	// One side clearly winning, but not yet for long enough.
@@ -165,7 +178,7 @@ func TestAdjudicationRules(t *testing.T) {
 		_, _, drawn = late.observeDraw(0.02, i)
 	}
 	if !drawn {
-		t.Error("sixteen quiet plies after ply 60 did not draw")
+		t.Errorf("%d quiet plies after ply 60 did not draw", AdjudicateDrawPlies)
 	}
 	// A score outside the band resets it.
 	var swing adjudicator
