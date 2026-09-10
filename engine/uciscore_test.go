@@ -44,6 +44,9 @@ func TestUCIPlayerScoreReachesTheAdjudicator(t *testing.T) {
 			t.Errorf("%s: score %v (ok %v), want %v", c.name, score, ok, c.want)
 		}
 	}
+	if _, ok := uciScorePawns("info score "); ok {
+		t.Error("a score with nothing after it parsed")
+	}
 	p := Player{UCI: fake("mute.sh", `echo "bestmove e2e4"`)}
 	if _, score, ok := p.pickScored(g, nil); !ok || !math.IsNaN(score) {
 		t.Errorf("an engine that reports no score must yield NaN, got %v (ok %v)", score, ok)
