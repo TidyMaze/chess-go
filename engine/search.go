@@ -261,6 +261,10 @@ func quiesce(g *game.Game, color, maximizingFor board.Color, alpha, beta float64
 		}
 	}
 
+	// Biggest victim first, cheapest attacker first. Same rule the main
+	// search uses; here it decides which capture fails high before the
+	// rest are looked at.
+	orderInPlace(g, legal)
 	for _, m := range legal {
 		isCapture := isCaptureMove(g, m)
 		promotes := pawnReachesLastRank(g, m)
