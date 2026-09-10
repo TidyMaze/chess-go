@@ -762,7 +762,6 @@ func chooseMoveIterativeScored(g *game.Game, color board.Color, maxDepth int, ev
 	best := legal[0]
 	prevScore := 0.0
 	start := time.Now()
-	lastIter := time.Duration(0)
 	for depth := 1; depth <= maxDepth; depth++ {
 		if budget > 0 && depth > 1 {
 			elapsed := time.Since(start)
@@ -775,19 +774,12 @@ func chooseMoveIterativeScored(g *game.Game, color board.Color, maxDepth int, ev
 			if elapsed >= budget {
 				break
 			}
-			// Start another iteration while under 55% of the budget, or
-			// whenever twice the last iteration still fits. The old rule
-			// demanded three times the last iteration, and at 1s per move
-			// that stopped at 37-59% of the clock, reaching the depth a
-			// fixed depth 6 reaches anyway: the clock was buying nothing.
-			// An iteration that does not finish is abandoned at the hard
-			// deadline and the previous one's move stands, so starting
-			// optimistically only ever costs idle time.
-			if elapsed >= budget*55/100 && elapsed+lastIter*2 > budget {
-				break
-			}
+			// Otherwise start the next iteration however little time is left.
+			// It will usually be cut off, and that used to waste the time; now
+			// a move that completes and beats the standing choice is played,
+			// so nothing is lost. The budget is per move, so there is nothing
+			// to save the time for either.
 		}
-		iterStart := time.Now()
 		// Aspiration window: the score at depth N is usually close to the
 		// score at N-1, so search a narrow window around it. Most searches
 		// then run with far tighter bounds and prune much harder; the
@@ -858,7 +850,6 @@ func chooseMoveIterativeScored(g *game.Game, color board.Color, maxDepth int, ev
 		}
 		prevScore = bestScore
 		completed = depth
-		lastIter = time.Since(iterStart)
 
 		if len(tied) > 1 {
 			// Same anti-repetition tie-break as the simple search: prefer a
