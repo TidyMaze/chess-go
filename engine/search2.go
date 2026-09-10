@@ -79,6 +79,7 @@ func (c *searchCtx) reset() {
 	c.prevMove = game.Move{}
 	c.history = [2][64][64]int32{}
 	c.path = [maxSearchPly]uint64{}
+	c.abortAtNodes = 0
 	c.played = nil
 	c.nodes = 0
 	c.aborted = false
@@ -186,8 +187,12 @@ type searchCtx struct {
 	// stopped making progress at all, because a single depth on some
 	// position ran for minutes inside a 32 ms budget.
 	deadline time.Time
-	aborted  bool
-	acc      [accSlots]halfKPAcc
+	// abortAtNodes is a test hook: abort once this many nodes have been
+	// searched, so what happens at a cut-off can be tested exactly instead
+	// of by racing a clock.
+	abortAtNodes int64
+	aborted      bool
+	acc          [accSlots]halfKPAcc
 	// counter[colour][from][to] is the quiet move that last refuted the
 	// move from->to played by the other side; moveStack[ply] is the move
 	// that led to ply+1, so a node's previous move is moveStack[ply-1].
@@ -331,6 +336,10 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 	// is a syscall-ish read and this is the hottest loop in the engine.
 	// 2048 nodes is well under a millisecond, so the overrun it allows is
 	// far smaller than the one it prevents.
+	if c.abortAtNodes > 0 && int64(c.nodes) >= c.abortAtNodes {
+		c.aborted = true
+		return 0
+	}
 	if !c.deadline.IsZero() {
 		if c.aborted {
 			return 0
@@ -730,6 +739,7 @@ func chooseMoveIterativeScored(g *game.Game, color board.Color, maxDepth int, ev
 	ctx := searchCtxPool.Get().(*searchCtx)
 	defer searchCtxPool.Put(ctx)
 	ctx.reset()
+	ctx.abortAtNodes = testAbortAtNodes
 	ctx.ev, ctx.quiescence, ctx.extensions = ev, useQuiescence, ev.Extensions
 	ctx.ev.acc = &ctx.acc
 	ctx.acc[0].valid = false
@@ -789,6 +799,9 @@ func chooseMoveIterativeScored(g *game.Game, color board.Color, maxDepth int, ev
 		}
 
 	researchFullWindow:
+		if testRootScores != nil {
+			clear(testRootScores)
+		}
 		bestScore := negInf
 		var iterBest game.Move
 		var tied []game.Move
@@ -810,6 +823,13 @@ func chooseMoveIterativeScored(g *game.Game, color board.Color, maxDepth int, ev
 			}
 			score := ctx.search(g, color.Other(), color, depth-1, 1, moveAlpha, beta)
 			g.Board.UnmakeMove(undo)
+			if ctx.aborted {
+				// A child cut off mid-search returned nothing usable.
+				break
+			}
+			if testRootScores != nil {
+				testRootScores[m] = score
+			}
 			if score > bestScore {
 				bestScore, iterBest = score, m
 				tied = tied[:0]
@@ -818,17 +838,23 @@ func chooseMoveIterativeScored(g *game.Game, color board.Color, maxDepth int, ev
 				tied = append(tied, m)
 			}
 		}
+		if ctx.aborted {
+			// The clock ran out inside this iteration. Every move that did
+			// complete was searched one ply deeper than the move about to be
+			// played, so one that beat the standing choice on an exact score
+			// is the better move by the deeper search. The standing choice is
+			// ordered first, so a different iterBest means exactly that; the
+			// moves that were never reached are no worse off than before.
+			if iterBest != (game.Move{}) && iterBest != ordered[0] && bestScore > alpha && bestScore < beta {
+				best = iterBest
+			}
+			break
+		}
 		// The true score fell outside the aspiration window, so the search
 		// result is only a bound: redo this depth with a full window.
 		if (bestScore <= alpha || bestScore >= beta) && (alpha != negInf || beta != posInf) {
 			alpha, beta = negInf, posInf
 			goto researchFullWindow
-		}
-		// An aborted iteration explored only part of the move list, so its
-		// best move is not comparable with the previous depth's. Discard
-		// it and keep what the last complete iteration found.
-		if ctx.aborted {
-			break
 		}
 		prevScore = bestScore
 		completed = depth
@@ -1090,3 +1116,13 @@ func ResetOrderingStats() {
 	}
 	atomic.StoreInt64(&cutoffTotal, 0)
 }
+
+// testAbortAtNodes, when set by a test, aborts every search once that many
+// nodes have been visited. Zero in production.
+var testAbortAtNodes int64
+
+// testRootScores, when a test sets it to a map, receives the score of every
+// root move that completed in the most recent iteration, so a test can
+// check what an aborted iteration was allowed to conclude. Nil in
+// production.
+var testRootScores map[game.Move]float64

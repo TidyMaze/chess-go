@@ -17,6 +17,9 @@ func TestFixedDepthNodeCount(t *testing.T) {
 	}
 	total := 0
 	for _, fen := range correctnessPositions[3:8] {
+		// Seeded: the tie-break among equal root moves is random and moves
+		// the count by a couple of percent otherwise.
+		SeedRandom(1)
 		g, _ := game.ParseFEN(fen)
 		p := Strong(5)
 		p.MainSEE = true
