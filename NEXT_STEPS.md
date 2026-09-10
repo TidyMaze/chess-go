@@ -48,6 +48,21 @@ a fraction of that loss, the rule is one named function, and its test is
 the scale invariance the absolute form fails. Both arms are being
 retrained under it.
 
+Retrained under the scale-free rule, the loss is the only difference and
+the answer is no. The control reproduced itself exactly, which is what
+makes the rest of the row trustworthy:
+
+| net | explains | jump | vs the mse arm | vs champion |
+|---|---|---|---|---|
+| r9_mse (squared error in pawns) | 90.2% | 0.399 | reference | -20 +/- 25 |
+| r9_sig (win probability) | 88.4% | 0.411 | -37 +/- 31 | -40 +/- 31 |
+
+r9_mse lands on -20 +/- 25 against the champion, against ladder rung 8's
+-20 +/- 18 on the same pools: the ladder is reproducibly stuck at minus
+twenty, and it is not the loss that puts it there. The win-probability
+arm also plateaus at epoch 26 against 60 under a threshold that is now
+fair to both, so it converges sooner and to a worse network.
+
 ## Task list, 2026-09-10 evening: measurement fixed, engine profiled
 
 - [x] Draw adjudication calibrated to the engine's scale (band 0.35, 10 plies): red on 0.10/16, green now, 25% plies saved, score unchanged. Commit 3b133db.
