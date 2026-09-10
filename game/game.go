@@ -84,6 +84,10 @@ func (g *Game) AppendLegalMoves(dst []Move, color board.Color) []Move {
 // spent computing something the caller already had.
 func (g *Game) AppendLegalMovesInCheck(dst []Move, color board.Color) ([]Move, bool) {
 	inCheck := moves.IsInCheck(&g.Board, color)
+	return g.appendLegalMoves(dst, color, inCheck), inCheck
+}
+
+func (g *Game) appendLegalMoves(dst []Move, color board.Color, inCheck bool) []Move {
 	pinned := moves.PinnedSquares(&g.Board, color)
 	var pieceBuf [16]board.PieceAtSquare
 	pieces := g.Board.AppendPiecesOf(pieceBuf[:0], color)
@@ -119,7 +123,7 @@ func (g *Game) AppendLegalMovesInCheck(dst []Move, color board.Color) ([]Move, b
 			result = append(result, Move{ps.Sq, target})
 		}
 	}
-	return result, inCheck
+	return result
 }
 
 func (g *Game) IsCheckmate(color board.Color) bool {
@@ -236,4 +240,55 @@ func (g *Game) recordPosition() {
 	}
 	g.positionCounts[g.positionKey()]++
 	g.playedBoards = append(g.playedBoards, g.Board)
+}
+
+// AppendQuiescenceMoves is AppendLegalMovesInCheck restricted to what the
+// quiescence search looks at: every legal move when in check, otherwise
+// captures (en passant included) and pawn moves to the last rank. The
+// third result says whether any legal move exists at all, so a quiet
+// position with no captures is still told apart from a stalemate without
+// generating and legality-testing the quiet moves it would never search.
+func (g *Game) AppendQuiescenceMoves(dst []Move, color board.Color) ([]Move, bool, bool) {
+	inCheck := moves.IsInCheck(&g.Board, color)
+	if inCheck {
+		result := g.appendLegalMoves(dst, color, true)
+		return result, true, len(result) > 0
+	}
+	pinned := moves.PinnedSquares(&g.Board, color)
+	var pieceBuf [16]board.PieceAtSquare
+	pieces := g.Board.AppendPiecesOf(pieceBuf[:0], color)
+	result := dst
+	anyLegal := false
+	var targetBuf [28]board.Sq
+	epSquare, hasEP := g.Board.EPSquare()
+	for _, ps := range pieces {
+		needsCheckTest := ps.Type == board.King || pinned.Has(ps.Sq)
+		for _, target := range moves.AppendLegalTargets(targetBuf[:0], &g.Board, ps.Sq, color, ps.Type) {
+			epCapture := hasEP && ps.Type == board.Pawn &&
+				target == epSquare && ps.Sq.File != target.File
+			_, occupied := g.Board.PieceAt(target)
+			// Pawns never move backwards, so either end of the board is
+			// the last rank for whichever colour is moving.
+			promotes := ps.Type == board.Pawn && (target.Rank == 0 || target.Rank == 7)
+			wanted := occupied || epCapture || promotes
+			// One legal quiet move is all the stalemate question needs;
+			// the rest are skipped before their legality test.
+			if !wanted && anyLegal {
+				continue
+			}
+			if needsCheckTest || epCapture {
+				undo := g.Board.MakeMove(ps.Sq, target)
+				illegal := moves.IsInCheck(&g.Board, color)
+				g.Board.UnmakeMove(undo)
+				if illegal {
+					continue
+				}
+			}
+			anyLegal = true
+			if wanted {
+				result = append(result, Move{ps.Sq, target})
+			}
+		}
+	}
+	return result, false, anyLegal
 }

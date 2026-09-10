@@ -58,9 +58,20 @@ func encodePiece(p Piece) cellCode {
 	return codePieceMin + cellCode(int(p.Color)*6+int(p.Type))
 }
 
+// decoded is the piece for every cell code, so a probe is one table read.
+// The arithmetic version (a division and a modulo per cell) was 9% of the
+// search's CPU on its own: every move generator and check test decodes
+// dozens of cells per node.
+var decoded = func() (t [codePieceMin + 12]Piece) {
+	for c := codePieceMin; c < codePieceMin+12; c++ {
+		v := int(c - codePieceMin)
+		t[c] = Piece{Color: Color(v / 6), Type: PieceType(v % 6)}
+	}
+	return t
+}()
+
 func decodePiece(c cellCode) Piece {
-	v := int(c - codePieceMin)
-	return Piece{Color: Color(v / 6), Type: PieceType(v % 6)}
+	return decoded[c]
 }
 
 // Board is a value type: copying it (Clone) is a plain array copy, no

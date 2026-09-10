@@ -225,8 +225,8 @@ func quiesce(g *game.Game, color, maximizingFor board.Color, alpha, beta float64
 	// so a capture that delivered mate was scored as the material it took
 	// and a stalemate as the material on the board.
 	var moveBuf [96]game.Move
-	legal, inCheck := g.AppendLegalMovesInCheck(moveBuf[:0], color)
-	if len(legal) == 0 {
+	legal, inCheck, anyLegal := g.AppendQuiescenceMoves(moveBuf[:0], color)
+	if !anyLegal {
 		return terminalScore(g, color, maximizingFor, 0)
 	}
 	standPat := evalPositionFor(g, color, maximizingFor, ev)
@@ -264,9 +264,6 @@ func quiesce(g *game.Game, color, maximizingFor board.Color, alpha, beta float64
 	for _, m := range legal {
 		isCapture := isCaptureMove(g, m)
 		promotes := pawnReachesLastRank(g, m)
-		if !inCheck && !isCapture && !promotes {
-			continue
-		}
 		// Static exchange pruning: skip captures that lose material on
 		// their face (a big attacker taking a small defended victim).
 		// Never a checking capture: Qxf7 mate is a queen taking a defended
