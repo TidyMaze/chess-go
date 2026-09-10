@@ -3,6 +3,7 @@ package main
 import (
 	"chess/board"
 	"chess/game"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -319,5 +320,77 @@ func TestBookFromPGNRecordsTheMovesPlayed(t *testing.T) {
 	// Past the ply cap nothing is recorded.
 	if n > 6 {
 		t.Errorf("%d positions from a 6-ply cap on one game", n)
+	}
+}
+
+// The game outcome has to reach the label, and it has to reach it as the
+// game's actual result.
+//
+// This is the one lever that can lift a rung above its teacher: a network
+// fitted only to the teacher's search score cannot pass the teacher, while
+// the result of the game says what happened past the search's horizon.
+// So if the lambda argument were quietly ignored the whole ladder would go
+// on measuring pure distillation, which is the failure that has already
+// cost this project seven rungs.
+//
+// The check is exact and needs no assumption about which side the target
+// is written from. With lambda 1 the target is the search score alone, so
+// for any other lambda
+//
+//	target(l) = l*target(1) + (1-l)*resultPawns
+//
+// and solving for resultPawns must give one of the three values a chess
+// game can end in.
+func TestPGNGameOutcomeReachesTheLabel(t *testing.T) {
+	dir := t.TempDir()
+	pure := filepath.Join(dir, "pure.bin")
+	mixed := filepath.Join(dir, "mixed.bin")
+	labeller := engine.Strong(3)
+	const lambda = 0.2
+	if err := ImportPGN(strings.NewReader(operaGamePGN), pure, 0, 3, 6,
+		1.0, 0.35, 0, false, labeller); err != nil {
+		t.Fatal(err)
+	}
+	if err := ImportPGN(strings.NewReader(operaGamePGN), mixed, 0, 3, 6,
+		lambda, 0.35, 0, false, labeller); err != nil {
+		t.Fatal(err)
+	}
+
+	a, _ := loadPool(pure, 0)
+	b, _ := loadPool(mixed, 0)
+	if len(a) == 0 || len(a) != len(b) {
+		t.Fatalf("the two runs must see the same positions: %d and %d", len(a), len(b))
+	}
+	differing, checked := 0, 0
+	for i := range a {
+		if a[i].static != b[i].static {
+			t.Fatalf("position %d differs between the runs, so lambda is changing which "+
+				"positions are kept and not only how they are labelled", i)
+		}
+		if a[i].target != b[i].target {
+			differing++
+		}
+		// A clamped target has lost the information this identity needs.
+		if a[i].target >= 12 || a[i].target <= -12 ||
+			b[i].target >= 12 || b[i].target <= -12 {
+			continue
+		}
+		checked++
+		result := (float64(b[i].target) - lambda*float64(a[i].target)) / (1 - lambda)
+		if math.Abs(result-4) > 0.01 && math.Abs(result+4) > 0.01 && math.Abs(result) > 0.01 {
+			t.Fatalf("position %d: target %.4f at lambda 1 and %.4f at lambda %.1f imply an "+
+				"outcome term of %.4f pawns, which is not a win, a loss or a draw",
+				i, a[i].target, b[i].target, lambda, result)
+		}
+	}
+	t.Logf("%d of %d labels moved with lambda; %d checked against the game result",
+		differing, len(a), checked)
+	if differing == 0 {
+		t.Error("labelling the same positions at lambda 1 and lambda 0.2 produced identical " +
+			"targets, so the game outcome never reaches the label and every rung is pure " +
+			"distillation")
+	}
+	if checked == 0 {
+		t.Error("every target was clamped, so nothing was verified against the game result")
 	}
 }
