@@ -177,3 +177,41 @@ def test_evalnet_skips_a_net_of_another_feature_set(tmp_path):
     run_main(evalnet, ["--pool", str(pool), "--device", "cpu", "--batch", "16", "--limit", "50", str(good), str(other)])
     with pytest.raises(SystemExit):
         run_main(evalnet, ["--pool", str(pool), "--device", "cpu", "--limit", "50", str(other)])
+
+
+def test_sigmoid_loss_weighs_close_positions_far_above_decided_ones():
+    """Squared error in pawns spends the network's capacity where it cannot
+    matter. A pawn of error in a position worth +8 changes nothing: that side
+    is winning either way. The same pawn near equality decides which move is
+    played, and search amplifies it by taking maxima over noisy leaves.
+
+    The Go trainer measured this idea correct in principle and dropped it
+    because its own hand-written optimiser could not follow a gradient about
+    twenty times smaller. Adam divides each step by that gradient's own
+    running magnitude, so the objection does not carry over."""
+    k = 0.3
+    pred = torch.tensor([1.0, 9.0])
+    target = torch.tensor([0.0, 8.0])
+    err = train.win_prob_error(pred, target, k)
+    assert float(err[0]) > 5 * float(err[1])
+    # The same two errors are indistinguishable to plain squared error.
+    plain = (pred - target) ** 2
+    assert float(plain[0]) == pytest.approx(float(plain[1]))
+    # And it stays a proper distance: zero exactly when the prediction is.
+    assert float(train.win_prob_error(target, target, k).sum()) == pytest.approx(0.0)
+
+
+def test_trainer_optimises_win_probability_but_still_exports_pawns(tmp_path):
+    pool = tmp_path / "pool.bin"
+    write_pool(pool, games=8, per_game=10)
+    out, status = tmp_path / "net.json", tmp_path / "status.json"
+    run_main(train, ["--pool", str(pool), "--out", str(out), "--status", str(status),
+                     "--device", "cpu", "--hidden", "4", "--batch", "16",
+                     "--holdout-games", "0.25", "--epochs", "2",
+                     "--loss", "sigmoid", "--k", "0.3"])
+    net = json.loads(out.read_text())
+    # Only the loss moves to probability space. A network that emitted
+    # probabilities would have to be inverted by the search, and inverting
+    # amplifies: 0.11 at p=0.95 is four pawns.
+    assert net["sigmoid"] is False
+    assert net["h"] == 4

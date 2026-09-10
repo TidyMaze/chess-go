@@ -198,6 +198,22 @@ def export(model: HalfKP, path: Path):
     return net
 
 
+def win_prob_error(pred, target, k: float):
+    """Squared error in win-probability space, elementwise.
+
+    Squared error in pawns treats a pawn of error in a position worth +8
+    exactly like a pawn of error at equality, and only one of them can
+    change a move. Search makes it worse by taking maxima over noisy
+    leaves, so the error that matters is the one near zero. Passing both
+    sides through a sigmoid first is what Stockfish trains on.
+
+    The network still emits pawns; only the comparison moves. A network
+    that emitted probabilities would have to be inverted by the search,
+    and inverting amplifies: 0.11 at p=0.95 is four pawns.
+    """
+    return (torch.sigmoid(k * pred) - torch.sigmoid(k * target)) ** 2
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--pool", required=True, nargs="+",
@@ -224,6 +240,12 @@ def main():
     ap.add_argument("--checkpoint-every", type=int, default=10,
                     help="also checkpoint every N epochs, not only on improvement")
     ap.add_argument("--fresh", action="store_true", help="ignore any checkpoint")
+    ap.add_argument("--loss", choices=("mse", "sigmoid"), default="mse",
+                    help="mse compares pawns; sigmoid compares win probabilities, which "
+                         "stops the network spending its capacity on positions that are "
+                         "already decided")
+    ap.add_argument("--k", type=float, default=0.3,
+                    help="steepness of the sigmoid used by --loss sigmoid")
     ap.add_argument("--smooth", type=float, default=0.0,
                     help="after each epoch, pull every square's weights this far toward its "
                          "neighbours'. Targets jumpiness, which is what predicts Elo here; "
@@ -322,13 +344,24 @@ def main():
     if args.lr_decay > 0:
         sched = torch.optim.lr_scheduler.ReduceLROnPlateau(
             opt, mode="min", factor=0.5, patience=int(args.lr_decay))
-    lossf = nn.MSELoss()
+    # Everything that compares a prediction with a target goes through the
+    # same space, so the held-out number and "explains" stay consistent
+    # within a run. They are not comparable across losses; Elo is.
+    if args.loss == "sigmoid":
+        def space(t):
+            return torch.sigmoid(args.k * t)
+    else:
+        def space(t):
+            return t
+
+    def lossf(pred, target):
+        return ((space(pred) - space(target)) ** 2).mean()
 
     y = torch.tensor(targets, dtype=torch.float32, device=device)
     # The only honest reference for "is it learning": a model that cannot
     # beat the mean of its own targets has learned nothing, whatever else
     # it beats.
-    baseline = float(((y[te] - y[te].mean()) ** 2).mean())
+    baseline = float(((space(y[te]) - space(y[te]).mean()) ** 2).mean())
     log("constant-predictor held-out MSE %.4f" % baseline)
 
     # Checkpointing. A run told to train until it plateaus has no fixed
@@ -418,7 +451,7 @@ def main():
         with torch.no_grad():
             for b in batches(idx, args.batch, False):
                 pred = model(own_t[b], opp_t[b])
-                total += float(((pred - y[b]) ** 2).sum())
+                total += float(((space(pred) - space(y[b])) ** 2).sum())
                 n += b.numel()
         return total / max(n, 1)
 
