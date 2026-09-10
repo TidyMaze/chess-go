@@ -215,3 +215,27 @@ def test_trainer_optimises_win_probability_but_still_exports_pawns(tmp_path):
     # amplifies: 0.11 at p=0.95 is four pawns.
     assert net["sigmoid"] is False
     assert net["h"] == 4
+
+
+
+def test_an_improvement_counts_by_its_share_of_the_loss_not_its_size():
+    """Stopping on a fixed absolute improvement stops sooner the smaller the
+    loss happens to be, so the threshold, not the recipe, decides how long a
+    network trains. Measured on the same 7.5M positions: squared error in
+    pawns starts at 15.099 and win probability at 0.0446, 340 apart, and one
+    --min-delta made the second run stop at epoch 24 against the first's 62.
+
+    The rule has to see the same improvement in both, so it must be
+    invariant when the loss and the baseline are scaled together."""
+    cases = [(1.4872, 1.4880), (1.4872, 1.4873), (1.4872, 1.4872)]
+    for test, best in cases:
+        want = train.counts_as_improvement(test, best, 1e-5, 15.099)
+        for c in (0.0029, 340.0):
+            got = train.counts_as_improvement(test * c, best * c, 1e-5, 15.099 * c)
+            assert got == want, (
+                "an improvement from %.6f to %.6f counts as %s, but the same improvement "
+                "on a loss %.4g times the size counts as %s" % (best, test, want, c, got))
+    # It is still an improvement test: a loss that went up never counts, and
+    # one that beat the threshold always does.
+    assert train.counts_as_improvement(1.0, 2.0, 1e-5, 15.099)
+    assert not train.counts_as_improvement(2.0, 1.0, 1e-5, 15.099)

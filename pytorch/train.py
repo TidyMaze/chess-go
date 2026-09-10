@@ -198,6 +198,18 @@ def export(model: HalfKP, path: Path):
     return net
 
 
+def counts_as_improvement(test: float, best: float, min_delta: float, baseline: float) -> bool:
+    """Whether a held-out loss has improved enough to count.
+
+    The threshold is a share of the constant-predictor loss rather than an
+    absolute number, because how big the loss is depends on which loss it
+    is: on the same positions, squared error in pawns and win probability
+    are a few hundred apart, and one absolute threshold would stop one run
+    far sooner than the other for no reason to do with the networks.
+    """
+    return test < best - min_delta * baseline
+
+
 def win_prob_error(pred, target, k: float):
     """Squared error in win-probability space, elementwise.
 
@@ -230,8 +242,13 @@ def main():
     ap.add_argument("--device", default="mps")
     ap.add_argument("--patience", type=int, default=8,
                     help="stop when the held-out loss has not improved for this many epochs")
-    ap.add_argument("--min-delta", type=float, default=1e-4,
-                    help="improvement smaller than this does not count as improvement")
+    ap.add_argument("--min-delta", type=float, default=1e-5,
+                    help="an improvement counts when it clears this fraction of the "
+                         "constant-predictor loss. A fraction rather than an absolute "
+                         "number because the size of the loss depends on the loss: on the "
+                         "same 7.5M positions, squared error in pawns starts at 15.099 and "
+                         "win probability at 0.0446, so one absolute threshold is 340 times "
+                         "stricter than the other and stops training that much sooner.")
     ap.add_argument("--status", default="nnue_status.json",
                     help="status file the browser UI polls; empty to disable")
     ap.add_argument("--label", default="", help="name shown in the UI")
@@ -486,7 +503,7 @@ def main():
         explained = 100 * (1 - test / baseline) if baseline > 0 else 0.0
         rate = seen / max(time.time() - est, 1e-6)
 
-        improved = test < best - args.min_delta
+        improved = counts_as_improvement(test, best, args.min_delta, baseline)
         if improved:
             best, best_epoch = test, epoch
             # Keep the best weights, not the last: past the plateau the
