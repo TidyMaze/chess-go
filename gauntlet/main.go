@@ -39,6 +39,8 @@ func main() {
 	nullR := flag.Int("null-reduction", 0, "challenger's null-move reduction in plies (0 = the historical 3)")
 	nullScale := flag.Bool("null-scale", false, "challenger scales the null-move reduction with depth")
 	refChampion := flag.String("ref-champion", "", "reference plays the champion described by this file, network included. Without it the reference is the plain hand-written evaluation, so a network is measured against the original baseline and not against whatever it is supposed to have improved on.")
+	refUCI := flag.String("ref-uci", "", "reference is this external UCI engine (a path), on the challenger's clock when -time-ms is set, else at -depth. Built for racing one build of this engine against another.")
+	challengerUCI := flag.String("uci", "", "challenger is this external UCI engine (a path) instead of the in-process player, so two builds can be raced symmetrically, both behind stdio.")
 	refKeepEP := flag.Bool("ref-nullmove-ep-bug", false, "reference keeps the en passant square across a null move, reproducing the bug fixed on 2026-09-06")
 	noLMR := flag.Bool("no-lmr", false, "challenger disables late move reductions")
 	features := flag.String("features", "", "comma-separated search features the challenger switches on: lmp, scaledlmr, rfp, nullgate, countermove, iir, see")
@@ -245,6 +247,24 @@ func main() {
 		reference.Depth = d
 		reference.Name = "reference: " + c.Label
 		fmt.Printf("reference is the champion: %s\n", c.Label)
+	}
+	if *challengerUCI != "" {
+		e, err := engine.NewStockfish(*challengerUCI, 20, 0)
+		if err != nil {
+			fmt.Println("uci:", err)
+			return
+		}
+		challenger = engine.Player{Name: "challenger: " + *challengerUCI, UCI: e, UCIDepth: *depth, UCIMoveTimeMS: *timeMS}
+		fmt.Printf("challenger is the UCI engine %s\n", *challengerUCI)
+	}
+	if *refUCI != "" {
+		e, err := engine.NewStockfish(*refUCI, 20, 0)
+		if err != nil {
+			fmt.Println("ref-uci:", err)
+			return
+		}
+		reference = engine.Player{Name: "reference: " + *refUCI, UCI: e, UCIDepth: *depth, UCIMoveTimeMS: *timeMS}
+		fmt.Printf("reference is the UCI engine %s\n", *refUCI)
 	}
 
 	// After -ref-champion, which replaces the reference wholesale: set
