@@ -799,7 +799,16 @@ func chooseMoveIterativeScored(g *game.Game, color board.Color, maxDepth int, ev
 
 		for _, m := range ordered {
 			undo, _ := makeSearchMove(g, m)
-			score := ctx.search(g, color.Other(), color, depth-1, 1, alpha, beta)
+			// Every move after the first is searched against the best score so
+			// far, as the tree below does at every node; the root used the same
+			// window for all of them. A hair below the best, not at it, so a
+			// move that is exactly equal still returns an exact score and the
+			// tie-break among equal moves keeps working.
+			moveAlpha := alpha
+			if bestScore-1e-6 > moveAlpha {
+				moveAlpha = bestScore - 1e-6
+			}
+			score := ctx.search(g, color.Other(), color, depth-1, 1, moveAlpha, beta)
 			g.Board.UnmakeMove(undo)
 			if score > bestScore {
 				bestScore, iterBest = score, m
