@@ -73,3 +73,57 @@ done
 		t.Error("with the binary gone, every caller beyond the pooled processes should have been refused")
 	}
 }
+
+// Every command has to fail cleanly when the process behind it dies
+// mid-answer or when the engine has been closed, and a bestmove with no
+// score line before it is "no evaluation", not a zero.
+func TestPooledClientFailsCleanlyWhenAProcessDiesOrIsClosed(t *testing.T) {
+	writeFake := func(name, onGo string) string {
+		path := filepath.Join(t.TempDir(), name)
+		if err := os.WriteFile(path, []byte("#!/bin/sh\nwhile read -r line; do\n  case \"$line\" in\n    uci*) echo uciok;;\n    isready) echo readyok;;\n    go*|eval) "+onGo+";;\n    quit) exit 0;;\n  esac\ndone\n"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	g := game.New()
+
+	dies, err := NewStockfish(writeFake("dies.sh", "exit 0"), 20, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := dies.LegalMoves(g); err == nil {
+		t.Error("LegalMoves survived a process that died mid-answer")
+	}
+	if _, _, ok := dies.Evaluate(g, 1); ok {
+		t.Error("Evaluate survived a process that died mid-answer")
+	}
+	if _, ok := dies.StaticEval(g); ok {
+		t.Error("StaticEval survived a process that died mid-answer")
+	}
+
+	mute, err := NewStockfish(writeFake("mute.sh", `echo "bestmove e2e4"`), 20, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, ok := mute.Evaluate(g, 1); ok {
+		t.Error("a bestmove with no score line was taken as an evaluation")
+	}
+	mute.Close()
+	if _, ok := mute.BestMove(g, 1, 0); ok {
+		t.Error("BestMove on a closed engine returned a move")
+	}
+	if looksLikeUCIMove("e7e8x") {
+		t.Error("x is not a promotion piece")
+	}
+	if looksLikeUCIMove("e9e8") {
+		t.Error("rank 9 is off the board")
+	}
+
+	garbled, err := NewStockfish(writeFake("garbled.sh", `echo "bestmove zz99"`), 20, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := garbled.BestMove(g, 1, 0); ok {
+		t.Error("an unparsable bestmove was accepted")
+	}
+}
