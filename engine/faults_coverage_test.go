@@ -180,6 +180,7 @@ func TestUCIWrapperFaultBranches(t *testing.T) {
 	}
 	// An engine that dies: reads hit end of file.
 	dying, _ := NewStockfish(fakeUCI(t, "bestmove e2e4"), 0, 0)
+	deadProc := dying.idle[0]
 	dying.Close()
 	if _, err := dying.LegalMoves(g); err == nil {
 		t.Error("LegalMoves on a dead engine returned no error")
@@ -190,7 +191,7 @@ func TestUCIWrapperFaultBranches(t *testing.T) {
 	if _, ok := dying.StaticEval(g); ok {
 		t.Error("StaticEval on a dead engine succeeded")
 	}
-	if dying.waitFor("readyok") != "" {
+	if deadProc.waitFor("readyok") != "" {
 		t.Error("waitFor on a dead engine returned a line")
 	}
 }

@@ -17,17 +17,40 @@ import (
 // reference instead of only to its own weaker ancestors. A ladder
 // anchored at "random mover = 0" is internally consistent but says
 // nothing about where the engine sits in absolute terms.
+//
+// One UCIEngine is handed to every match worker, so it is a pool of
+// processes rather than one process: a caller takes an idle process or
+// spawns another, and gives it back once its command has answered. With
+// one process behind a mutex, ten workers played one move at a time and a
+// half-hour race was on course for five hours.
 type UCIEngine struct {
+	path       string
+	skill, elo int
+	mu         sync.Mutex
+	idle, all  []*uciProc
+	closed     bool
+}
+
+type uciProc struct {
 	cmd    *exec.Cmd
 	stdin  io.WriteCloser
 	stdout *bufio.Reader
-	mu     sync.Mutex
 }
 
 // NewStockfish starts Stockfish limited to a given skill level and
 // search depth. Skill level 0 is its weakest setting.
 func NewStockfish(path string, skill, elo int) (*UCIEngine, error) {
-	cmd := exec.Command(path)
+	e := &UCIEngine{path: path, skill: skill, elo: elo}
+	p, err := e.spawn()
+	if err != nil {
+		return nil, err
+	}
+	e.release(p)
+	return e, nil
+}
+
+func (e *UCIEngine) spawn() (*uciProc, error) {
+	cmd := exec.Command(e.path)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err
@@ -39,27 +62,54 @@ func NewStockfish(path string, skill, elo int) (*UCIEngine, error) {
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
-	e := &UCIEngine{cmd: cmd, stdin: stdin, stdout: bufio.NewReader(stdout)}
-
-	e.send("uci")
-	e.waitFor("uciok")
-	e.send(fmt.Sprintf("setoption name Skill Level value %d", skill))
-	if elo > 0 {
-		e.send("setoption name UCI_LimitStrength value true")
-		e.send(fmt.Sprintf("setoption name UCI_Elo value %d", elo))
+	p := &uciProc{cmd: cmd, stdin: stdin, stdout: bufio.NewReader(stdout)}
+	p.send("uci")
+	p.waitFor("uciok")
+	p.send(fmt.Sprintf("setoption name Skill Level value %d", e.skill))
+	if e.elo > 0 {
+		p.send("setoption name UCI_LimitStrength value true")
+		p.send(fmt.Sprintf("setoption name UCI_Elo value %d", e.elo))
 	}
-	e.send("isready")
-	e.waitFor("readyok")
-	return e, nil
+	p.send("isready")
+	p.waitFor("readyok")
+	e.mu.Lock()
+	e.all = append(e.all, p)
+	e.mu.Unlock()
+	return p, nil
 }
 
-func (e *UCIEngine) send(cmd string) {
-	fmt.Fprintf(e.stdin, "%s\n", cmd)
+// acquire hands the caller an idle process, or a new one when every
+// process is busy answering someone else.
+func (e *UCIEngine) acquire() (*uciProc, error) {
+	e.mu.Lock()
+	if e.closed {
+		e.mu.Unlock()
+		return nil, fmt.Errorf("%s: engine closed", e.path)
+	}
+	if n := len(e.idle); n > 0 {
+		p := e.idle[n-1]
+		e.idle = e.idle[:n-1]
+		e.mu.Unlock()
+		return p, nil
+	}
+	e.mu.Unlock()
+	return e.spawn()
 }
 
-func (e *UCIEngine) waitFor(token string) string {
+func (e *UCIEngine) release(p *uciProc) {
+	e.mu.Lock()
+	e.idle = append(e.idle, p)
+	e.mu.Unlock()
+}
+
+func (p *uciProc) send(cmd string) {
+	fmt.Fprintf(p.stdin, "%s\n", cmd)
+}
+
+// waitFor reads lines until one starts with token, and returns it.
+func (p *uciProc) waitFor(token string) string {
 	for {
-		line, err := e.stdout.ReadString('\n')
+		line, err := p.stdout.ReadString('\n')
 		if err != nil {
 			return ""
 		}
@@ -76,16 +126,19 @@ func (e *UCIEngine) waitFor(token string) string {
 // budget against Stockfish at a fixed depth measures the budget, not the
 // engine.
 func (e *UCIEngine) BestMove(g *game.Game, depth, moveTimeMS int) (game.Move, bool) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-
-	e.send("position fen " + g.FEN())
-	if moveTimeMS > 0 {
-		e.send(fmt.Sprintf("go movetime %d", moveTimeMS))
-	} else {
-		e.send(fmt.Sprintf("go depth %d", depth))
+	p, err := e.acquire()
+	if err != nil {
+		return game.Move{}, false
 	}
-	line := e.waitFor("bestmove")
+	defer e.release(p)
+
+	p.send("position fen " + g.FEN())
+	if moveTimeMS > 0 {
+		p.send(fmt.Sprintf("go movetime %d", moveTimeMS))
+	} else {
+		p.send(fmt.Sprintf("go depth %d", depth))
+	}
+	line := p.waitFor("bestmove")
 	fields := strings.Fields(line)
 	if len(fields) < 2 || fields[1] == "(none)" {
 		return game.Move{}, false
@@ -115,15 +168,18 @@ func (e *UCIEngine) BestMove(g *game.Game, depth, moveTimeMS int) (game.Move, bo
 // about exactly the same position -- and the only expected difference is
 // that it lists under-promotions (=r/b/n) which this engine never makes.
 func (e *UCIEngine) LegalMoves(g *game.Game) (map[string]bool, error) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
+	p, err := e.acquire()
+	if err != nil {
+		return nil, err
+	}
+	defer e.release(p)
 
-	e.send("position fen " + g.FEN())
-	e.send("go perft 1")
+	p.send("position fen " + g.FEN())
+	p.send("go perft 1")
 
 	out := map[string]bool{}
 	for {
-		line, err := e.stdout.ReadString('\n')
+		line, err := p.stdout.ReadString('\n')
 		if err != nil {
 			return nil, err
 		}
@@ -168,9 +224,15 @@ func looksLikeUCIMove(s string) bool {
 	return true
 }
 
+// Close quits every process the pool has spawned.
 func (e *UCIEngine) Close() {
-	e.send("quit")
-	_ = e.cmd.Wait()
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	for _, p := range e.all {
+		p.send("quit")
+		_ = p.cmd.Wait()
+	}
+	e.all, e.idle, e.closed = nil, nil, true
 }
 
 // Evaluate asks the external engine what it thinks a position is worth,
@@ -185,18 +247,21 @@ func (e *UCIEngine) Close() {
 // position is a far sharper label and costs one search per position
 // instead of one whole game.
 func (e *UCIEngine) Evaluate(g *game.Game, depth int) (pawns float64, mate bool, ok bool) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
+	p, err := e.acquire()
+	if err != nil {
+		return 0, false, false
+	}
+	defer e.release(p)
 
-	e.send("position fen " + g.FEN())
-	e.send(fmt.Sprintf("go depth %d", depth))
+	p.send("position fen " + g.FEN())
+	p.send(fmt.Sprintf("go depth %d", depth))
 
 	// Keep the score from the last "info" line before bestmove: that is
 	// the deepest completed iteration.
 	var lastCP int
 	var sawCP, sawMate bool
 	for {
-		line, err := e.stdout.ReadString('\n')
+		line, err := p.stdout.ReadString('\n')
 		if err != nil {
 			return 0, false, false
 		}
@@ -240,17 +305,20 @@ func (e *UCIEngine) Evaluate(g *game.Game, depth int) (pawns float64, mate bool,
 // evaluation it was correcting). A static score is a fair question to
 // ask a static function, and it is far cheaper, needing no search.
 func (e *UCIEngine) StaticEval(g *game.Game) (pawns float64, ok bool) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
+	p, err := e.acquire()
+	if err != nil {
+		return 0, false
+	}
+	defer e.release(p)
 
-	e.send("position fen " + g.FEN())
-	e.send("eval")
+	p.send("position fen " + g.FEN())
+	p.send("eval")
 	// "eval" has no terminator of its own, so a following isready gives
 	// one: readyok cannot arrive before eval's output is written.
-	e.send("isready")
+	p.send("isready")
 
 	for {
-		line, err := e.stdout.ReadString('\n')
+		line, err := p.stdout.ReadString('\n')
 		if err != nil {
 			return 0, false
 		}
@@ -272,7 +340,7 @@ func (e *UCIEngine) StaticEval(g *game.Game) (pawns float64, ok bool) {
 		}
 		// Drain to readyok so the next command starts from a clean state.
 		for {
-			l, err := e.stdout.ReadString('\n')
+			l, err := p.stdout.ReadString('\n')
 			if err != nil || strings.TrimSpace(l) == "readyok" {
 				break
 			}
