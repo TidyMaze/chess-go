@@ -20,7 +20,10 @@
 - [x] Race 2 redo, real scores: root-window build vs the build before it at 1 s: **60-25-15, +168 +/- 78**, SPRT settled after 100 games. Mean depth in 1 s on the same load: 6.8 -> 9.4 plies. Log /tmp/chesslogs/race_root_vs_prev_1000ms_v2.log.
 - [x] Aborted iteration no longer thrown away: a move completed one ply deeper that beat the standing choice is played. Node-count abort hook, 190 cut-off points, 31 justified switches. Commit follows ae41071.
 - [x] The 55% early-stop rule dropped: budget use 87% -> 107% (deadline at 105%). Commit follows 96f19b6.
-- [ ] Race 3 redo (queued): partial-iteration + full-budget build vs root-window build, 200 games at 1 s. Log /tmp/chesslogs/race_partial_vs_root_1000ms_v2.log. Log /tmp/chesslogs/race_partial_vs_root_1000ms.log.
+- [~] Race 3 redo: partial-iteration + full-budget build vs root-window build, 200 games at 1 s: **81-60-59, +38 +/- 49**. Positive, interval touches zero (lower bound -11); needs 200 more games before it counts as adopted. Log /tmp/chesslogs/race_partial_vs_root_1000ms_v2.log.
+- [x] Calibration of HEAD at 1 s/move, Stockfish on the same clock: **2281** (weighted; rungs read 2147 at SF 2000, 2235 at 2200, 2480 at 2600, so the instrument itself spreads +/- 170). Not comparable with the 2465 of champion.json: that ladder ran Stockfish at a fixed shallow depth per rung (4 to 11), which is far below its UCI_Elo label. The movetime instrument is the honest one for "how strong at 1 s". Log /tmp/chesslogs/calib_1000ms.log, appended to calibrations.json.
+- [ ] Race 3 extension: 200 more games on openings 200-399, pooled with the first 200 for +/- 34. Log /tmp/chesslogs/race_partial_vs_root_1000ms_v2_ext.log.
+- [ ] DECISION: which instrument defines "Elo" for the Deep Blue goal. Recommendation: the movetime ladder (both sides on the same clock), i.e. champion.json gets time_ms 1000 and elo 2281 with the instrument named. Log /tmp/chesslogs/race_partial_vs_root_1000ms.log.
 - [ ] Coverage remainder toward 100% (engine 190/212 functions, nnue 28/47).
 
 
