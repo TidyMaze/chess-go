@@ -37,8 +37,16 @@ eight pawns. Training now compares win probabilities instead
 measured the idea correct and dropped it because its hand-written
 optimiser could not follow a gradient twenty times smaller; Adam divides
 by that gradient's own magnitude, so the objection does not carry.
-Running: rung 9 on rung 8's exact pools and recipe, so ladder_r8 (which
-measured -20 +/- 18 against the champion) is a free one-variable control.
+The first attempt at that comparison measured the wrong thing, and the
+way it failed is worth keeping. The win-probability run stopped at epoch
+24 where its control ran to 62, and read -26 +/- 25 against it. The cause
+was `--min-delta`: an absolute improvement threshold, against a
+constant-predictor loss of 15.099 for pawns and 0.0446 for win
+probability. The same number was 340 times stricter on one arm than the
+other, so the threshold decided how long each network trained. It is now
+a fraction of that loss, the rule is one named function, and its test is
+the scale invariance the absolute form fails. Both arms are being
+retrained under it.
 
 ## Task list, 2026-09-10 evening: measurement fixed, engine profiled
 
