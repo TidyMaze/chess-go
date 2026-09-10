@@ -48,6 +48,15 @@ func TestServeUCIPlaysAGameOverStdio(t *testing.T) {
 	if len(bestmoves) != 3 {
 		t.Fatalf("three go commands before quit, %d bestmoves: %v", len(bestmoves), bestmoves)
 	}
+	infos := 0
+	for i, l := range lines {
+		if strings.HasPrefix(l, "info depth ") && strings.Contains(l, " score cp ") && i+1 < len(lines) && strings.HasPrefix(lines[i+1], "bestmove ") {
+			infos++
+		}
+	}
+	if infos != 2 {
+		t.Errorf("each searched move must be preceded by an info line with its score; found %d of 2:\n%s", infos, out.String())
+	}
 	g := game.New()
 	g.ApplyMove(game.Move{}.From, game.Move{}.To)
 	after, _ := game.MoveFromUCI("e2e4")
@@ -85,5 +94,15 @@ func TestUCIPositionParsing(t *testing.T) {
 	}
 	if got := uciPosition(nil).FEN(); got != game.New().FEN() {
 		t.Errorf("bare position should be the start position, got %s", got)
+	}
+}
+
+// A player with no score to give (a non-iterative search) sends its move
+// without an info line, rather than a made-up score.
+func TestServeUCIOmitsTheScoreItDoesNotHave(t *testing.T) {
+	var out bytes.Buffer
+	ServeUCI(strings.NewReader("position startpos\ngo depth 1\nquit\n"), &out, Player{Depth: 1, UsePST: true})
+	if strings.Contains(out.String(), "info ") || !strings.Contains(out.String(), "bestmove ") {
+		t.Errorf("expected a bare bestmove, got:\n%s", out.String())
 	}
 }

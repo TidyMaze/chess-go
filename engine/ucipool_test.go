@@ -91,6 +91,9 @@ func TestPooledClientFailsCleanlyWhenAProcessDiesOrIsClosed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, ok := dies.BestMove(g, 1, 0); ok {
+		t.Error("BestMove survived a process that died mid-answer")
+	}
 	if _, err := dies.LegalMoves(g); err == nil {
 		t.Error("LegalMoves survived a process that died mid-answer")
 	}

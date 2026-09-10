@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -57,10 +58,15 @@ func ServeUCI(in io.Reader, out io.Writer, p Player) {
 					q.Depth = n
 				}
 			}
-			m, _, ok := q.pickScored(g, tt)
+			m, score, ok := q.pickScored(g, tt)
 			if !ok {
 				fmt.Fprintln(out, "bestmove (none)")
 				continue
+			}
+			// The score travels with the move so the harness on the other
+			// side can adjudicate on it; without it, it would see zero.
+			if !math.IsNaN(score) {
+				fmt.Fprintf(out, "info depth %d score cp %d\n", LastSearchDepth(), int(math.Round(score*100)))
 			}
 			fmt.Fprintln(out, "bestmove "+m.UCI())
 		case "quit":

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"math"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -125,10 +126,21 @@ func (p *uciProc) waitFor(token string) string {
 // A timed calibration has to hand both sides a clock: our engine under a
 // budget against Stockfish at a fixed depth measures the budget, not the
 // engine.
+// BestMove is BestMoveScored without the score.
 func (e *UCIEngine) BestMove(g *game.Game, depth, moveTimeMS int) (game.Move, bool) {
+	m, _, ok := e.BestMoveScored(g, depth, moveTimeMS)
+	return m, ok
+}
+
+// BestMoveScored asks for a move and returns with it the engine's own score
+// for the position, in pawns from the side to move, taken from the last
+// "info ... score" line before bestmove. NaN when the engine sent none: the
+// adjudicator must see "no opinion" there, not a level position. A mate
+// score is reported as 100 pawns either way.
+func (e *UCIEngine) BestMoveScored(g *game.Game, depth, moveTimeMS int) (game.Move, float64, bool) {
 	p, err := e.acquire()
 	if err != nil {
-		return game.Move{}, false
+		return game.Move{}, math.NaN(), false
 	}
 	defer e.release(p)
 
@@ -138,24 +150,68 @@ func (e *UCIEngine) BestMove(g *game.Game, depth, moveTimeMS int) (game.Move, bo
 	} else {
 		p.send(fmt.Sprintf("go depth %d", depth))
 	}
-	line := p.waitFor("bestmove")
+	// Everything up to bestmove is read here rather than skipped, so the
+	// engine's own score for the position comes back with the move.
+	score := math.NaN()
+	var line string
+	for {
+		l, err := p.stdout.ReadString('\n')
+		if err != nil {
+			return game.Move{}, score, false
+		}
+		l = strings.TrimSpace(l)
+		if strings.HasPrefix(l, "bestmove") {
+			line = l
+			break
+		}
+		if s, ok := uciScorePawns(l); ok {
+			score = s
+		}
+	}
 	fields := strings.Fields(line)
 	if len(fields) < 2 || fields[1] == "(none)" {
-		return game.Move{}, false
+		return game.Move{}, score, false
 	}
 	m, ok := game.MoveFromUCI(fields[1])
 	if !ok {
-		return game.Move{}, false
+		return game.Move{}, score, false
 	}
 	// The external engine may return a move that is legal in real chess
 	// but not in this engine's rule subset (castling, en passant). Reject
 	// anything not in our own legal list rather than corrupting the board.
 	for _, legal := range g.AllLegalMoves(g.Turn) {
 		if legal == m {
-			return m, true
+			return m, score, true
 		}
 	}
-	return game.Move{}, false
+	return game.Move{}, score, false
+}
+
+// uciScorePawns reads the score out of an info line: "score cp N" in
+// centipawns, "score mate N" as 100 pawns for whoever is mating.
+func uciScorePawns(line string) (float64, bool) {
+	i := strings.Index(line, " score ")
+	if i < 0 {
+		return 0, false
+	}
+	fields := strings.Fields(line[i+7:])
+	if len(fields) < 2 {
+		return 0, false
+	}
+	n, err := strconv.Atoi(fields[1])
+	if err != nil {
+		return 0, false
+	}
+	switch fields[0] {
+	case "cp":
+		return float64(n) / 100, true
+	case "mate":
+		if n < 0 {
+			return -100, true
+		}
+		return 100, true
+	}
+	return 0, false
 }
 
 // LegalMoves asks the external engine to enumerate the legal moves in a

@@ -1,6 +1,10 @@
 package engine
 
-import "chess/board"
+import (
+	"math"
+
+	"chess/board"
+)
 
 // Adjudication ends a game whose result both engines already agree on.
 //
@@ -47,6 +51,12 @@ type adjudicator struct {
 // enough. Called once per ply, so consecutive plies are the two engines
 // alternately confirming the same thing.
 func (a *adjudicator) observe(favours board.Color, gapPawns float64, ply int) (board.Color, bool) {
+	// NaN is "no opinion" (a player that does not search, or an external
+	// engine that sent no score). It is never evidence of a win; a zero
+	// gap is what the rest of the rule treats as such.
+	if math.IsNaN(gapPawns) {
+		gapPawns = 0
+	}
 	if AdjudicateWinPawns <= 0 || AdjudicateWinPlies <= 0 {
 		return board.White, false
 	}
@@ -68,6 +78,12 @@ func (a *adjudicator) observe(favours board.Color, gapPawns float64, ply int) (b
 // observeDraw reports a draw once both sides have called the position
 // level for long enough, and not before the opening is over.
 func (a *adjudicator) observeDraw(absScore float64, ply int) (board.Color, bool, bool) {
+	// NaN is "no opinion" and must not count as level: with two external
+	// engines reporting zero on every ply, this rule drew every game at
+	// ply 70. An unknown score breaks the streak like a large one does.
+	if math.IsNaN(absScore) {
+		absScore = math.Inf(1)
+	}
 	if AdjudicateDrawPawns <= 0 || AdjudicateDrawPlies <= 0 {
 		return board.White, false, false
 	}

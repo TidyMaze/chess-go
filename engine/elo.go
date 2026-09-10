@@ -152,22 +152,22 @@ func (p Player) pickWith(g *game.Game, reuse *TranspositionTable) (game.Move, bo
 }
 
 // pickScored is pickWith with the score of the chosen move, from the
-// mover's point of view, for the adjudicator. Zero when the player does
-// not search (book, random, an external engine).
+// mover's point of view, for the adjudicator. NaN when the player has no
+// score to give (book, random, an external engine that sent none): the
+// adjudicator treats NaN as no opinion, where a zero would read as level.
 func (p Player) pickScored(g *game.Game, reuse *TranspositionTable) (game.Move, float64, bool) {
 	// The book comes first: a hit is a move from a far deeper search than
 	// this engine can run, so searching the position instead would be
 	// slower and worse.
 	if m, ok := p.Book.Move(g); ok {
-		return m, 0, true
+		return m, math.NaN(), true
 	}
 	if p.UCI != nil {
 		depth := p.UCIDepth
 		if depth <= 0 {
 			depth = 1
 		}
-		m, ok := p.UCI.BestMove(g, depth, p.UCIMoveTimeMS)
-		return m, 0, ok
+		return p.UCI.BestMoveScored(g, depth, p.UCIMoveTimeMS)
 	}
 	if p.Random || p.Greedy {
 		moves := g.AllLegalMoves(g.Turn)
@@ -182,10 +182,10 @@ func (p Player) pickScored(g *game.Game, reuse *TranspositionTable) (game.Move, 
 				}
 			}
 			if len(captures) > 0 {
-				return captures[randIntn(len(captures))], 0, true
+				return captures[randIntn(len(captures))], math.NaN(), true
 			}
 		}
-		return moves[randIntn(len(moves))], 0, true
+		return moves[randIntn(len(moves))], math.NaN(), true
 	}
 	ev := evalForPlayer(p)
 	switch {
@@ -204,7 +204,7 @@ func (p Player) pickScored(g *game.Game, reuse *TranspositionTable) (game.Move, 
 		return chooseMoveIterativeScored(g, g.Turn, depth, ev, p.Quiescence, p.TimeBudget)
 	}
 	m, ok := chooseMoveOpts(g, g.Turn, p.Depth, ev, p.Quiescence)
-	return m, 0, ok
+	return m, math.NaN(), ok
 }
 
 // maxTimedDepth caps a time-budgeted search, so a trivially simple
