@@ -25,7 +25,9 @@ if [ "$SPRT" != "off" ]; then
   go build -o sprtcheck-bin ./sprtcheck || exit 1
 fi
 
-w=0; d=0; l=0; done_games=0; offset=0
+# START_OFFSET lets a second run continue a match on fresh openings, so the
+# two can be pooled instead of replaying the same 200 positions.
+w=0; d=0; l=0; done_games=0; offset=${START_OFFSET:-0}
 while [ "$done_games" -lt "$total" ]; do
   n=$chunk
   if [ $((done_games + n)) -gt "$total" ]; then n=$((total - done_games)); fi
