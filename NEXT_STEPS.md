@@ -1,5 +1,45 @@
 # Next steps to improve the engine
 
+## Making the self-play ladder climb, 2026-09-11
+
+Two levers closed by measurement, one opened.
+
+**The game-outcome term was noise, and the ladder had been using it.**
+Every pool this project owns was imported with the default lambda 0.8, so
+a fifth of every target was the game result rather than the search score.
+The sweep (1000 games each at depth 4, paired openings, SPRT early stop):
+
+| labels | vs lambda 1.0 | vs champion |
+|---|---|---|
+| lambda 0.5 | -52 +/- 44 | -79 +/- 44 |
+| lambda 0.8 (the default) | -29 +/- 31 | -43 +/- 31 |
+| lambda 1.0 | reference | -31 +/- 31 |
+
+Monotone: every part of the game result mixed in costs Elo. Between
+engines this strong the outcome of a game is too noisy a statement about
+a position to be worth the variance it adds. Ladder rungs must be built
+with `-lambda 1`. A guard test now proves lambda reaches the label as the
+game's actual result, since a dead flag has already cost this project
+seven rungs.
+
+**The 0.45 hand blend is not diluting the network.** The champion's own
+net raced against the champion at other blends: 0.0 read -55 +/- 44, 0.2
+and 0.3 both -33 +/- 31, 0.6 read -17 +/- 25. Nothing beats 0.45, so the
+blend is not where the ladder loses.
+
+**What is left is the fit itself.** A rung is a network fitted to its
+teacher's search score; at 85.8% of variance explained the residual is
+roughly half a pawn at every leaf, and search amplifies it by taking
+maxima over noisy leaves. So the lever is the residual where it matters,
+and squared error in pawns spends the network on positions decided by
+eight pawns. Training now compares win probabilities instead
+(`--loss sigmoid`), which is what Stockfish does. The Go trainer had
+measured the idea correct and dropped it because its hand-written
+optimiser could not follow a gradient twenty times smaller; Adam divides
+by that gradient's own magnitude, so the objection does not carry.
+Running: rung 9 on rung 8's exact pools and recipe, so ladder_r8 (which
+measured -20 +/- 18 against the champion) is a free one-variable control.
+
 ## Task list, 2026-09-10 evening: measurement fixed, engine profiled
 
 - [x] Draw adjudication calibrated to the engine's scale (band 0.35, 10 plies): red on 0.10/16, green now, 25% plies saved, score unchanged. Commit 3b133db.
