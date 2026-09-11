@@ -1,10 +1,11 @@
 {
   "label": "ladder rung 9: 8.0M real-game positions, pure search labels at depth 3",
   "depth": 6,
-  "elo": 2476,
-  "margin": 130,
+  "elo": 2281,
+  "margin": 170,
   "net_file": "champion_net.json",
   "hand_blend": 0.45,
-  "adopted": "2026-09-11T05:07:37+0200",
-  "elo_note": "First rung this project has adopted on an honest measurement. It beat rung 6, which it was trained from, by +11 +/- 8 over 6500 games at depth 4 on openings its screening race never used; the screen itself had said +30 +/- 25 over 750 games, which is what selection on your own test set looks like. Seven earlier rungs read about -20 because the gauntlet declared -mobility false while the -ref-champion reference kept engine.Strong's true, so every challenger played without the mobility term: the same network on both sides read -18 +/- 22, and the term measured -19 +/- 25 on its own. The elo field continues the fixed-depth Stockfish ladder that produced 2465 and is not comparable with the 2281 measured at 1s/move with Stockfish on the same clock; margin is that instrument's spread, not this rung's."
+  "adopted": "2026-09-11T09:44:36+0200",
+  "elo_note": "Plays on a one second clock, not a fixed depth. The same network on the same machine measured +346 +/- 115 over 300 games on 1s/move against itself at fixed depth 6 (80-16-4, SPRT accepted at 100 games), because the root window fix took one second from about 6 plies to 9.4. depth 6 stays as the floor a timed search must at least reach. elo is the same-clock Stockfish ladder figure, Stockfish given the same second per move, and margin is that instrument's own spread across its rungs (2147 at SF 2000 to 2480 at SF 2600). It is not comparable with the 2476 this file used to carry, which came from a ladder that pinned Stockfish to a shallow fixed depth and so flattered us. The 2281 was measured with rung 6's network; rung 9 has since added +11 +/- 8 at depth 4, and a re-calibration of this exact file is running.",
+  "time_ms": 1000
 }
