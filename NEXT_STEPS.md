@@ -4,6 +4,8 @@
 
 Ordered by expected yield per hour. Everything above this line is closed.
 
+- [x] BUG: every reference-side switch (-futility, -ref-no-castle, -ref-no-repetition, -ref-nullmove-ep-bug) was assigned before the -ref-champion replacement wiped it, so three flags that exist only to configure the reference did nothing in the one mode the ladder runs in. Now applied in one place after the replacements. Commit a4940c9.
+- [x] BUG: deploying the clock put time_ms in champion.json, and the reference inherited it while the challenger ran at fixed depth. Same net both sides read -552 +/- 149; -2 +/- 28 after. The harness now owns the clock the way it already owned the depth. Commit b76b15f. Live forty minutes, touched only the self-test that found it; no published number is affected.
 - [ ] **Run rung 10.** `scripts/ladder.sh` is fixed (pure search labels, screen
   then confirm on unused openings). Rung 9 is the teacher now, and the clean
   corpus recipe is the one that worked.
