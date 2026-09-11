@@ -267,6 +267,22 @@ def test_trainer_averages_the_best_epochs_and_keeps_whichever_holds_out_better(t
                      "--holdout-games", "0.3", "--epochs", "4", "--average-best", "3"])
     said = capsys.readouterr().out
     assert out.exists()
-    # It has to say which one it kept, because an average that is worse than
-    # the single best epoch must not be shipped silently.
-    assert "averaged the best 3" in said
+    assert "averaged the best" in said
+
+    # And an average that holds out worse than the single best epoch must be
+    # dropped rather than shipped silently. A large learning rate moves the
+    # weights far enough between epochs that their mean is worse than any of
+    # them, which is exactly the case the fallback exists for.
+    run_main(train, ["--pool", str(pool), "--out", str(out), "--status", str(tmp_path / "s.json"),
+                     "--device", "cpu", "--hidden", "4", "--batch", "16",
+                     "--holdout-games", "0.3", "--epochs", "6", "--average-best", "3",
+                     "--lr", "0.5", "--fresh"])
+    assert "keeping the single best epoch" in capsys.readouterr().out
+
+
+def test_averaged_weights_are_kept_only_when_they_hold_out_better():
+    avg, single = {"w": torch.zeros(1)}, {"w": torch.ones(1)}
+    chosen, loss, kept = train.pick_weights(avg, 0.5, single, 0.6)
+    assert chosen is avg and loss == 0.5 and kept == "keeping it"
+    chosen, loss, kept = train.pick_weights(avg, 0.7, single, 0.6)
+    assert chosen is single and loss == 0.6 and kept == "keeping the single best epoch"

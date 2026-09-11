@@ -212,6 +212,15 @@ def average_states(states):
     return {k: sum(s[k].float() for s in states) / len(states) for k in states[0]}
 
 
+def pick_weights(averaged_state, averaged_loss, best_state, best_loss):
+    """Keep averaged weights only when they hold out better than the best
+    single epoch, and say which was kept: an average that is worse must not
+    be shipped silently."""
+    if averaged_loss < best_loss:
+        return averaged_state, averaged_loss, "keeping it"
+    return best_state, best_loss, "keeping the single best epoch"
+
+
 def counts_as_improvement(test: float, best: float, min_delta: float, baseline: float) -> bool:
     """Whether a held-out loss has improved enough to count.
 
@@ -560,15 +569,14 @@ def main():
         log("restored the best weights, from epoch %d (held out %.4f, explains %.1f%%)"
             % (best_epoch, best, 100 * (1 - best / baseline)))
     if len(top) > 1:
-        model.load_state_dict(average_states([state for _, state in top]))
+        averaged_state = average_states([state for _, state in top])
+        model.load_state_dict(averaged_state)
         averaged = evaluate(te_t)
-        kept = "keeping it" if averaged < best else "keeping the single best epoch"
+        chosen, best, kept = pick_weights(averaged_state, averaged, best_state, best)
         log("averaged the best %d epochs: held out %.4f against %.4f, %s"
             % (len(top), averaged, best, kept))
-        if averaged < best:
-            best = averaged
-        elif best_state is not None:
-            model.load_state_dict(best_state)
+        if chosen is not None:
+            model.load_state_dict(chosen)
 
     write_status(phase="done", epoch=best_epoch, epochs=args.epochs,
                  test_loss=best, explains=100 * (1 - best / baseline))
