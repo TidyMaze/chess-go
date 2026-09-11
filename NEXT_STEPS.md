@@ -1,5 +1,56 @@
 # Next steps to improve the engine
 
+## The ladder from scratch, 2026-09-11: one step, then flat
+
+Started from the hand-written evaluation with no network at all, to see the
+loop work where the gains are large enough to measure cheaply.
+
+| rung | trained on | result |
+|---|---|---|
+| 1 | 3M positions labelled by the hand evaluation at depth 3 | **+17 +/- 12** over 3500 games, adopted |
+| 2 | rung 1's labels plus rung 1's pools | +5 +/- 18 screen, **-13 +/- 22** confirm, rejected |
+| 2 | rung 1's labels alone, no stale pool | -29 +/- 31 screen, rejected |
+
+**The first rung is real and the second is not.** The first converts three
+plies of search into the static evaluation, which is a one-off gain. The
+second would have to convert three more, and cannot: a network explains about
+91% of its teacher whatever you do, and the 9% it cannot represent costs more
+than the extra plies are worth.
+
+Three explanations were tested and died, so none of them needs testing again:
+
+- **Volume.** 400k, 1M and 3M positions explain 91.5%, 90.3% and 91.3%. Flat.
+  The missing 9% is tactics a static function cannot represent, not missing
+  data.
+- **Speed.** At 100ms the engine reaches the same depth with the network and
+  without it (6/5/9 plies on three test positions), so evaluating a network
+  costs nothing measurable.
+- **Dilution.** Rung 2 trained on its own labels alone, with no hand-evaluation
+  pool, read -29 +/- 31 and explained 85.1% against 91.0%. Dropping the stale
+  pool made it worse.
+
+**What did decide it was the depth the labels came from.** A network taught by
+a depth-3 search helps a shallower search and hurts a deeper one, because a
+deeper search already computes what the network was taught and the network can
+then only add its own error. One network, one opponent:
+
+| playing search | result |
+|---|---|
+| fixed depth 1 | +14 +/- 40 |
+| fixed depth 2 | +17 +/- 12 (3500 games) |
+| fixed depth 4 | +16 +/- 40 |
+| 100ms, which reaches 5 to 9 plies | -36 to -66 |
+
+The first attempt at this ladder labelled at depth 3 and raced at 100ms, so it
+asked a seven-ply search to learn from a three-ply teacher and read -57.
+`scripts/ladder_scratch.sh` now refuses to start when the label depth is not
+deeper than the play depth.
+
+**To climb past one rung** the labels must get deeper every time, so that what
+is new exceeds the 9% lost in translation. Labelling cost grows with depth far
+faster than the gain does: depth 5 labels run at about a fiftieth of depth 3.
+That is the wall, and it is the same one the production ladder hit at +11.
+
 ## Open, as of 2026-09-11 10:30
 
 Ordered by expected yield per hour. Everything above this line is closed.
