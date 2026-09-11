@@ -144,6 +144,10 @@ what the trainer's run-to-run spread is worth in Elo.
 - [x] Race 3 redo: partial-iteration + full-budget build vs root-window build at 1 s: 200 games 81-60-59 (+38 +/- 49), 200 more on fresh openings 73-75-52 (+37 +/- 49); **pooled 400: 154-135-111, +37 +/- 34**. Clears its own margin and the lower bound is +3, so it stays. Log /tmp/chesslogs/race_partial_vs_root_1000ms_v2.log.
 - [x] Calibration of HEAD at 1 s/move, Stockfish on the same clock: **2281** (weighted; rungs read 2147 at SF 2000, 2235 at 2200, 2480 at 2600, so the instrument itself spreads +/- 170). Not comparable with the 2465 of champion.json: that ladder ran Stockfish at a fixed shallow depth per rung (4 to 11), which is far below its UCI_Elo label. The movetime instrument is the honest one for "how strong at 1 s". Log /tmp/chesslogs/calib_1000ms.log, appended to calibrations.json.
 - [ ] DECISION: which instrument defines "Elo" for the Deep Blue goal. Recommendation: the movetime ladder (both sides on the same clock), i.e. champion.json gets time_ms 1000 and elo 2281 with the instrument named. Log /tmp/chesslogs/race_partial_vs_root_1000ms.log.
+- [x] Merged into master (fast-forward, 94 commits), pushed, master is the GitHub default branch. Public at https://github.com/TidyMaze/chess-go under MIT.
+- [~] r9_all (clean corpus plus every older pool, 15M positions) against the champion. Its +18 +/- 18 was measured against rung 6 before rung 9 was adopted, so it is superseded; screening against rung 9 now, confirmation on openings 70000+ only if the screen favours it.
+- [~] The blend re-measured on the fixed harness at 0.55 and 0.65. The pre-fix sweep put everything below 0.45, but it handicapped the challenger by about 19 points and 0.6 read -17 +/- 25, which corrects to roughly zero.
+- [ ] Re-measure the other pre-fix rejections for magnitude: the lambda sweep, capacity at 128, and LMP over SEE. Directions survive the 19-point correction; the sizes in this file do not.
 - [ ] Coverage remainder toward 100% (engine 190/212 functions, nnue 28/47).
 
 
