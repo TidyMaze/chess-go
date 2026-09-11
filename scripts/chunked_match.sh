@@ -21,6 +21,10 @@ chunk=${2:?chunk size}
 shift 2
 SPRT=${CHESS_SPRT:-on}
 SPRT_ELO1=${CHESS_SPRT_ELO1:-15}
+# Every binary this script runs is built here. Three races in one evening
+# ran on a gauntlet-bin older than the engine; the last one raced a network
+# its loader could not read and reported "chunk failed" as the screen.
+go build -o gauntlet-bin ./gauntlet || exit 1
 if [ "$SPRT" != "off" ]; then
   go build -o sprtcheck-bin ./sprtcheck || exit 1
 fi
