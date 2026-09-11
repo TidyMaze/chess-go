@@ -78,8 +78,13 @@ whole iteration), the evaluation ladder gave +11 and then proved saturated.
   iir -28 +/- 49, countermove +5 +/- 48. None clear of zero; at 10 ms a
   200-game screen costs 30 s and resolves +/- 48, so the cap, not the SPRT,
   stopped every one of them. Only scaledlmr is worth more games.
-- [~] scaledlmr at 2000 games, 10 ms (about five minutes), queued behind the
-  confirm race. The rest stay rejected at this resolution.
+- [x] scaledlmr at 10 ms with more games: -21 +/- 26 (242-155-283), SPRT
+  settled "worse" at 680 games. Rejected; the +24 at 200 games was noise.
+  All five clocked pruning screens are closed at 10 ms.
+- [~] **Second hidden layer**, delegated: 128 -> 32 -> 1 behind a trainer
+  flag, old nets bit-for-bit unchanged, Go-agreement test extended, 100%
+  coverage kept, smoke training only. The real training and its Elo race
+  come after, on the 10 ms clock.
 - [ ] **A second hidden layer.** The one architecture change not yet tried,
   and the only one that changes what the network can express. Width 64 to
   128, king buckets 8 to 32 and averaging two nets all stayed at ~91%
