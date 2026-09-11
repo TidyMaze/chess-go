@@ -49,6 +49,7 @@ var strongDefaults = engine.Strong(4)
 // seven ladder rungs, worth -19 +/- 25.
 type referenceSwitches struct {
 	timeMS         int
+	threads        int
 	futility       bool
 	noCastle       bool
 	noRepetition   bool
@@ -63,6 +64,10 @@ func (s referenceSwitches) applyTo(p engine.Player) (engine.Player, error) {
 	// arrived with a one second budget while the challenger ran at a fixed
 	// depth. The same network on both sides then read -552 +/- 149.
 	p.TimeBudget = time.Duration(s.timeMS) * time.Millisecond
+	// Threads too: a champion file that says four would otherwise give the
+	// reference four threads per worker across ten workers, oversubscribed
+	// and unfair against a single-threaded challenger.
+	p.Threads = s.threads
 	p.Futility = s.futility
 	p.NoCastle = s.noCastle
 	p.NoRepetition = s.noRepetition
@@ -135,6 +140,7 @@ func main() {
 	refBookPath := flag.String("ref-book", "", "reference plays from this opening book too")
 	matchOpenings := flag.String("match-openings", "", "start games from positions in this file instead of random plies")
 	timeMS := flag.Int("time-ms", 0, "challenger plays to a per-move time budget instead of a fixed depth")
+	threads := flag.Int("threads", 0, "search threads on both sides (0 or 1 = single-threaded); the harness owns this, not the champion file, so ten workers cannot each spawn four")
 	tunedFile := flag.String("tuned-file", "", "challenger uses the fitted parameters in this file")
 	openingOffset := flag.Int("opening-offset", 0, "shift the openings used, so chunked matches do not repeat games")
 	tbPath := flag.String("tablebases", "", "challenger probes this generated endgame tablebase")
@@ -333,8 +339,10 @@ func main() {
 	// Every reference-side switch is applied here, after both replacements,
 	// and nowhere else. See referenceSwitches for why that matters.
 	var err error
+	challenger.Threads = *threads
 	reference, err = referenceSwitches{
 		timeMS:         *timeMS,
+		threads:        *threads,
 		futility:       *futility,
 		noCastle:       *refNoCastle,
 		noRepetition:   *refNoRep,

@@ -112,3 +112,26 @@ func TestTheReferenceTakesItsClockFromTheHarnessNotTheChampionFile(t *testing.T)
 		t.Errorf("-time-ms 1000 gave the reference %v", clocked.TimeBudget)
 	}
 }
+
+// Threads come from the harness as well. A champion file saying four would
+// otherwise give the reference four threads in each of ten workers, forty
+// threads on ten cores against a single-threaded challenger.
+func TestTheReferenceTakesItsThreadsFromTheHarnessNotTheChampionFile(t *testing.T) {
+	champion := engine.Strong(4)
+	champion.Threads = 4 // as a champion.json with "threads": 4 would give it
+
+	single, err := referenceSwitches{threads: 0, futility: strongDefaults.Futility}.applyTo(champion)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if single.Threads != 0 {
+		t.Errorf("a match nobody gave -threads left the reference on %d threads", single.Threads)
+	}
+	two, err := referenceSwitches{threads: 2, futility: strongDefaults.Futility}.applyTo(champion)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if two.Threads != 2 {
+		t.Errorf("-threads 2 gave the reference %d", two.Threads)
+	}
+}
