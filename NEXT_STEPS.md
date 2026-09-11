@@ -26,6 +26,16 @@ whole iteration), the evaluation ladder gave +11 and then proved saturated.
   when paused for the SMP measurement); then scaledlmr, nullgate, iir,
   countermove. Both sides single-threaded: a feature screen compares
   features, not cores.
+- [ ] **A second hidden layer.** The one architecture change not yet tried,
+  and the only one that changes what the network can express. Width 64 to
+  128, king buckets 8 to 32 and averaging two nets all stayed at ~91%
+  explained and level in Elo, because each keeps the network a single
+  clipped-linear layer that can only add up one opinion per piece. A second
+  layer represents interactions between pieces, which is the shape tactics
+  take, and is what real NNUE uses (256x2 -> 32 -> 32 -> 1). Go needs the
+  layer in output() only; the incremental accumulator is untouched. Trainer,
+  export and load carry it; the Go-agreement test extends to it. About two
+  hours. Measured first as explains against the 91% ceiling, then as Elo.
 - [ ] Then move ordering, the tablebase re-measure, and the speed items.
 
 ## Rung 2 against rung 1, 2026-09-11: nine approaches, one wall
