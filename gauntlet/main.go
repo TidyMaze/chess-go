@@ -37,6 +37,53 @@ func full(name string, d int) engine.Player {
 // worse than the champion that taught it".
 var strongDefaults = engine.Strong(4)
 
+// referenceSwitches are every setting that configures the reference side.
+//
+// They are applied in one place, after -ref-champion or -ref-uci have had
+// their chance to replace the reference wholesale, because a replacement
+// discards everything set before it. That is not a hypothetical: -futility,
+// -ref-no-castle, -ref-no-repetition and -ref-nullmove-ep-bug were assigned
+// before the replacement and so did nothing at all whenever -ref-champion
+// was used, which is the mode the ladder runs in. The same shape of mistake
+// on the challenger side left it playing without the mobility term for
+// seven ladder rungs, worth -19 +/- 25.
+type referenceSwitches struct {
+	futility       bool
+	noCastle       bool
+	noRepetition   bool
+	keepNullMoveEP bool
+	features       string
+}
+
+func (s referenceSwitches) applyTo(p engine.Player) (engine.Player, error) {
+	p.Futility = s.futility
+	p.NoCastle = s.noCastle
+	p.NoRepetition = s.noRepetition
+	p.KeepNullMoveEP = s.keepNullMoveEP
+	for _, f := range strings.Split(s.features, ",") {
+		switch strings.TrimSpace(f) {
+		case "":
+		case "lmp":
+			p.LMP = true
+		case "scaledlmr":
+			p.ScaledLMR = true
+		case "rfp":
+			p.DeepRFP = true
+		case "nullgate":
+			p.NullGate = true
+		case "countermove":
+			p.Countermoves = true
+		case "iir":
+			p.IIR = true
+		case "see":
+			p.MainSEE = true
+		default:
+			return p, fmt.Errorf("unknown feature %q", f)
+		}
+	}
+	return p, nil
+}
+
 func main() {
 	games := flag.Int("games", 40, "games in the match")
 	maxMoves := flag.Int("max-moves", 250, "ply cap")
@@ -89,10 +136,6 @@ func main() {
 	engine.OpeningPlies = *openingPlies
 
 	reference := full("reference (current FULL)", *depth)
-	reference.Futility = *futility
-	reference.NoCastle = *refNoCastle
-	reference.NoRepetition = *refNoRep
-	reference.KeepNullMoveEP = *refKeepEP
 
 	// The challenger is the same configuration; whatever new feature is
 	// under test is enabled here. Flags on the Player struct make the
@@ -280,29 +323,19 @@ func main() {
 		fmt.Printf("reference is the UCI engine %s\n", *refUCI)
 	}
 
-	// After -ref-champion, which replaces the reference wholesale: set
-	// before it, these would be silently discarded.
-	for _, f := range strings.Split(*refFeatures, ",") {
-		switch strings.TrimSpace(f) {
-		case "":
-		case "lmp":
-			reference.LMP = true
-		case "scaledlmr":
-			reference.ScaledLMR = true
-		case "rfp":
-			reference.DeepRFP = true
-		case "nullgate":
-			reference.NullGate = true
-		case "countermove":
-			reference.Countermoves = true
-		case "iir":
-			reference.IIR = true
-		case "see":
-			reference.MainSEE = true
-		default:
-			fmt.Printf("unknown feature %q\n", f)
-			return
-		}
+	// Every reference-side switch is applied here, after both replacements,
+	// and nowhere else. See referenceSwitches for why that matters.
+	var err error
+	reference, err = referenceSwitches{
+		futility:       *futility,
+		noCastle:       *refNoCastle,
+		noRepetition:   *refNoRep,
+		keepNullMoveEP: *refKeepEP,
+		features:       *refFeatures,
+	}.applyTo(reference)
+	if err != nil {
+		fmt.Println(err)
+		return
 	}
 
 	engine.MatchOpeningOffset = *openingOffset
