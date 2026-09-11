@@ -96,6 +96,10 @@ whole iteration), the evaluation ladder gave +11 and then proved saturated.
   the 91% ceiling. Then at 10 ms, both sides single-threaded: screen 400
   games on openings 110000+ against the champion, confirm 400 on 112000+
   if the screen favours it. Queued behind the training.
+- [~] **Same net at a learning rate ten times smaller** (0.0005 against the
+  ladder's 0.005), by request, cold start, same flags otherwise; log
+  /tmp/chesslogs/train_r9_h2_lr.log. Then the same 10 ms screen and confirm
+  on openings 114000+ and 116000+. Queued behind the first run's race.
 - [ ] If the layer helps: try the `if v == 0` short-circuit in spread()
   behind a benchmark (clipped ReLU leaves many zeros), and retrain the
   ladder with the layer. If it does not: the network is not the ceiling.
