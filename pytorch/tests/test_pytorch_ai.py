@@ -269,15 +269,9 @@ def test_trainer_averages_the_best_epochs_and_keeps_whichever_holds_out_better(t
     assert out.exists()
     assert "averaged the best" in said
 
-    # And an average that holds out worse than the single best epoch must be
-    # dropped rather than shipped silently. A large learning rate moves the
-    # weights far enough between epochs that their mean is worse than any of
-    # them, which is exactly the case the fallback exists for.
-    run_main(train, ["--pool", str(pool), "--out", str(out), "--status", str(tmp_path / "s.json"),
-                     "--device", "cpu", "--hidden", "4", "--batch", "16",
-                     "--holdout-games", "0.3", "--epochs", "6", "--average-best", "3",
-                     "--lr", "0.5", "--fresh"])
-    assert "keeping the single best epoch" in capsys.readouterr().out
+    # Which of the two it keeps depends on the run, so the decision itself is
+    # tested directly in test_averaged_weights_are_kept_only_when_they_hold_out_better
+    # rather than by hoping a training run lands on the branch.
 
 
 def test_averaged_weights_are_kept_only_when_they_hold_out_better():
@@ -286,3 +280,65 @@ def test_averaged_weights_are_kept_only_when_they_hold_out_better():
     assert chosen is avg and loss == 0.5 and kept == "keeping it"
     chosen, loss, kept = train.pick_weights(avg, 0.7, single, 0.6)
     assert chosen is single and loss == 0.6 and kept == "keeping the single best epoch"
+
+
+def test_load_net_is_the_inverse_of_export(tmp_path):
+    """A rung that starts from random weights has to rediscover everything the
+    rung below it already knew, and rediscovers it slightly differently: a
+    network explains about 91% of its teacher whatever you do, and relearning
+    from scratch spends that budget afresh every time. Measured, rung 2 came
+    out level with rung 1 rather than above it.
+
+    Starting rung 2 from rung 1's weights keeps what already works and moves
+    only where the new labels disagree, so export and load have to round-trip
+    exactly."""
+    src = train.HalfKP(hidden=6, buckets=8)
+    with torch.no_grad():
+        src.embed.weight.normal_()
+        src.embed.weight[src.inputs].zero_()
+        src.b1.normal_()
+        src.out.weight.normal_()
+        src.out.bias.fill_(0.25)
+    path = tmp_path / "net.json"
+    train.export(src, path)
+
+    dst = train.HalfKP(hidden=6, buckets=8)
+    train.load_net(dst, path)
+    for name, a, b in [
+        ("embed", src.embed.weight, dst.embed.weight),
+        ("b1", src.b1, dst.b1),
+        ("w2", src.out.weight, dst.out.weight),
+        ("b2", src.out.bias, dst.out.bias),
+    ]:
+        assert torch.allclose(a, b, atol=1e-6), name
+
+    # The two must now agree on any position, which is the property that
+    # makes a warm start worth anything.
+    own = torch.randint(0, src.inputs, (4, 7))
+    opp = torch.randint(0, src.inputs, (4, 7))
+    assert torch.allclose(src(own, opp), dst(own, opp), atol=1e-5)
+
+
+def test_load_net_refuses_a_network_of_another_shape(tmp_path):
+    src = train.HalfKP(hidden=6, buckets=8)
+    path = tmp_path / "net.json"
+    train.export(src, path)
+    with pytest.raises(ValueError):
+        train.load_net(train.HalfKP(hidden=8, buckets=8), path)
+
+
+def test_a_rung_can_start_from_the_rung_below_it(tmp_path, capsys):
+    """Rung 2 came out level with rung 1 when it started from random weights,
+    because it had to rediscover everything rung 1 knew and rediscovered it
+    slightly differently. Starting from the previous network is the cheap way
+    to keep the part that already works."""
+    pool = tmp_path / "pool.bin"
+    write_pool(pool, games=8, per_game=10)
+    first, second = tmp_path / "first.json", tmp_path / "second.json"
+    common = ["--pool", str(pool), "--status", str(tmp_path / "s.json"), "--device", "cpu",
+              "--hidden", "4", "--batch", "16", "--holdout-games", "0.3", "--epochs", "1"]
+    run_main(train, common + ["--out", str(first)])
+    capsys.readouterr()
+    run_main(train, common + ["--out", str(second), "--init-from", str(first), "--fresh"])
+    assert "starting from" in capsys.readouterr().out
+    assert json.loads(second.read_text())["h"] == 4

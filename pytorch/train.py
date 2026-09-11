@@ -221,6 +221,30 @@ def pick_weights(averaged_state, averaged_loss, best_state, best_loss):
     return best_state, best_loss, "keeping the single best epoch"
 
 
+
+def load_net(model: HalfKP, path: Path) -> None:
+    """Load an exported network back into a model, the inverse of export.
+
+    A rung that starts from random weights has to rediscover everything the
+    rung below it already knew, and rediscovers it slightly differently,
+    because a network explains about 91% of its teacher whatever you do.
+    Starting from the previous rung keeps what works and moves only where the
+    new labels disagree.
+    """
+    net = json.loads(Path(path).read_text())
+    if net["h"] != model.hidden or net.get("buckets", 8) != model.buckets:
+        raise ValueError(
+            "network is %d hidden and %d buckets, the model is %d and %d"
+            % (net["h"], net.get("buckets", 8), model.hidden, model.buckets))
+    with torch.no_grad():
+        w1 = torch.tensor(net["w1"], dtype=torch.float32).view(model.inputs, model.hidden)
+        model.embed.weight[: model.inputs].copy_(w1)
+        model.embed.weight[model.inputs].zero_()
+        model.b1.copy_(torch.tensor(net["b1"], dtype=torch.float32))
+        model.out.weight.copy_(
+            torch.tensor(net["w2"], dtype=torch.float32).view(1, 2 * model.hidden))
+        model.out.bias.fill_(float(net["b2"]))
+
 def counts_as_improvement(test: float, best: float, min_delta: float, baseline: float) -> bool:
     """Whether a held-out loss has improved enough to count.
 
@@ -280,6 +304,10 @@ def main():
     ap.add_argument("--checkpoint-every", type=int, default=10,
                     help="also checkpoint every N epochs, not only on improvement")
     ap.add_argument("--fresh", action="store_true", help="ignore any checkpoint")
+    ap.add_argument("--init-from", default="",
+                    help="start from this exported network instead of random weights, so a "
+                         "rung keeps what the rung below it learned and moves only where the "
+                         "new labels disagree")
     ap.add_argument("--average-best", type=int, default=1,
                     help="average the weights of this many best epochs, and keep the "
                          "average only when it holds out better than the single best")
@@ -371,6 +399,10 @@ def main():
         Path(args.status).write_text(json.dumps(st))
 
     model = HalfKP(args.hidden, args.buckets).to(device)
+    if args.init_from:
+        load_net(model, Path(args.init_from))
+        model.to(device)
+        log("starting from %s" % args.init_from)
     smooth_idx = smooth_mask = None
     if args.smooth > 0:
         smooth_idx, smooth_mask = neighbour_index(model.inputs, device)
