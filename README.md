@@ -41,7 +41,8 @@ Perft against the published counts, Kiwipete included.
 
 **Evaluation.** A HalfKP network (8 king buckets, 64 hidden, incremental
 accumulator) blended 0.45 with a hand written evaluation. Trained in PyTorch,
-run in Go, with a test that both agree to the last bit.
+run in Go, with a test that both agree to the last bit. How it is
+trained, and what goes in and comes out: [TRAINING.md](TRAINING.md).
 
 **Strength.** 2347 Elo with both sides on 1 second per move, and an even
 score against Stockfish 2400 over 30 games. Ladders that pin Stockfish to a
