@@ -114,6 +114,30 @@ func TestParallelSearchSearchesMoreNodesInTheSameTime(t *testing.T) {
 	}
 }
 
+// The number that matters is plies reached per second, not nodes: helpers
+// that duplicate the main thread's tree add nodes and no depth. Mean
+// completed depth over five positions in one second, per thread count.
+func TestParallelDepthInOneSecond(t *testing.T) {
+	if os.Getenv("MEASURE") == "" {
+		t.Skip("MEASURE=1 measures depth reached per thread count")
+	}
+	net, err := LoadHalfKPNet("../champion_net.json")
+	if err != nil {
+		t.Skip("no champion network:", err)
+	}
+	for _, threads := range []int{1, 2, 4, 8} {
+		total := 0
+		for _, fen := range correctnessPositions[3:8] {
+			g, _ := game.ParseFEN(fen)
+			p := Strong(4)
+			p.HalfKP, p.HalfKPBlend, p.TimeBudget, p.Threads = net, 0.45, time.Second, threads
+			PlayerPick(p, g)
+			total += LastSearchDepth()
+		}
+		t.Logf("%d threads: mean depth %.1f in 1s", threads, float64(total)/5)
+	}
+}
+
 // Threads travels through champion.json like everything else the UI, the
 // calibrator and the ladder build a player from.
 func TestChampionThreadsReachThePlayer(t *testing.T) {

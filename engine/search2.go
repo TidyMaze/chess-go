@@ -2,6 +2,7 @@ package engine
 
 import (
 	"math"
+	"math/rand"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -746,10 +747,10 @@ func chooseMoveIterativeScoredThreads(g *game.Game, color board.Color, maxDepth 
 	}
 	atomic.StoreInt64(&lastSearchNodes, 0)
 	if threads <= 1 {
-		return searchIterative(g, color, maxDepth, ev, useQuiescence, budget, nil, 1, true)
+		return searchIterative(g, color, maxDepth, ev, useQuiescence, budget, nil, 0)
 	}
 	ev.Table.share()
-	var stop int32
+	var shared smpShared
 	var wg sync.WaitGroup
 	for i := 1; i < threads; i++ {
 		// Copied here, before the main search starts writing to g and ev,
@@ -758,20 +759,42 @@ func chooseMoveIterativeScoredThreads(g *game.Game, color board.Color, maxDepth 
 		hg.Board = g.Board.Clone()
 		hev := *ev
 		wg.Add(1)
-		go func(i int, hg game.Game, hev Eval) {
+		go func(seed int64, hg game.Game, hev Eval) {
 			defer wg.Done()
-			searchIterative(&hg, color, maxDepth, &hev, useQuiescence, budget, &stop, 1+i%2, false)
-		}(i, hg, hev)
+			searchIterative(&hg, color, maxDepth, &hev, useQuiescence, budget, &shared, seed)
+		}(int64(i), hg, hev)
 	}
-	m, score, ok := searchIterative(g, color, maxDepth, ev, useQuiescence, budget, &stop, 1, true)
-	atomic.StoreInt32(&stop, 1)
+	m, score, ok := searchIterative(g, color, maxDepth, ev, useQuiescence, budget, &shared, 0)
+	atomic.StoreInt32(&shared.stop, 1)
 	wg.Wait()
 	return m, score, ok
 }
 
+// smpShared is what the threads of one parallel search share besides the
+// table: the stop signal, and the main thread's completed depth so the
+// helpers can stay ahead of it. Helpers that iterate in lockstep with the
+// main thread search the tree it is searching and store nothing it has not
+// already found: measured, eight threads searched 5.6 times the nodes and
+// reached exactly the same depth.
+type smpShared struct {
+	stop      int32
+	mainDepth int32
+}
+
 // searchIterative is one thread's iterative deepening. main marks the
 // thread whose move is played and whose diagnostics are recorded.
-func searchIterative(g *game.Game, color board.Color, maxDepth int, ev *Eval, useQuiescence bool, budget time.Duration, stop *int32, startDepth int, main bool) (game.Move, float64, bool) {
+func searchIterative(g *game.Game, color board.Color, maxDepth int, ev *Eval, useQuiescence bool, budget time.Duration, shared *smpShared, seed int64) (game.Move, float64, bool) {
+	// Seed 0 is the main thread, whose move is played and whose diagnostics
+	// are recorded. Helpers start a ply or two higher and shuffle their root
+	// order, so they explore what the main thread has not reached yet
+	// instead of racing it through the same tree.
+	main := seed == 0
+	startDepth := 1
+	var rng *rand.Rand
+	if !main {
+		startDepth = 1 + int(seed%3)
+		rng = rand.New(rand.NewSource(seed))
+	}
 	legal := g.AllLegalMoves(color)
 	if ev != nil && ev.NoCastle {
 		kept := legal[:0]
@@ -796,7 +819,9 @@ func searchIterative(g *game.Game, color board.Color, maxDepth int, ev *Eval, us
 	ctx := searchCtxPool.Get().(*searchCtx)
 	defer searchCtxPool.Put(ctx)
 	ctx.reset()
-	ctx.stop = stop
+	if shared != nil {
+		ctx.stop = &shared.stop
+	}
 	if main {
 		ctx.abortAtNodes = testAbortAtNodes
 	}
@@ -826,6 +851,16 @@ func searchIterative(g *game.Game, color board.Color, maxDepth int, ev *Eval, us
 	prevScore := 0.0
 	start := time.Now()
 	for depth := startDepth; depth <= maxDepth; depth++ {
+		if !main && shared != nil {
+			// Stay ahead of the main thread: one ply past what it has
+			// completed, two for the odd-numbered helpers.
+			if lead := int(atomic.LoadInt32(&shared.mainDepth)) + 1 + int(seed%2); lead > depth {
+				depth = lead
+			}
+			if depth > maxDepth {
+				break
+			}
+		}
 		if budget > 0 && depth > startDepth {
 			elapsed := time.Since(start)
 			// Stop outright once the budget is spent. The prediction below
@@ -864,6 +899,11 @@ func searchIterative(g *game.Game, color board.Color, maxDepth int, ev *Eval, us
 		ordered := make([]game.Move, len(legal))
 		copy(ordered, legal)
 		ctx.orderMoves(g, ordered, best, 0, color)
+		if rng != nil && len(ordered) > 2 {
+			// Helpers keep the best-known move first and shuffle the rest.
+			rest := ordered[1:]
+			rng.Shuffle(len(rest), func(a, b int) { rest[a], rest[b] = rest[b], rest[a] })
+		}
 
 		for _, m := range ordered {
 			undo, _ := makeSearchMove(g, m)
@@ -913,6 +953,9 @@ func searchIterative(g *game.Game, color board.Color, maxDepth int, ev *Eval, us
 		}
 		prevScore = bestScore
 		completed = depth
+		if main && shared != nil {
+			atomic.StoreInt32(&shared.mainDepth, int32(depth))
+		}
 
 		if len(tied) > 1 {
 			// Same anti-repetition tie-break as the simple search: prefer a
