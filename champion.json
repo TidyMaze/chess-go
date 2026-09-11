@@ -1,11 +1,11 @@
 {
   "label": "ladder rung 9: 8.0M real-game positions, pure search labels at depth 3",
   "depth": 6,
-  "elo": 2281,
+  "elo": 2347,
   "margin": 170,
   "net_file": "champion_net.json",
   "hand_blend": 0.45,
-  "adopted": "2026-09-11T09:44:36+0200",
-  "elo_note": "Plays on a one second clock, not a fixed depth. The same network on the same machine measured +346 +/- 115 over 300 games on 1s/move against itself at fixed depth 6 (80-16-4, SPRT accepted at 100 games), because the root window fix took one second from about 6 plies to 9.4. depth 6 stays as the floor a timed search must at least reach. elo is the same-clock Stockfish ladder figure, Stockfish given the same second per move, and margin is that instrument's own spread across its rungs (2147 at SF 2000 to 2480 at SF 2600). It is not comparable with the 2476 this file used to carry, which came from a ladder that pinned Stockfish to a shallow fixed depth and so flattered us. The 2281 was measured with rung 6's network; rung 9 has since added +11 +/- 8 at depth 4, and a re-calibration of this exact file is running.",
+  "adopted": "2026-09-11T10:15:48+0200",
+  "elo_note": "Plays on a one second clock, not a fixed depth: the same network measured +346 +/- 115 over 300 games on 1s/move against itself at fixed depth 6 (80-16-4, SPRT accepted at 100 games), because the root window fix took one second from about 6 plies to 9.4. depth 6 stays as the floor a timed search must at least reach. elo is this exact file re-calibrated against Stockfish given the same second per move, 30 games per level: 2347, against 2281 for rung 6 on the same instrument. The heaviest weighted rung is Stockfish 2400, where it scored 0.53 over 30 games and read 2423. margin is the instrument's own spread across its rungs, not this network's error bar. Not comparable with the 2476 this file used to carry, which came from a ladder that pinned Stockfish to a shallow fixed depth and so flattered us.",
   "time_ms": 1000
 }

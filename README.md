@@ -7,7 +7,7 @@
 
 <p align="center">
   <img alt="Go 1.27" src="https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white">
-  <img alt="Elo 2281" src="https://img.shields.io/badge/Elo-2281%20vs%20Stockfish%20%401s%2Fmove-2b6cb0">
+  <img alt="Elo 2347" src="https://img.shields.io/badge/Elo-2347%20vs%20Stockfish%20%401s%2Fmove-2b6cb0">
   <img alt="MIT" src="https://img.shields.io/badge/licence-MIT-3fa34d">
   <img alt="no deps" src="https://img.shields.io/badge/engine%20deps-none-6b46c1">
 </p>
@@ -43,9 +43,10 @@ Perft against the published counts, Kiwipete included.
 accumulator) blended 0.45 with a hand written evaluation. Trained in PyTorch,
 run in Go, with a test that both agree to the last bit.
 
-**Strength.** 2281 Elo with both sides on 1 second per move. The same engine
-reads 2476 on a ladder where Stockfish is pinned to a shallow fixed depth,
-which flatters it. Quote the first number.
+**Strength.** 2347 Elo with both sides on 1 second per move, and an even
+score against Stockfish 2400 over 30 games. Ladders that pin Stockfish to a
+shallow fixed depth read higher and flatter us, so this is the number to
+quote.
 
 ## Highlights
 
