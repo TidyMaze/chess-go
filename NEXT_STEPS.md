@@ -1,5 +1,42 @@
 # Next steps to improve the engine
 
+## Rung 2 against rung 1, 2026-09-11: nine approaches, one wall
+
+Goal: a rung 2 that beats rung 1. Every race below is the rung-2 candidate
+against rung 1 at fixed depth 2, paired openings, on bands no screen used.
+
+| approach | mechanism it tests | result |
+|---|---|---|
+| cold start, all pools | baseline | -13 +/- 22 |
+| own labels only | stale-pool dilution | -29 +/- 31 |
+| warm start from rung 1 | preserve what rung 1 knew | -2 +/- 14, and it converged to the same 91.1% |
+| blend 0.15 / 0.30 / 0.60 | hand evaluation damping | -33 / -6 / -3 |
+| warm start, 5000 games | resolution | +2 +/- 10 |
+| depth-5 labels (90 min) | more new information per rung | -6 +/- 10, explains fell to 90.1% |
+| 128 hidden | capacity | -6 +/- 14, 90.3% against 90.1% |
+| 32 king buckets (3M relabelled) | feature resolution | +1 +/- 10 |
+| rung 1 + rung 2 averaged as one net | independent errors | -0 +/- 10 |
+
+**What the ninth row proves.** If two independently trained networks made
+independent mistakes, averaging them would have measured. It did not, so both
+fail on the same positions: the 9% a network cannot express is tactical
+content that no static function of piece placement can represent. That is
+why data (flat from 400k to 3M), capacity, features and initialisation all
+left the ceiling at about 91%, and why a teacher that is better by +17 hands
+its student nothing: the +17 lives mostly in exactly that content.
+
+**Why rung 1 worked and rung 2 cannot.** Rung 1 replaced a hand-written
+evaluation with a network, a change of function class, and gained +17 +/- 12.
+Rung 2 replaces a network with another network of the same class. There is no
+upgrade left to make, so the ladder saturates after one rung with this
+architecture, as the production ladder did at +11.
+
+**What would be a change of kind rather than another knob.** A deeper network
+(a second hidden layer, which the Go accumulator does not have), inputs that
+are not static (attack maps, which cost search time at every leaf), or a
+different loop entirely. None of those is an afternoon, and none was
+measured, so this is where the arbitration belongs with the owner.
+
 ## The ladder from scratch, 2026-09-11: one step, then flat
 
 Started from the hand-written evaluation with no network at all, to see the
