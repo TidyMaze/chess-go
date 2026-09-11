@@ -90,12 +90,20 @@ whole iteration), the evaluation ladder gave +11 and then proved saturated.
   100%. Commits c97fcde, 94e5de9, 8a58bd7, aca7410. Cost: head() is 2H*H2
   multiply-adds, 4096 against 128; the single-layer path is unchanged at
   85-92 ns/op.
-- [~] **Training it** on clean_r9.bin (rung 9's pool, 8.0M positions) with
-  the ladder's flags plus --hidden2 32, cold start; log
-  /tmp/chesslogs/train_r9_h2.log. First number to read: explains against
-  the 91% ceiling. Then at 10 ms, both sides single-threaded: screen 400
-  games on openings 110000+ against the champion, confirm 400 on 112000+
-  if the screen favours it. Queued behind the training.
+- [x] **Trained and raced: the layer does not help.** On clean_r9.bin with
+  the ladder's flags plus --hidden2 32, cold start, best epoch 53 of 75:
+  explains 89.3% against 90.2% for the single-layer rung 9 net. At 10 ms,
+  both sides single-threaded, openings 110000+: **-90 +/- 46** (73-33-134,
+  SPRT settled "worse" at 240 games). Not adopted. The residual is not head
+  capacity; see the rung 2 table below for the same wall from nine angles.
+- [x] **BUG on the way, fixed with a test**: the first race of that net ran
+  on a gauntlet-bin built before the second-layer loader and reported
+  "chunk failed" as the screen. Third stale binary of the evening. The
+  match driver now builds gauntlet-bin like it built sprtcheck-bin; the
+  test runs it on zero games and checks the binary is fresher than the
+  run (red on the old script: 22:00:28 against a run at 22:00:29).
+  Commit 3b739a1. Still by hand: uci-bin in the UCI wrappers, nnue-bin in
+  ladder.sh, calibrate-bin in the calibration scripts.
 - [~] **Same net at a learning rate ten times smaller** (0.0005 against the
   ladder's 0.005), by request, cold start, same flags otherwise; log
   /tmp/chesslogs/train_r9_h2_lr.log. Then the same 10 ms screen and confirm
