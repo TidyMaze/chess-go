@@ -342,3 +342,51 @@ def test_a_rung_can_start_from_the_rung_below_it(tmp_path, capsys):
     run_main(train, common + ["--out", str(second), "--init-from", str(first), "--fresh"])
     assert "starting from" in capsys.readouterr().out
     assert json.loads(second.read_text())["h"] == 4
+
+
+def test_ensemble_of_two_nets_is_one_net_that_outputs_their_mean(tmp_path):
+    """Eight ways of training rung 2 all land level with rung 1, and the reason
+    is in the labels, not the student: rung 2's teacher carries rung 1's 9%
+    leaf error, search amplifies it by taking maxima, and a 91%-faithful copy
+    of a noisier target gains nothing.
+
+    Averaging two independently trained networks attacks that noise directly,
+    and it fits the engine unchanged: two hidden-64 networks side by side are
+    exactly one hidden-128 network whose output weights are halved."""
+    a, b = train.HalfKP(hidden=5, buckets=8), train.HalfKP(hidden=5, buckets=8)
+    for m in (a, b):
+        with torch.no_grad():
+            m.embed.weight.normal_()
+            m.embed.weight[m.inputs].zero_()
+            m.b1.normal_()
+            m.out.weight.normal_()
+            m.out.bias.normal_()
+    pa, pb, pe = tmp_path / "a.json", tmp_path / "b.json", tmp_path / "e.json"
+    train.export(a, pa)
+    train.export(b, pb)
+
+    merged = train.ensemble([pa, pb], pe)
+    assert merged["h"] == 10
+
+    e = train.HalfKP(hidden=10, buckets=8)
+    train.load_net(e, pe)
+    own = torch.randint(0, a.inputs, (6, 9))
+    opp = torch.randint(0, a.inputs, (6, 9))
+    want = (a(own, opp) + b(own, opp)) / 2
+    assert torch.allclose(e(own, opp), want, atol=1e-4)
+
+
+def test_ensemble_refuses_mismatched_nets(tmp_path):
+    a, b = train.HalfKP(hidden=4, buckets=8), train.HalfKP(hidden=4, buckets=32)
+    pa, pb = tmp_path / "a.json", tmp_path / "b.json"
+    train.export(a, pa)
+    train.export(b, pb)
+    with pytest.raises(ValueError):
+        train.ensemble([pa, pb], tmp_path / "e.json")
+    # And a network that emits probabilities cannot be averaged in pawns.
+    prob = json.loads(pa.read_text())
+    prob["sigmoid"] = True
+    pp = tmp_path / "p.json"
+    pp.write_text(json.dumps(prob))
+    with pytest.raises(ValueError):
+        train.ensemble([pa, pp], tmp_path / "e2.json")

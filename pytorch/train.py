@@ -245,6 +245,49 @@ def load_net(model: HalfKP, path: Path) -> None:
             torch.tensor(net["w2"], dtype=torch.float32).view(1, 2 * model.hidden))
         model.out.bias.fill_(float(net["b2"]))
 
+
+def ensemble(paths, out_path: Path) -> dict:
+    """Merge exported networks into one whose output is their mean.
+
+    Eight ways of training rung 2 all landed level with rung 1, and the
+    reason is in the labels rather than the student: rung 2's teacher
+    carries rung 1's leaf error, search amplifies it by taking maxima, and a
+    91%-faithful copy of a noisier target gains nothing. Averaging networks
+    trained independently attacks that error directly, since their mistakes
+    are in different places.
+
+    It costs the engine nothing new. The hidden layers sit side by side, so
+    two hidden-64 networks are exactly one hidden-128 network, and the output
+    weights are divided by the number of networks so the result is the mean.
+    Any scale is folded into the output layer first.
+    """
+    nets = [json.loads(Path(p).read_text()) for p in paths]
+    buckets = nets[0].get("buckets", 8)
+    for n in nets:
+        if n.get("buckets", 8) != buckets:
+            raise ValueError("networks use %d and %d king buckets" % (buckets, n.get("buckets", 8)))
+        if n.get("sigmoid", False):
+            raise ValueError("a network emitting probabilities cannot be averaged in pawns")
+    inputs = inputs_for(buckets)
+    widths = [n["h"] for n in nets]
+    w1: list = []
+    for f in range(inputs):
+        for n, h in zip(nets, widths):
+            w1.extend(n["w1"][f * h:(f + 1) * h])
+    b1 = [v for n in nets for v in n["b1"]]
+
+    def output_weights(n):
+        scale = (n.get("scale", 1.0) or 1.0) / len(nets)
+        return [v * scale for v in n["w2"]]
+
+    own = [v for n, h in zip(nets, widths) for v in output_weights(n)[:h]]
+    opp = [v for n, h in zip(nets, widths) for v in output_weights(n)[h:]]
+    b2 = sum(float(n["b2"]) * (n.get("scale", 1.0) or 1.0) for n in nets) / len(nets)
+    merged = {"h": sum(widths), "w1": w1, "b1": b1, "w2": own + opp, "b2": b2,
+              "scale": 1.0, "sigmoid": False, "k": 0.30, "buckets": buckets}
+    Path(out_path).write_text(json.dumps(merged))
+    return merged
+
 def counts_as_improvement(test: float, best: float, min_delta: float, baseline: float) -> bool:
     """Whether a held-out loss has improved enough to count.
 
