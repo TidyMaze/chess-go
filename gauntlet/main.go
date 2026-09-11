@@ -24,19 +24,32 @@ func full(name string, d int) engine.Player {
 	return p
 }
 
+// strongDefaults is where the challenger's flag defaults come from, so a
+// flag nobody passed cannot configure one side of a match differently
+// from the other. The reference is built from engine.Strong too.
+//
+// Writing these out by hand went wrong once and cost seven ladder rungs:
+// Strong sets Mobility true, -mobility was declared false, and the
+// -ref-champion reference is rebuilt after the challenger is configured,
+// so it kept Strong's true while every challenger played without the
+// mobility term. The same network on both sides read -18 +/- 22 over 1000
+// games, which is exactly what the ladder had been calling "the rung is
+// worse than the champion that taught it".
+var strongDefaults = engine.Strong(4)
+
 func main() {
 	games := flag.Int("games", 40, "games in the match")
 	maxMoves := flag.Int("max-moves", 250, "ply cap")
 	depth := flag.Int("depth", 4, "search depth for the reference")
 	cdepth := flag.Int("cdepth", 0, "challenger depth; 0 means same as -depth")
-	futility := flag.Bool("futility", true, "enable futility pruning on both sides")
+	futility := flag.Bool("futility", strongDefaults.Futility, "enable futility pruning on both sides")
 	tuned := flag.Bool("tuned", true, "challenger uses the Texel-tuned evaluation")
 	netPath := flag.String("net", "", "challenger uses this trained network instead")
 	halfkpPath := flag.String("halfkp", "", "challenger uses this HalfKP network")
 	blend := flag.Float64("blend", 0, "weight on the hand evaluation when a network is used")
 	refNoCastle := flag.Bool("ref-no-castle", false, "reference refuses to castle")
 	refNoRep := flag.Bool("ref-no-repetition", false, "reference has no repetition detection")
-	nullR := flag.Int("null-reduction", 0, "challenger's null-move reduction in plies (0 = the historical 3)")
+	nullR := flag.Int("null-reduction", strongDefaults.NullReduction, "challenger's null-move reduction in plies (0 = the historical 3)")
 	nullScale := flag.Bool("null-scale", false, "challenger scales the null-move reduction with depth")
 	refChampion := flag.String("ref-champion", "", "reference plays the champion described by this file, network included. Without it the reference is the plain hand-written evaluation, so a network is measured against the original baseline and not against whatever it is supposed to have improved on.")
 	refUCI := flag.String("ref-uci", "", "reference is this external UCI engine (a path), on the challenger's clock when -time-ms is set, else at -depth. Built for racing one build of this engine against another.")
@@ -45,19 +58,19 @@ func main() {
 	noLMR := flag.Bool("no-lmr", false, "challenger disables late move reductions")
 	features := flag.String("features", "", "comma-separated search features the challenger switches on: lmp, scaledlmr, rfp, nullgate, countermove, iir, see")
 	refFeatures := flag.String("ref-features", "", "search features the reference switches on too, so a feature can be measured on top of another")
-	scaledLMR := flag.Bool("scaled-lmr", false, "challenger scales reductions with depth and move number")
+	scaledLMR := flag.Bool("scaled-lmr", strongDefaults.ScaledLMR, "challenger scales reductions with depth and move number")
 	noNull := flag.Bool("no-null", false, "challenger disables null-move pruning")
-	qply := flag.Int("qply", 0, "challenger quiescence ply cap (0 = default)")
-	mobility := flag.Bool("mobility", false, "challenger adds the mobility term")
-	kingSafety := flag.Float64("king-safety", 0.01, "challenger's king-danger weight (0 = off)")
-	extras := flag.Bool("extras", false, "challenger adds rook-on-seventh, doubled rooks and tempo")
+	qply := flag.Int("qply", strongDefaults.QuiescePly, "challenger quiescence ply cap (0 = default)")
+	mobility := flag.Bool("mobility", strongDefaults.Mobility, "challenger uses the mobility term")
+	kingSafety := flag.Float64("king-safety", strongDefaults.KingSafety, "challenger's king-danger weight (0 = off)")
+	extras := flag.Bool("extras", strongDefaults.Extras, "challenger adds rook-on-seventh, doubled rooks and tempo")
 	// Passed pawns are weighted zero by default. An early sweep found a
 	// hand-picked passed-pawn bonus harmful, because it double-counts
 	// with the endgame pawn table which already rewards advancement. That
 	// was measured before king safety and mobility existed, so it is
 	// worth one more look at a smaller weight.
 	passed := flag.Float64("passed", 0, "passed pawn bonus per rank advanced")
-	shape := flag.Bool("shape", false, "challenger adds outposts, connected/backward pawns, bad bishops")
+	shape := flag.Bool("shape", strongDefaults.Shape, "challenger adds outposts, connected/backward pawns, bad bishops")
 	// The piece-square tables' shapes are plausible but their size
 	// relative to a pawn was set by hand and never checked against games.
 	// One parameter, so this avoids the trap that has caught every
