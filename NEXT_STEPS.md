@@ -102,8 +102,16 @@ whole iteration), the evaluation ladder gave +11 and then proved saturated.
   match driver now builds gauntlet-bin like it built sprtcheck-bin; the
   test runs it on zero games and checks the binary is fresher than the
   run (red on the old script: 22:00:28 against a run at 22:00:29).
-  Commit 3b739a1. Still by hand: uci-bin in the UCI wrappers, nnue-bin in
-  ladder.sh, calibrate-bin in the calibration scripts.
+  Commit 3b739a1. Both ladders now build nnue-bin first as well, and stop
+  on zero rungs (BSD `seq 1 0` prints 1 and 0, so zero rungs used to mean
+  two); test red at 21:57:23 against 22:22:42, then green. Commit e81f808.
+  Still by hand, in scratch scripts only: uci-bin behind the UCI wrappers
+  and calibrate-bin in the calibration scripts (`go build -o uci-bin ./uci`,
+  `go build -o calibrate-bin ./calibrate` before a race or a calibration).
+- [~] **Coverage to 100%** in engine and nnue, delegated: tests with teeth
+  only, no production change beyond deleting provably dead statements,
+  timing tests gated as the existing ones are. Last tally engine 190/212
+  functions, nnue 28/47, total 97.2%.
 - [x] **Same net at a learning rate ten times smaller** (0.0005 against the
   ladder's 0.005), by request, cold start, same flags otherwise: 168 epochs
   to the same 89.3% explained, and **-106 +/- 51** at 10 ms (53-35-112,
