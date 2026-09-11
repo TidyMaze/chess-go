@@ -104,10 +104,12 @@ whole iteration), the evaluation ladder gave +11 and then proved saturated.
   run (red on the old script: 22:00:28 against a run at 22:00:29).
   Commit 3b739a1. Still by hand: uci-bin in the UCI wrappers, nnue-bin in
   ladder.sh, calibrate-bin in the calibration scripts.
-- [~] **Same net at a learning rate ten times smaller** (0.0005 against the
-  ladder's 0.005), by request, cold start, same flags otherwise; log
-  /tmp/chesslogs/train_r9_h2_lr.log. Then the same 10 ms screen and confirm
-  on openings 114000+ and 116000+. Queued behind the first run's race.
+- [x] **Same net at a learning rate ten times smaller** (0.0005 against the
+  ladder's 0.005), by request, cold start, same flags otherwise: 168 epochs
+  to the same 89.3% explained, and **-106 +/- 51** at 10 ms (53-35-112,
+  SPRT "worse" at 200 games, openings 114000+). Not adopted. The smaller
+  step reaches the same floor more slowly; the floor is the data, not the
+  optimiser.
 - [x] The layer did not help, so no spread() short-circuit and no ladder
   retrain with it: the network is not the ceiling. What is left on the
   evaluation side is the training signal itself (deeper labels, more
