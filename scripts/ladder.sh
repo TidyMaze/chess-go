@@ -31,10 +31,6 @@
 # about a position to pay for its variance. Every pool built before
 # 2026-09-11 carries the 0.8 targets.
 #
-# Training averages the best eight epochs (--average-best 8), which takes
-# the middle of the run-to-run spread instead of a draw from it and costs
-# nothing when the network is evaluated.
-#
 # The smoothing prior is on at every rung and is not optional. Without it,
 # a rung trained on 400k real-game positions measured -63 Elo; with it, -7.
 # Fifty-six Elo from a regulariser, because Elo here tracks how much the
@@ -145,7 +141,7 @@ for rung in $(seq "$START" $((START + RUNGS - 1))); do
   # Train, until the held-out loss stops improving.
   .venv/bin/python -u pytorch/train.py --pool $pools --epochs 0 \
     --patience 20 --lr-decay 8 --hidden 64 --batch 16384 --device mps \
-    --lr 0.005 --smooth 0.5 --average-best 8 \
+    --lr 0.005 --smooth 0.5 \
     --checkpoint "$ckpt" --out "$net" --status nnue_status.json \
     --label "ladder rung $rung, depth-$DEPTH labels" \
     > /tmp/chesslogs/ladder_train_r${rung}.log 2>&1
