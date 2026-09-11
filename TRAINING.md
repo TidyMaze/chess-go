@@ -32,6 +32,46 @@ The feature set is HalfKP. A position is described **twice**, once from each
 side's point of view, and each description is a list of active features of the
 form *(where my king is, what piece, on which square)*.
 
+### In plain terms
+
+Think of a checklist of 5120 yes/no switches. Only about thirty are ever on at
+the same time, one per piece on the board.
+
+Every switch asks the same shaped question:
+
+> is there a **[piece kind]** on **[square]**, given my king is in **[area]**?
+
+- **piece kind**: 10 options, being pawn / knight / bishop / rook / queen,
+  each either mine or theirs. Kings are not in the list, because the king's
+  own position is already the third part of the question.
+- **square**: 64 of them.
+- **king area**: the 64 king squares folded into 8 groups.
+
+10 x 64 x 8 = 5120 switches.
+
+**Why drag the king into every question?** Because the same piece is worth
+different things depending on where your king is. A knight on f5 is dangerous
+when your king is castled kingside and close to irrelevant when it is on the
+queenside. Instead of hoping the network works that out, the encoding gives
+"enemy knight on f5" a different switch for each king area, so it can learn a
+separate opinion for each.
+
+**Why 8 areas and not 64?** One switch per exact king square would mean 40,960
+switches, and each would be seen eight times less often in training. Folding
+similar king squares together trades a little precision for a lot of data per
+switch.
+
+**Why describe the position twice?** Once from each side, so the network
+learns in terms of "my pieces" and "their pieces" rather than white and black.
+The same position with the colours swapped then looks identical to it, which
+halves what it has to learn.
+
+**Why switches rather than 64 numbers, one per square?** Because a move flips
+only two of them: the piece leaves one square and arrives at another. The
+hidden layer can be updated by subtracting one row and adding another instead
+of being recomputed. That is the whole reason a network is affordable inside a
+search that visits millions of positions.
+
 ```mermaid
 flowchart TD
     B[position] --> O[own perspective]
