@@ -55,15 +55,31 @@ whole iteration), the evaluation ladder gave +11 and then proved saturated.
   whose levels disagree by 470 is a target on the ruler's error.
 - [ ] Calibrate four threads at 1 s, the goal's own number, hours: waits on
   the decision above, since it is a 1 s measurement.
-- [~] **SMP at 10 ms**: four threads against one, both behind UCI, 400 games
-  at 10 ms on openings 145000+, two concurrent games. The 100 ms race had a
-  flaw: GOMAXPROCS=2, set to cap the gauntlet at two games, was inherited
-  by the UCI child processes, so the four-thread side ran four goroutines
-  on two processors. The wrappers now unset it before exec.
-- [ ] Resume the clocked pruning screens at 10 ms (rfp was at 50 games,
-  +56 +/- 100 when paused); then scaledlmr, nullgate, iir, countermove.
-  Both sides single-threaded: a feature screen compares features, not
-  cores. Queued behind the SMP race.
+- [x] **SMP at 10 ms: four threads beat one by +70 +/- 39** (160-64-96,
+  320 games, SPRT settled "better" at llr +3.24), both behind UCI, two
+  concurrent games, openings 145000+. First Elo figure for the parallel
+  search; the depth measurements predicted about +60.
+- [x] **BUG in the harness, fixed**: the gauntlet caps concurrent games with
+  GOMAXPROCS and exec handed that variable to every UCI child, so a
+  four-thread engine under GOMAXPROCS=2 ran four searchers on two
+  processors. The 100 ms race (-13 +/- 77) was measured that way. The child
+  now gets the environment without it; test starts a fake engine under
+  GOMAXPROCS=2 and reads what it saw. Commit dc5c8a6.
+- [x] **SMP confirmed and adopted**: on openings no race had used (147000+)
+  four threads beat one by +147 +/- 69 (73-22-25, SPRT settled at 120
+  games). champion.json now carries threads 4 and elo 1993, the four-thread
+  10 ms calibration. Safe for the ladder: generate() builds its player from
+  Strong(0) and the labeller scores through PlayerScoreWith, which reads
+  Depth only, so neither the clock nor the threads in champion.json reach
+  training. The UI server on 8765 was left running (a game may be on); a
+  four-thread server is up on 8766.
+- [x] **Clocked pruning screens at 10 ms, 200 games each**, both sides single
+  threaded: rfp +2 +/- 48, scaledlmr +24 +/- 49, nullgate -10 +/- 48,
+  iir -28 +/- 49, countermove +5 +/- 48. None clear of zero; at 10 ms a
+  200-game screen costs 30 s and resolves +/- 48, so the cap, not the SPRT,
+  stopped every one of them. Only scaledlmr is worth more games.
+- [~] scaledlmr at 2000 games, 10 ms (about five minutes), queued behind the
+  confirm race. The rest stay rejected at this resolution.
 - [ ] **A second hidden layer.** The one architecture change not yet tried,
   and the only one that changes what the network can express. Width 64 to
   128, king buckets 8 to 32 and averaging two nets all stayed at ~91%
