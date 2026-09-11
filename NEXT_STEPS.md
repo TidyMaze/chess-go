@@ -23,8 +23,20 @@ whole iteration), the evaluation ladder gave +11 and then proved saturated.
   8.2 / 8.8 / 9.0 at 300 ms, 10.6 / 11.0 / 11.8 / 11.8 at 1 s. About one ply
   from four threads at every budget. So a 100 ms race measures it ten times
   cheaper than a 1 s one, and the 1 s race was stopped 25 minutes in.
-- [~] **SMP measured as Elo at 100 ms**: four threads vs one, up to 400
-  games, two concurrent games so the four-thread side has real cores.
+- [x] **Every measurement now runs at 10 ms a move, by instruction** (and 1 ms
+  is measured too). The 100 ms SMP race was stopped at 80 games (-13 +/- 77,
+  too few to see the ~+60 that 0.6 plies under load predicts). champion.json
+  carries time_ms 10 and depth 1; scripts/screen.sh defaults to 10 ms.
+- [x] **BUG, found by the first 10 ms test**: the search read the clock every
+  2048 nodes, three to five milliseconds of work, so a 10 ms move took 21 ms
+  (213%) against a Stockfish that keeps to its movetime. The mask now follows
+  the budget (2047 / 511 / 63 / 15); 10 ms moves take 109%, 1 ms moves 119%.
+  The first 10 ms calibration ran on the old binary and was discarded.
+  Commit 7c5a1ab.
+- [~] **10 ms calibrations**, one thread then four, Stockfish on the same
+  10 ms; then **1 ms**, one thread. These set the baseline on the new
+  instrument. The goal still reads "2700 at 1 s"; on a 10 ms ruler the
+  number will be lower and the target needs restating by the owner.
 - [~] **A 10 ms ruler**: the champion calibrated against Stockfish on the
   same 10 ms, with one thread and with four. Not the goal's number (Stockfish's
   strength limiting was tuned for longer clocks, and our clock check runs
