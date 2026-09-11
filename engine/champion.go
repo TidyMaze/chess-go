@@ -25,6 +25,9 @@ type Champion struct {
 	// TimeMS, when positive, is a per-move budget in milliseconds. Under a
 	// clock the engine deepens past Depth as time allows.
 	TimeMS int `json:"time_ms,omitempty"`
+	// Threads is how many search threads the engine runs (Lazy SMP). 0 or
+	// 1 means one.
+	Threads int `json:"threads,omitempty"`
 	// Elo is the calibrated rating, and Margin its 95% interval. Both are
 	// display-only: nothing branches on them.
 	Elo    float64 `json:"elo"`
@@ -110,6 +113,7 @@ func (c Champion) PlayerOrError() (Player, error) {
 	if c.TimeMS > 0 {
 		p.TimeBudget = time.Duration(c.TimeMS) * time.Millisecond
 	}
+	p.Threads = c.Threads
 	if c.NetFile != "" {
 		n, err := LoadHalfKPNet(c.NetFile)
 		if err != nil {

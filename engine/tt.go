@@ -2,6 +2,7 @@ package engine
 
 import (
 	"math/rand"
+	"sync"
 
 	"chess/board"
 	"chess/game"
@@ -122,7 +123,19 @@ func keyUpper(key uint64) uint32 { return uint32(key >> 32) }
 type TranspositionTable struct {
 	entries []ttEntry
 	mask    uint64
+	// shared is set once the table is handed to more than one search
+	// thread. Only then do probe and store take a lock, so a single-threaded
+	// search pays nothing for the possibility.
+	shared bool
+	locks  [ttStripes]sync.Mutex
 }
+
+// ttStripes is how many locks a shared table spreads its slots over. Ten
+// threads over a thousand stripes rarely meet.
+const ttStripes = 1024
+
+// share marks the table as used by several threads at once.
+func (t *TranspositionTable) share() { t.shared = true }
 
 func NewTranspositionTable(sizePow2 uint) *TranspositionTable {
 	n := uint64(1) << sizePow2
@@ -133,7 +146,16 @@ func (t *TranspositionTable) probe(key uint64, depth int, maximizingFor board.Co
 	if t == nil {
 		return 0, false
 	}
-	e := &t.entries[key&t.mask]
+	idx := key & t.mask
+	var e ttEntry
+	if t.shared {
+		l := &t.locks[idx&(ttStripes-1)]
+		l.Lock()
+		e = t.entries[idx]
+		l.Unlock()
+	} else {
+		e = t.entries[idx]
+	}
 	if e.key32 != keyUpper(key) || int(e.depth) < depth || e.maximizingFor != uint8(maximizingFor) {
 		return 0, false
 	}
@@ -164,13 +186,52 @@ func (t *TranspositionTable) storeWithMove(key uint64, score float64, depth int,
 	if t == nil {
 		return
 	}
-	e := &t.entries[key&t.mask]
-	if e.key32 == keyUpper(key) && int(e.depth) > depth {
-		return
-	}
-	*e = ttEntry{
+	idx := key & t.mask
+	entry := ttEntry{
 		key32: keyUpper(key), score: score, depth: int8(depth), flag: flag,
 		maximizingFor: uint8(maximizingFor),
 		from:          sqToIndex(best.From), to: sqToIndex(best.To),
 	}
+	if !t.shared {
+		t.put(idx, depth, entry)
+		return
+	}
+	l := &t.locks[idx&(ttStripes-1)]
+	l.Lock()
+	t.put(idx, depth, entry)
+	l.Unlock()
+}
+
+// bestMove is the move stored for key, if the slot still holds that key.
+// It takes the same lock as probe and store on a shared table; the move
+// ordering used to read the slot directly, which raced with a helper
+// thread's store.
+func (t *TranspositionTable) bestMove(key uint64) (game.Move, bool) {
+	if t == nil {
+		return game.Move{}, false
+	}
+	idx := key & t.mask
+	var e ttEntry
+	if t.shared {
+		l := &t.locks[idx&(ttStripes-1)]
+		l.Lock()
+		e = t.entries[idx]
+		l.Unlock()
+	} else {
+		e = t.entries[idx]
+	}
+	if e.key32 != keyUpper(key) {
+		return game.Move{}, false
+	}
+	return game.Move{From: indexToSq(e.from), To: indexToSq(e.to)}, true
+}
+
+// put writes an entry unless the slot already holds a deeper one for the
+// same key.
+func (t *TranspositionTable) put(idx uint64, depth int, entry ttEntry) {
+	e := &t.entries[idx]
+	if e.key32 == entry.key32 && int(e.depth) > depth {
+		return
+	}
+	*e = entry
 }

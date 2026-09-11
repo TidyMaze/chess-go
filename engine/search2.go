@@ -80,6 +80,7 @@ func (c *searchCtx) reset() {
 	c.history = [2][64][64]int32{}
 	c.path = [maxSearchPly]uint64{}
 	c.abortAtNodes = 0
+	c.stop = nil
 	c.played = nil
 	c.nodes = 0
 	c.aborted = false
@@ -191,8 +192,11 @@ type searchCtx struct {
 	// searched, so what happens at a cut-off can be tested exactly instead
 	// of by racing a clock.
 	abortAtNodes int64
-	aborted      bool
-	acc          [accSlots]halfKPAcc
+	// stop is shared by the threads of one parallel search: set once the
+	// main thread has its move, so the helpers abandon theirs.
+	stop    *int32
+	aborted bool
+	acc     [accSlots]halfKPAcc
 	// counter[colour][from][to] is the quiet move that last refuted the
 	// move from->to played by the other side; moveStack[ply] is the move
 	// that led to ply+1, so a node's previous move is moveStack[ply-1].
@@ -340,11 +344,16 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 		c.aborted = true
 		return 0
 	}
-	if !c.deadline.IsZero() {
-		if c.aborted {
+	if c.aborted {
+		return 0
+	}
+	if c.nodes&2047 == 0 {
+		if !c.deadline.IsZero() && time.Now().After(c.deadline) {
+			c.aborted = true
 			return 0
 		}
-		if c.nodes&2047 == 0 && time.Now().After(c.deadline) {
+		// A helper thread stops once the main thread has its move.
+		if c.stop != nil && atomic.LoadInt32(c.stop) != 0 {
 			c.aborted = true
 			return 0
 		}
@@ -383,8 +392,8 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 		if score, ok := tt.probe(key, depth, maximizingFor, alpha, beta); ok {
 			return score
 		}
-		if e := &tt.entries[key&tt.mask]; e.key32 == keyUpper(key) {
-			ttMove = game.Move{From: indexToSq(e.from), To: indexToSq(e.to)}
+		if m, ok := tt.bestMove(key); ok {
+			ttMove = m
 		}
 	}
 	if c.ev != nil && c.ev.IIR && iirReduces(depth, ttMove != (game.Move{})) {
@@ -715,6 +724,54 @@ func ChooseMoveIterativeTimed(g *game.Game, color board.Color, maxDepth int, ev 
 // in a package variable because games run in parallel: a global would be
 // whichever game wrote last.
 func chooseMoveIterativeScored(g *game.Game, color board.Color, maxDepth int, ev *Eval, useQuiescence bool, budget time.Duration) (game.Move, float64, bool) {
+	return chooseMoveIterativeScoredThreads(g, color, maxDepth, ev, useQuiescence, budget, 1)
+}
+
+// chooseMoveIterativeScoredThreads is Lazy SMP: threads-1 helpers search
+// the same position, staggered a ply apart, sharing the transposition
+// table and nothing else. Their moves are discarded. What they contribute
+// is the table, which the main search then finds already filled, and the
+// gain is plies reached per second on a machine with cores to spare.
+//
+// Each helper gets its own game (the search makes and unmakes moves on
+// it), its own Eval (the evaluation writes STM and its accumulator through
+// that pointer at every node) and its own context. Only the table is
+// shared, and it locks itself once told it is.
+func chooseMoveIterativeScoredThreads(g *game.Game, color board.Color, maxDepth int, ev *Eval, useQuiescence bool, budget time.Duration, threads int) (game.Move, float64, bool) {
+	if ev == nil {
+		ev = &Eval{}
+	}
+	if ev.Table == nil {
+		ev.Table = NewTranspositionTable(20)
+	}
+	atomic.StoreInt64(&lastSearchNodes, 0)
+	if threads <= 1 {
+		return searchIterative(g, color, maxDepth, ev, useQuiescence, budget, nil, 1, true)
+	}
+	ev.Table.share()
+	var stop int32
+	var wg sync.WaitGroup
+	for i := 1; i < threads; i++ {
+		// Copied here, before the main search starts writing to g and ev,
+		// not inside the goroutine where it would race with those writes.
+		hg := *g
+		hg.Board = g.Board.Clone()
+		hev := *ev
+		wg.Add(1)
+		go func(i int, hg game.Game, hev Eval) {
+			defer wg.Done()
+			searchIterative(&hg, color, maxDepth, &hev, useQuiescence, budget, &stop, 1+i%2, false)
+		}(i, hg, hev)
+	}
+	m, score, ok := searchIterative(g, color, maxDepth, ev, useQuiescence, budget, &stop, 1, true)
+	atomic.StoreInt32(&stop, 1)
+	wg.Wait()
+	return m, score, ok
+}
+
+// searchIterative is one thread's iterative deepening. main marks the
+// thread whose move is played and whose diagnostics are recorded.
+func searchIterative(g *game.Game, color board.Color, maxDepth int, ev *Eval, useQuiescence bool, budget time.Duration, stop *int32, startDepth int, main bool) (game.Move, float64, bool) {
 	legal := g.AllLegalMoves(color)
 	if ev != nil && ev.NoCastle {
 		kept := legal[:0]
@@ -739,7 +796,10 @@ func chooseMoveIterativeScored(g *game.Game, color board.Color, maxDepth int, ev
 	ctx := searchCtxPool.Get().(*searchCtx)
 	defer searchCtxPool.Put(ctx)
 	ctx.reset()
-	ctx.abortAtNodes = testAbortAtNodes
+	ctx.stop = stop
+	if main {
+		ctx.abortAtNodes = testAbortAtNodes
+	}
 	ctx.ev, ctx.quiescence, ctx.extensions = ev, useQuiescence, ev.Extensions
 	ctx.ev.acc = &ctx.acc
 	ctx.acc[0].valid = false
@@ -755,15 +815,18 @@ func chooseMoveIterativeScored(g *game.Game, color board.Color, maxDepth int, ev
 	ctx.path[0] = zobristHash(g)
 	completed := 0
 	defer func() {
-		atomic.StoreInt64(&lastSearchNodes, int64(ctx.nodes))
-		atomic.StoreInt64(&lastSearchDepth, int64(completed))
+		// Every thread adds its nodes; only the main thread's depth counts.
+		atomic.AddInt64(&lastSearchNodes, int64(ctx.nodes))
+		if main {
+			atomic.StoreInt64(&lastSearchDepth, int64(completed))
+		}
 	}()
 
 	best := legal[0]
 	prevScore := 0.0
 	start := time.Now()
-	for depth := 1; depth <= maxDepth; depth++ {
-		if budget > 0 && depth > 1 {
+	for depth := startDepth; depth <= maxDepth; depth++ {
+		if budget > 0 && depth > startDepth {
 			elapsed := time.Since(start)
 			// Stop outright once the budget is spent. The prediction below
 			// is not enough on its own: in a trivial position the early
@@ -785,13 +848,13 @@ func chooseMoveIterativeScored(g *game.Game, color board.Color, maxDepth int, ev
 		// then run with far tighter bounds and prune much harder; the
 		// occasional miss costs one re-search with a full window.
 		alpha, beta := negInf, posInf
-		if ev.Aspiration && depth >= 3 {
+		if ev.Aspiration && depth >= 3 && depth > startDepth {
 			const window = 0.5
 			alpha, beta = prevScore-window, prevScore+window
 		}
 
 	researchFullWindow:
-		if testRootScores != nil {
+		if main && testRootScores != nil {
 			clear(testRootScores)
 		}
 		bestScore := negInf
@@ -819,7 +882,7 @@ func chooseMoveIterativeScored(g *game.Game, color board.Color, maxDepth int, ev
 				// A child cut off mid-search returned nothing usable.
 				break
 			}
-			if testRootScores != nil {
+			if main && testRootScores != nil {
 				testRootScores[m] = score
 			}
 			if score > bestScore {

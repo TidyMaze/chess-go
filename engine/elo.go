@@ -19,6 +19,9 @@ import (
 type Player struct {
 	Name  string
 	Depth int
+	// Threads is how many search threads share one transposition table
+	// (Lazy SMP). 0 or 1 is a single-threaded search.
+	Threads int
 	// Weights nil means default.
 	Weights Weights
 	// Random plays uniformly at random, ignoring Depth/Weights.
@@ -201,7 +204,7 @@ func (p Player) pickScored(g *game.Game, reuse *TranspositionTable) (game.Move, 
 			// not a target, so the ceiling is raised out of the way.
 			depth = maxTimedDepth
 		}
-		return chooseMoveIterativeScored(g, g.Turn, depth, ev, p.Quiescence, p.TimeBudget)
+		return chooseMoveIterativeScoredThreads(g, g.Turn, depth, ev, p.Quiescence, p.TimeBudget, p.Threads)
 	}
 	m, ok := chooseMoveOpts(g, g.Turn, p.Depth, ev, p.Quiescence)
 	return m, math.NaN(), ok
