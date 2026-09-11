@@ -101,6 +101,26 @@ first layer is never multiplied out. The accumulator is updated incrementally
 as moves are made and unmade, which is what makes the network affordable
 inside a search.
 
+### A second hidden layer
+
+`--hidden2 N` inserts a clipped layer between the concatenated accumulator and
+the output, so the shape becomes 5120 -> 64 -> 128 -> N -> 1. Real NNUE does
+this (256x2 -> 32 -> 32 -> 1), and it is the one architecture change that
+alters what the network can express: a single clipped-linear layer can only
+add up one opinion per piece, which is why width 64 to 128, king buckets 8 to
+32 and averaging two networks all stopped at the same 91% of the teacher
+explained. A second layer represents interactions between pieces instead.
+
+```
+.venv/bin/python pytorch/train.py --pool clean_r9.bin --out nets_torch/r10_h2.json \
+  --hidden 64 --hidden2 32 --loss sigmoid --k 0.3 --average-best 3 --epochs 0 --patience 8
+```
+
+The exported JSON carries the layer in `h2`, `wh2` and `bh2`, so the engine
+picks it up with no flag of its own. A network trained without it writes none
+of those keys and loads exactly as it always did. Only the layers above the
+accumulator changed; the incremental update is untouched.
+
 ## Output
 
 **One number: the position's value in pawns**, from the side to move.

@@ -173,10 +173,12 @@ var FeatureKingBuckets = halfKPKingBuckets
 func HalfKPInputsFor(buckets int) int { return buckets * halfKPPerKing }
 
 // HalfKPNet is the trained network: a shared first layer applied to both
-// perspectives, concatenated, then one hidden-to-output layer.
+// perspectives, concatenated, then either one hidden-to-output layer or,
+// when H2 is set, a second hidden layer before it.
 //
 //	40960 -> H  (shared, applied twice)
-//	2H    -> 1
+//	2H    -> 1        without a second layer
+//	2H    -> H2 -> 1  with one
 type HalfKPNet struct {
 	H  int       `json:"h"`
 	W1 []float32 `json:"w1"` // HalfKPInputs * H
