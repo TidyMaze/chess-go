@@ -18,8 +18,20 @@ whole iteration), the evaluation ladder gave +11 and then proved saturated.
   plus one or two and shuffle its root order. Mean depth in 1 s over five
   positions: 10.6 / 11.0 / 11.8 / 11.8 for 1 / 2 / 4 / 8 threads. Four is
   the number of performance cores. Commit 562cf6c.
-- [~] **SMP measured as Elo**: four threads vs one at 1 s/move, 80 games,
-  two concurrent games so each four-thread side has real cores. Running.
+- [x] **The SMP gain does not depend on the clock.** Mean depth over five
+  positions, 1 / 2 / 4 / 8 threads: 6.2 / 6.4 / 7.2 / 7.4 at 100 ms, 7.8 /
+  8.2 / 8.8 / 9.0 at 300 ms, 10.6 / 11.0 / 11.8 / 11.8 at 1 s. About one ply
+  from four threads at every budget. So a 100 ms race measures it ten times
+  cheaper than a 1 s one, and the 1 s race was stopped 25 minutes in.
+- [~] **SMP measured as Elo at 100 ms**: four threads vs one, up to 400
+  games, two concurrent games so the four-thread side has real cores.
+- [~] **A 10 ms ruler**: the champion calibrated against Stockfish on the
+  same 10 ms, with one thread and with four. Not the goal's number (Stockfish's
+  strength limiting was tuned for longer clocks, and our clock check runs
+  every 2048 nodes, a fifth of a 10 ms budget), but it answers "how strong at
+  10 ms" in minutes and puts the SMP gain on a second instrument. The
+  champion file for it sets depth 1: under a clock, depth is a floor the
+  search must reach, and the deployed floor of 6 would make 10 ms meaningless.
 - [ ] Calibrate the champion with threads 4 against the ladder, workers 2.
   That is the goal's own number and it takes hours, so it runs overnight.
 - [ ] Resume the clocked pruning screens (rfp was at 50 games, +56 +/- 100
