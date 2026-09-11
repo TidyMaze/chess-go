@@ -108,11 +108,15 @@ whole iteration), the evaluation ladder gave +11 and then proved saturated.
   ladder's 0.005), by request, cold start, same flags otherwise; log
   /tmp/chesslogs/train_r9_h2_lr.log. Then the same 10 ms screen and confirm
   on openings 114000+ and 116000+. Queued behind the first run's race.
-- [ ] If the layer helps: try the `if v == 0` short-circuit in spread()
-  behind a benchmark (clipped ReLU leaves many zeros), and retrain the
-  ladder with the layer. If it does not: the network is not the ceiling.
-- [ ] **A second hidden layer.** The one architecture change not yet tried,
-  and the only one that changes what the network can express. Width 64 to
+- [x] The layer did not help, so no spread() short-circuit and no ladder
+  retrain with it: the network is not the ceiling. What is left on the
+  evaluation side is the training signal itself (deeper labels, more
+  tactical positions kept), not the head.
+- [x] **A second hidden layer.** Built, trained and raced above: 89.3%
+  explained, -90 +/- 46 at 10 ms, not adopted. The lr 0.0005 rerun is the
+  last word on it. The reasoning that motivated it, kept for the record:
+  the one architecture change not yet tried, and the only one that changes
+  what the network can express. Width 64 to
   128, king buckets 8 to 32 and averaging two nets all stayed at ~91%
   explained and level in Elo, because each keeps the network a single
   clipped-linear layer that can only add up one opinion per piece. A second
