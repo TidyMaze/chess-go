@@ -86,3 +86,4 @@ disqualified/
 *.bin.progress
 nets_torch/*.ckpt
 .coverage
+nets_torch/

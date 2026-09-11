@@ -123,24 +123,24 @@ what the trainer's run-to-run spread is worth in Elo.
 
 ## Task list, 2026-09-10 evening: measurement fixed, engine profiled
 
-- [x] Draw adjudication calibrated to the engine's scale (band 0.35, 10 plies): red on 0.10/16, green now, 25% plies saved, score unchanged. Commit 3b133db.
+- [x] Draw adjudication calibrated to the engine's scale (band 0.35, 10 plies): red on 0.10/16, green now, 25% plies saved, score unchanged. Commit a2dac9f.
 - [x] screen.sh runs 50-game chunks, so a screen prints every ~8 min instead of going dark.
 - [x] Harness self-test: champion vs itself, 300 games at depth 4, reads -13 +/- 40. Zero is inside, the ladder numbers stand.
 - [x] The 178-minute screen explained: load 21 on 10 cores from my concurrent test runs. Alone, a 50-game chunk at 1 s takes 7m41s, so 200 games is ~31 min.
 - [x] Profiled depth 5: 55% of CPU in legal-move generation, quiesce 50% cumulative, decodePiece 9% on a division.
-- [x] Quiescence generates only captures, en passant, promotions (evasions in check) and still detects stalemate; decodePiece is a table. Commit 776e47e.
-- [x] Quiesce captures ordered MVV-LVA: 403138 -> 348397 fixed-depth nodes (-13.6%). Commit 385373b.
+- [x] Quiescence generates only captures, en passant, promotions (evasions in check) and still detects stalemate; decodePiece is a table. Commit 535072d.
+- [x] Quiesce captures ordered MVV-LVA: 403138 -> 348397 fixed-depth nodes (-13.6%). Commit 5d0408f.
 - [x] Screen `lmp over see`, 200 games at 1 s: **-70 +/- 50** (55-50-95). LMP on top of SEE ordering hurts under the clock; SEE ordering stays alone. Log /tmp/chesslogs/screen_lmp_over_see_1000ms.log.
-- [x] UCI front-end (engine/uciserver.go, uci/, gauntlet -uci and -ref-uci): two builds can now meet head-to-head. Commit b290775.
+- [x] UCI front-end (engine/uciserver.go, uci/, gauntlet -uci and -ref-uci): two builds can now meet head-to-head. Commit b8c65f8.
 - [x] Speed, near-idle machine, depth-5 bench alternating old/new three times: old 133.1/133.4/133.3 ms, new 119.9/119.6/121.3 ms, **1.11x**. At EBF ~7 that is +0.05 ply, so about +7 Elo expected: below what 200 games (+/- 48) can resolve.
-- [x] First race attempt ran one move at a time: one UCI process per side shared by ten workers behind a mutex (two processes at 99% CPU, load 4 on 10 cores). UCIEngine is now a pool, one process per concurrent caller; four callers on a 1 s fake finish in 2.4 s. Commits 471469d, db15124.
-- [ ] Elo of the speedups: new build vs 3b133db, both behind UCI, 200 games at 1 s, paired openings. Relaunched 21:57 with 19 engine processes, load 11-20. Expected about +7, below the +/- 48 a 200-game race resolves; the race is mostly the pipeline's proof. Log /tmp/chesslogs/race_new_vs_old_1000ms.log.
-- [x] Race 1 final (speedups vs 3b133db, 1 s, 200 games): 9-185-6, +5 +/- 48. Inside the margin, as predicted.
-- [x] Root loop raised alpha after each move (it never did; the tree below always has): fixed-depth-5 nodes 348397 -> 84416, 4.1x. Naive-minimax reference tests unchanged. Commit ae41071.
-- [x] Races 1 and 2 were INVALID: UCI players returned score 0, and the new draw rule read 0 as level, so every game reaching ply 70 was drawn (185/200, 139/150). Found because HEAD reaches 9.4 plies in 1 s against 6.8 for the old root and still "drew". Fixed: the server sends info score, the client carries it, unscored players return NaN, NaN is no opinion. Commit 5edfb6e.
+- [x] First race attempt ran one move at a time: one UCI process per side shared by ten workers behind a mutex (two processes at 99% CPU, load 4 on 10 cores). UCIEngine is now a pool, one process per concurrent caller; four callers on a 1 s fake finish in 2.4 s. Commits c6f9207, 7aa6069.
+- [ ] Elo of the speedups: new build vs a2dac9f, both behind UCI, 200 games at 1 s, paired openings. Relaunched 21:57 with 19 engine processes, load 11-20. Expected about +7, below the +/- 48 a 200-game race resolves; the race is mostly the pipeline's proof. Log /tmp/chesslogs/race_new_vs_old_1000ms.log.
+- [x] Race 1 final (speedups vs a2dac9f, 1 s, 200 games): 9-185-6, +5 +/- 48. Inside the margin, as predicted.
+- [x] Root loop raised alpha after each move (it never did; the tree below always has): fixed-depth-5 nodes 348397 -> 84416, 4.1x. Naive-minimax reference tests unchanged. Commit bccf92f.
+- [x] Races 1 and 2 were INVALID: UCI players returned score 0, and the new draw rule read 0 as level, so every game reaching ply 70 was drawn (185/200, 139/150). Found because HEAD reaches 9.4 plies in 1 s against 6.8 for the old root and still "drew". Fixed: the server sends info score, the client carries it, unscored players return NaN, NaN is no opinion. Commit 4621b48.
 - [x] Race 2 redo, real scores: root-window build vs the build before it at 1 s: **60-25-15, +168 +/- 78**, SPRT settled after 100 games. Mean depth in 1 s on the same load: 6.8 -> 9.4 plies. Log /tmp/chesslogs/race_root_vs_prev_1000ms_v2.log.
-- [x] Aborted iteration no longer thrown away: a move completed one ply deeper that beat the standing choice is played. Node-count abort hook, 190 cut-off points, 31 justified switches. Commit follows ae41071.
-- [x] The 55% early-stop rule dropped: budget use 87% -> 107% (deadline at 105%). Commit follows 96f19b6.
+- [x] Aborted iteration no longer thrown away: a move completed one ply deeper that beat the standing choice is played. Node-count abort hook, 190 cut-off points, 31 justified switches. Commit follows bccf92f.
+- [x] The 55% early-stop rule dropped: budget use 87% -> 107% (deadline at 105%). Commit follows 792dc1f.
 - [x] Race 3 redo: partial-iteration + full-budget build vs root-window build at 1 s: 200 games 81-60-59 (+38 +/- 49), 200 more on fresh openings 73-75-52 (+37 +/- 49); **pooled 400: 154-135-111, +37 +/- 34**. Clears its own margin and the lower bound is +3, so it stays. Log /tmp/chesslogs/race_partial_vs_root_1000ms_v2.log.
 - [x] Calibration of HEAD at 1 s/move, Stockfish on the same clock: **2281** (weighted; rungs read 2147 at SF 2000, 2235 at 2200, 2480 at 2600, so the instrument itself spreads +/- 170). Not comparable with the 2465 of champion.json: that ladder ran Stockfish at a fixed shallow depth per rung (4 to 11), which is far below its UCI_Elo label. The movetime instrument is the honest one for "how strong at 1 s". Log /tmp/chesslogs/calib_1000ms.log, appended to calibrations.json.
 - [ ] DECISION: which instrument defines "Elo" for the Deep Blue goal. Recommendation: the movetime ladder (both sides on the same clock), i.e. champion.json gets time_ms 1000 and elo 2281 with the instrument named. Log /tmp/chesslogs/race_partial_vs_root_1000ms.log.
