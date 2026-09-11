@@ -81,10 +81,24 @@ whole iteration), the evaluation ladder gave +11 and then proved saturated.
 - [x] scaledlmr at 10 ms with more games: -21 +/- 26 (242-155-283), SPRT
   settled "worse" at 680 games. Rejected; the +24 at 200 games was noise.
   All five clocked pruning screens are closed at 10 ms.
-- [~] **Second hidden layer**, delegated: 128 -> 32 -> 1 behind a trainer
-  flag, old nets bit-for-bit unchanged, Go-agreement test extended, 100%
-  coverage kept, smoke training only. The real training and its Elo race
-  come after, on the 10 ms clock.
+- [x] **Second hidden layer built** (delegated, then verified here: go test
+  and pytest green, tree clean): 128 -> 32 -> 1 behind `--hidden2 N`, the
+  JSON carries h2 / wh2 / bh2, single-layer nets serialise and evaluate
+  bit-for-bit as before (seven positions recorded before the change, and
+  the test goes red on a mere reordering of the float sums), Go-agreement
+  test covers the new layer, coverage 100% on every touched function, Python
+  100%. Commits c97fcde, 94e5de9, 8a58bd7, aca7410. Cost: head() is 2H*H2
+  multiply-adds, 4096 against 128; the single-layer path is unchanged at
+  85-92 ns/op.
+- [~] **Training it** on clean_r9.bin (rung 9's pool, 8.0M positions) with
+  the ladder's flags plus --hidden2 32, cold start; log
+  /tmp/chesslogs/train_r9_h2.log. First number to read: explains against
+  the 91% ceiling. Then at 10 ms, both sides single-threaded: screen 400
+  games on openings 110000+ against the champion, confirm 400 on 112000+
+  if the screen favours it. Queued behind the training.
+- [ ] If the layer helps: try the `if v == 0` short-circuit in spread()
+  behind a benchmark (clipped ReLU leaves many zeros), and retrain the
+  ladder with the layer. If it does not: the network is not the ceiling.
 - [ ] **A second hidden layer.** The one architecture change not yet tried,
   and the only one that changes what the network can express. Width 64 to
   128, king buckets 8 to 32 and averaging two nets all stayed at ~91%
