@@ -57,7 +57,7 @@ if ! ./gauntlet-bin -features "$FEATURE" -ref-features "$REF_FEATURES" -games 2 
   echo "gauntlet does not accept -features $FEATURE"; exit 1
 fi
 echo "$(date +%H:%M:%S)  screening [$FEATURE] over [${REF_FEATURES:-nothing}] at ${MS}ms/move, $GAMES games -> $LOG"
-./scripts/chunked_match.sh "$GAMES" 50 -depth 5 -max-moves 160 -halfkp champion_net.json -blend 0.45 \
+./scripts/chunked_match.sh "$GAMES" 20 -depth 5 -max-moves 160 -halfkp champion_net.json -blend 0.45 \
   -time-ms "$MS" -features "$FEATURE" -ref-features "$REF_FEATURES" \
   -ref-champion "$REF" -match-openings openings.txt > "$LOG" 2>&1
 tail -1 "$LOG"
