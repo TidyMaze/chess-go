@@ -6,5 +6,13 @@
     "games_per_level": 30,
     "label": "HEAD at 1000ms",
     "when": "2026-09-10T23:55:49+02:00"
+  },
+  {
+    "config": "champion",
+    "depth": 5,
+    "elo": 2347,
+    "games_per_level": 30,
+    "label": "rung 9 at 1000ms",
+    "when": "2026-09-11T10:15:09+02:00"
   }
 ]
