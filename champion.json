@@ -1,11 +1,11 @@
 {
   "label": "ladder rung 9: 8.0M real-game positions, pure search labels at depth 3",
-  "depth": 6,
-  "elo": 2347,
+  "depth": 1,
+  "elo": 1928,
   "margin": 170,
   "net_file": "champion_net.json",
   "hand_blend": 0.45,
   "adopted": "2026-09-11T10:15:48+0200",
-  "elo_note": "Plays on a one second clock, not a fixed depth: the same network measured +346 +/- 115 over 300 games on 1s/move against itself at fixed depth 6 (80-16-4, SPRT accepted at 100 games), because the root window fix took one second from about 6 plies to 9.4. depth 6 stays as the floor a timed search must at least reach. elo is this exact file re-calibrated against Stockfish given the same second per move, 30 games per level: 2347, against 2281 for rung 6 on the same instrument. The heaviest weighted rung is Stockfish 2400, where it scored 0.53 over 30 games and read 2423. margin is the instrument's own spread across its rungs, not this network's error bar. Not comparable with the 2476 this file used to carry, which came from a ladder that pinned Stockfish to a shallow fixed depth and so flattered us.",
-  "time_ms": 1000
+  "elo_note": "Plays at 10 ms a move, by instruction: every measurement from 2026-09-11 evening runs on that clock. depth 1 because under a clock depth is a floor the search must reach, and the old floor of 6 would have made 10 ms meaningless. elo is the 10 ms calibration of 2026-09-11 21:00, one thread, Stockfish on the same 10 ms (UCI_Elo levels 1600 to 2200, 30 games each). Four threads read 1993 in the same run, within its noise. The same engine read 2347 at 1 s a move and 1852 at 1 ms; the three are different rulers. At 10 ms the ruler is soft: the levels disagree, 1612 against SF 1600, 1892 against SF 2000, 2080 against SF 2200, because Stockfish's UCI_Elo is calibrated for long clocks and its upper levels are weaker than labelled at 10 ms. Relative races at 10 ms are sound; this absolute figure is not comparable across clocks.",
+  "time_ms": 10
 }

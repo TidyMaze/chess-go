@@ -14,5 +14,45 @@
     "games_per_level": 30,
     "label": "rung 9 at 1000ms",
     "when": "2026-09-11T10:15:09+02:00"
+  },
+  {
+    "config": "champion",
+    "depth": 5,
+    "elo": 2033,
+    "games_per_level": 30,
+    "label": "rung 9, 1 threads, 10ms",
+    "when": "2026-09-11T20:56:43+02:00"
+  },
+  {
+    "config": "champion",
+    "depth": 5,
+    "elo": 1990,
+    "games_per_level": 30,
+    "label": "rung 9, 4 threads, 10ms",
+    "when": "2026-09-11T20:57:44+02:00"
+  },
+  {
+    "config": "champion",
+    "depth": 5,
+    "elo": 1928,
+    "games_per_level": 30,
+    "label": "rung 9, 1 threads, 10ms",
+    "when": "2026-09-11T20:59:13+02:00"
+  },
+  {
+    "config": "champion",
+    "depth": 5,
+    "elo": 1993,
+    "games_per_level": 30,
+    "label": "rung 9, 4 threads, 10ms",
+    "when": "2026-09-11T21:00:59+02:00"
+  },
+  {
+    "config": "champion",
+    "depth": 5,
+    "elo": 1852,
+    "games_per_level": 30,
+    "label": "rung 9, 1 thread, 1ms",
+    "when": "2026-09-11T21:01:18+02:00"
   }
 ]

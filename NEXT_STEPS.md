@@ -33,23 +33,37 @@ whole iteration), the evaluation ladder gave +11 and then proved saturated.
   the budget (2047 / 511 / 63 / 15); 10 ms moves take 109%, 1 ms moves 119%.
   The first 10 ms calibration ran on the old binary and was discarded.
   Commit 7c5a1ab.
-- [~] **10 ms calibrations**, one thread then four, Stockfish on the same
-  10 ms; then **1 ms**, one thread. These set the baseline on the new
-  instrument. The goal still reads "2700 at 1 s"; on a 10 ms ruler the
-  number will be lower and the target needs restating by the owner.
-- [~] **A 10 ms ruler**: the champion calibrated against Stockfish on the
-  same 10 ms, with one thread and with four. Not the goal's number (Stockfish's
-  strength limiting was tuned for longer clocks, and our clock check runs
-  every 2048 nodes, a fifth of a 10 ms budget), but it answers "how strong at
-  10 ms" in minutes and puts the SMP gain on a second instrument. The
-  champion file for it sets depth 1: under a clock, depth is a floor the
-  search must reach, and the deployed floor of 6 would make 10 ms meaningless.
-- [ ] Calibrate the champion with threads 4 against the ladder, workers 2.
-  That is the goal's own number and it takes hours, so it runs overnight.
-- [ ] Resume the clocked pruning screens (rfp was at 50 games, +56 +/- 100
-  when paused for the SMP measurement); then scaledlmr, nullgate, iir,
-  countermove. Both sides single-threaded: a feature screen compares
-  features, not cores.
+- [x] **10 ms calibrations landed** (fixed binary, 30 games a level,
+  Stockfish on the same 10 ms): one thread 1928, four threads 1993 (one
+  game at a time, so the threads had cores), and 1 ms one thread 1852. The
+  engine that reads 2347 at 1 s reads 1928 at 10 ms: three clocks, three
+  rulers, no conversion between them. champion.json now carries 1928.
+- [x] **The 10 ms ruler is soft.** The levels disagree far beyond their
+  noise: 1612 against SF 1600, 1892 against SF 2000, 2080 against SF 2200
+  with one thread; 1670 / 1788 / 1839 on 1600 / 1800 / 2000 with four.
+  Stockfish's UCI_Elo is calibrated for long clocks, so at 10 ms its upper
+  levels are weaker than their label and every game against them flatters.
+  Same-engine races at 10 ms compare like with like and stay sound; the
+  absolute figure only compares to other 10 ms calibrations on the same
+  levels. At 1 ms the spread is 1505 to 2359.
+- [ ] **DECISION, owner's call.** The goal reads "2700 on the same-clock
+  ladder at 1 s/move" and the standing instruction is 10 ms for everything.
+  (a) Restate the goal on the 10 ms ruler, for example +350 over the 1928
+  baseline on levels 1600 to 2200. (b) Keep the 1 s goal and pay one 1 s
+  calibration per adopted champion, about an hour, while every screen and
+  race stays at 10 ms. Recommendation: (b), because a target on a ruler
+  whose levels disagree by 470 is a target on the ruler's error.
+- [ ] Calibrate four threads at 1 s, the goal's own number, hours: waits on
+  the decision above, since it is a 1 s measurement.
+- [~] **SMP at 10 ms**: four threads against one, both behind UCI, 400 games
+  at 10 ms on openings 145000+, two concurrent games. The 100 ms race had a
+  flaw: GOMAXPROCS=2, set to cap the gauntlet at two games, was inherited
+  by the UCI child processes, so the four-thread side ran four goroutines
+  on two processors. The wrappers now unset it before exec.
+- [ ] Resume the clocked pruning screens at 10 ms (rfp was at 50 games,
+  +56 +/- 100 when paused); then scaledlmr, nullgate, iir, countermove.
+  Both sides single-threaded: a feature screen compares features, not
+  cores. Queued behind the SMP race.
 - [ ] **A second hidden layer.** The one architecture change not yet tried,
   and the only one that changes what the network can express. Width 64 to
   128, king buckets 8 to 32 and averaging two nets all stayed at ~91%

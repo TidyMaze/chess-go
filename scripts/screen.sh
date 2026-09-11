@@ -30,7 +30,7 @@ set -u
 cd "$(dirname "$0")/.." || exit 1
 FEATURE=${1:?feature name}
 GAMES=${2:-200}
-MS=${3:-1000}
+MS=${3:-10}
 # What the reference already has. A feature whose precondition is another
 # feature has to be measured on top of it: late move pruning measured -71
 # Elo against a baseline ordering cutoffs 75% of the time on the first
