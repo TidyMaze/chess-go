@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -52,6 +53,13 @@ func NewStockfish(path string, skill, elo int) (*UCIEngine, error) {
 
 func (e *UCIEngine) spawn() (*uciProc, error) {
 	cmd := exec.Command(e.path)
+	// The harness caps its concurrent games with GOMAXPROCS. A child engine
+	// must not inherit that cap, or four threads run on two processors.
+	for _, kv := range os.Environ() {
+		if !strings.HasPrefix(kv, "GOMAXPROCS=") {
+			cmd.Env = append(cmd.Env, kv)
+		}
+	}
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err
