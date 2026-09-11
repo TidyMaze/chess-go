@@ -2,6 +2,27 @@
 
 ## Making the self-play ladder climb, 2026-09-11
 
+**The ladder was never broken. The ruler was.** engine.Strong sets
+Mobility true. The gauntlet declared -mobility false, and the
+-ref-champion reference is rebuilt after the challenger is configured, so
+it kept Strong's true while every challenger played without the mobility
+term. The same network on both sides read **-18 +/- 22** over 1000 games;
+with the default taken from engine.Strong it reads **-2 +/- 16** over
+1750.
+
+That bias is the whole of what seven rungs measured as being worse than
+the champion that taught them. Six networks from six recipes raced the
+champion tonight and read -20, -2, -9, -15, -27 and -40, mean -19, one of
+them trained on the champion's exact corpus with the champion's exact
+recipe. And the 18 +/- 16 gap between two identically-trained networks,
+which repeated on openings the first race never used and looked like real
+run-to-run variance, was this same bias: one of them was the challenger
+and the other the reference.
+
+Run the self-test before trusting any race: the champion against itself
+must read zero, and 300 games (+/- 40) is not enough to see an 18-Elo
+handicap.
+
 Two levers closed by measurement, one opened.
 
 **The game-outcome term was noise, and the ladder had been using it.**
