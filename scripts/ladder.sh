@@ -8,14 +8,32 @@
 # strength without an external engine's evaluations: a network fitted to
 # labels from player X imitates X and plays like X, measured at +0 +/- 22.
 #
-# Adoption rule: the 95% lower bound must clear zero. Not the 1% bar used
-# for one-off changes, because a ladder that demands +19.6 per rung never
-# takes its first step; but stricter than "point estimate positive", so it
-# cannot drift upward on noise.
+# Adoption rule: screen first, then confirm on openings the screen never
+# used, and let only the confirmation decide. The 95% lower bound must
+# clear zero there.
+#
+# The two stages exist because a rung adopted on the same race that
+# measured it is selected on its own test set. Two networks from the
+# identical recipe, differing only in weight initialisation and batch
+# order, measured 18 +/- 16 Elo apart over 1750 games, and the gap
+# repeated on a second set of openings. A rung is therefore mostly a draw
+# from that spread, and "it won its race" is not evidence that it is
+# better than the champion.
 #
 # Everything is resumable. The pool appends and records how many games it
 # consumed, the trainer checkpoints on every improvement, and champion.json
 # is the only state that carries between rungs.
+#
+# Labels are pure search scores (-lambda 1). The default 0.8 mixes a fifth
+# of the game result into every target, and three arms measured at depth 4
+# put lambda 0.5 at -52 +/- 44 and lambda 0.8 at -29 +/- 31 against lambda
+# 1. Between engines this strong a game result is too noisy a statement
+# about a position to pay for its variance. Every pool built before
+# 2026-09-11 carries the 0.8 targets.
+#
+# Training averages the best eight epochs (--average-best 8), which takes
+# the middle of the run-to-run spread instead of a draw from it and costs
+# nothing when the network is evaluated.
 #
 # The smoothing prior is on at every rung and is not optional. Without it,
 # a rung trained on 400k real-game positions measured -63 Elo; with it, -7.
@@ -102,7 +120,7 @@ for rung in $(seq "$START" $((START + RUNGS - 1))); do
     # there, which is how rung 1 ended up with 730k instead of 600k.
     zstd -dcq "$PGN" 2>/dev/null | ./nnue-bin -import-pgn - \
       -pool-file "$pool" -import-max "$need" -label-depth "$DEPTH" \
-      -pgn-skip-plies 8 -label-champion champion.json \
+      -pgn-skip-plies 8 -label-champion champion.json -lambda 1 \
       >> /tmp/chesslogs/ladder_gen_r${rung}.log 2>&1
     have=$(./nnue-bin -count-pool "$pool" 2>/dev/null || echo 0)
   fi
@@ -127,7 +145,7 @@ for rung in $(seq "$START" $((START + RUNGS - 1))); do
   # Train, until the held-out loss stops improving.
   .venv/bin/python -u pytorch/train.py --pool $pools --epochs 0 \
     --patience 20 --lr-decay 8 --hidden 64 --batch 16384 --device mps \
-    --lr 0.005 --smooth 0.5 \
+    --lr 0.005 --smooth 0.5 --average-best 8 \
     --checkpoint "$ckpt" --out "$net" --status nnue_status.json \
     --label "ladder rung $rung, depth-$DEPTH labels" \
     > /tmp/chesslogs/ladder_train_r${rung}.log 2>&1
@@ -152,11 +170,30 @@ for rung in $(seq "$START" $((START + RUNGS - 1))); do
   # instrument put the baseline at 1987, and rung 6 raced against rung 5
   # measured +2 +/- 31. The ladder had been flat the whole time and the
   # harness could not see it.
-  ./scripts/chunked_match.sh "$GAMES" 500 -depth 4 -halfkp "$net" -blend 0.45 \
+  # Two stages, because a rung adopted on the same race that measured it
+  # is selected on its own test set. Two networks from the identical
+  # recipe measured 18 +/- 16 Elo apart over 1750 games, reproduced on
+  # openings the first race never used, so a rung is largely a draw from
+  # that spread and "it won its race" is not evidence it is better.
+  #
+  # The screen only decides whether confirming is worth the time. The
+  # adoption decision belongs to the confirmation alone, which runs on
+  # openings the screen never touched.
+  ./scripts/chunked_match.sh 1000 250 -depth 4 -halfkp "$net" -blend 0.45 \
+    -ref-champion champion.json \
+    -match-openings openings.txt > /tmp/chesslogs/ladder_screen_r${rung}.log 2>&1
+  screen=$(grep pooled /tmp/chesslogs/ladder_screen_r${rung}.log | tail -1)
+  say "rung $rung screen: $screen"
+  selo=$(echo "$screen" | sed -nE 's/.*Elo ([-+][0-9]+) .*/\1/p')
+  if [ -z "${selo:-}" ] || [ "$selo" -le 0 ]; then
+    say "rung $rung: not adopted (the screen did not favour it, so confirming would only buy a lucky second draw)."
+    exit 0
+  fi
+  START_OFFSET=50000 ./scripts/chunked_match.sh "$GAMES" 250 -depth 4 -halfkp "$net" -blend 0.45 \
     -ref-champion champion.json \
     -match-openings openings.txt > /tmp/chesslogs/ladder_race_r${rung}.log 2>&1
-  result=$(tail -1 /tmp/chesslogs/ladder_race_r${rung}.log)
-  say "rung $rung: $result"
+  result=$(grep pooled /tmp/chesslogs/ladder_race_r${rung}.log | tail -1)
+  say "rung $rung confirm (openings the screen never used): $result"
 
   elo=$(echo "$result" | sed -nE 's/.*Elo ([-+][0-9]+) \+\/- ([0-9]+).*/\1/p')
   margin=$(echo "$result" | sed -nE 's/.*Elo ([-+][0-9]+) \+\/- ([0-9]+).*/\2/p')
