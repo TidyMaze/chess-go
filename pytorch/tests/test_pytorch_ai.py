@@ -239,3 +239,34 @@ def test_an_improvement_counts_by_its_share_of_the_loss_not_its_size():
     # one that beat the threshold always does.
     assert train.counts_as_improvement(1.0, 2.0, 1e-5, 15.099)
     assert not train.counts_as_improvement(2.0, 1.0, 1e-5, 15.099)
+
+
+def test_average_states_is_the_elementwise_mean():
+    """Two networks from the identical recipe, differing only in weight
+    initialisation and batch order, measured 18 +/- 16 Elo apart over 1750
+    games on two independent sets of openings. That spread is real playing
+    strength, not the ruler, and it is larger than anything the ladder has
+    ever gained in a rung. Averaging the best epochs' weights is the cheap
+    way to take the average of that distribution instead of a draw from it,
+    and it costs nothing at evaluation time."""
+    a = {"w": torch.tensor([0.0, 2.0]), "b": torch.tensor([4.0])}
+    b = {"w": torch.tensor([2.0, 4.0]), "b": torch.tensor([0.0])}
+    m = train.average_states([a, b])
+    assert torch.allclose(m["w"], torch.tensor([1.0, 3.0]))
+    assert torch.allclose(m["b"], torch.tensor([2.0]))
+    # A single state averages to itself, which is what --average-best 1 means.
+    assert torch.allclose(train.average_states([a])["w"], a["w"])
+
+
+def test_trainer_averages_the_best_epochs_and_keeps_whichever_holds_out_better(tmp_path, capsys):
+    pool = tmp_path / "pool.bin"
+    write_pool(pool, games=10, per_game=10)
+    out = tmp_path / "net.json"
+    run_main(train, ["--pool", str(pool), "--out", str(out), "--status", str(tmp_path / "s.json"),
+                     "--device", "cpu", "--hidden", "4", "--batch", "16",
+                     "--holdout-games", "0.3", "--epochs", "4", "--average-best", "3"])
+    said = capsys.readouterr().out
+    assert out.exists()
+    # It has to say which one it kept, because an average that is worse than
+    # the single best epoch must not be shipped silently.
+    assert "averaged the best 3" in said

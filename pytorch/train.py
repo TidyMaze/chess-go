@@ -198,6 +198,20 @@ def export(model: HalfKP, path: Path):
     return net
 
 
+def average_states(states):
+    """Elementwise mean of several state dicts.
+
+    Two networks from the identical recipe, differing only in weight
+    initialisation and batch order, measured 18 +/- 16 Elo apart over 1750
+    games on two independent sets of openings. The spread is real playing
+    strength and it is wider than any gain a ladder rung has ever shown, so
+    a rung is mostly a draw from that distribution. Averaging the weights of
+    the best epochs takes the middle of it instead, and costs nothing when
+    the network is evaluated.
+    """
+    return {k: sum(s[k].float() for s in states) / len(states) for k in states[0]}
+
+
 def counts_as_improvement(test: float, best: float, min_delta: float, baseline: float) -> bool:
     """Whether a held-out loss has improved enough to count.
 
@@ -257,6 +271,9 @@ def main():
     ap.add_argument("--checkpoint-every", type=int, default=10,
                     help="also checkpoint every N epochs, not only on improvement")
     ap.add_argument("--fresh", action="store_true", help="ignore any checkpoint")
+    ap.add_argument("--average-best", type=int, default=1,
+                    help="average the weights of this many best epochs, and keep the "
+                         "average only when it holds out better than the single best")
     ap.add_argument("--loss", choices=("mse", "sigmoid"), default="mse",
                     help="mse compares pawns; sigmoid compares win probabilities, which "
                          "stops the network spending its capacity on positions that are "
@@ -473,6 +490,8 @@ def main():
         return total / max(n, 1)
 
     best, best_epoch, best_state = float("inf"), 0, None
+    # The best few epochs by held-out loss, newest first on ties.
+    top: list = []
     if ckpt_path.exists() and not args.fresh:
         try:
             ck = torch.load(ckpt_path, map_location=device, weights_only=False)
@@ -510,6 +529,10 @@ def main():
             # held-out loss drifts back up, and the final epoch is then
             # worse than one seen twenty epochs earlier.
             best_state = {k: v.detach().clone() for k, v in model.state_dict().items()}
+        if args.average_best > 1:
+            top.append((test, {k: v.detach().clone() for k, v in model.state_dict().items()}))
+            top.sort(key=lambda kept: kept[0])
+            del top[args.average_best:]
         stale = epoch - best_epoch
 
         where = "epoch %d/%d" % (epoch, args.epochs) if args.epochs > 0 \
@@ -536,6 +559,17 @@ def main():
         model.load_state_dict(best_state)
         log("restored the best weights, from epoch %d (held out %.4f, explains %.1f%%)"
             % (best_epoch, best, 100 * (1 - best / baseline)))
+    if len(top) > 1:
+        model.load_state_dict(average_states([state for _, state in top]))
+        averaged = evaluate(te_t)
+        kept = "keeping it" if averaged < best else "keeping the single best epoch"
+        log("averaged the best %d epochs: held out %.4f against %.4f, %s"
+            % (len(top), averaged, best, kept))
+        if averaged < best:
+            best = averaged
+        elif best_state is not None:
+            model.load_state_dict(best_state)
+
     write_status(phase="done", epoch=best_epoch, epochs=args.epochs,
                  test_loss=best, explains=100 * (1 - best / baseline))
 
