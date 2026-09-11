@@ -46,15 +46,14 @@ whole iteration), the evaluation ladder gave +11 and then proved saturated.
   Same-engine races at 10 ms compare like with like and stay sound; the
   absolute figure only compares to other 10 ms calibrations on the same
   levels. At 1 ms the spread is 1505 to 2359.
-- [ ] **DECISION, owner's call.** The goal reads "2700 on the same-clock
-  ladder at 1 s/move" and the standing instruction is 10 ms for everything.
-  (a) Restate the goal on the 10 ms ruler, for example +350 over the 1928
-  baseline on levels 1600 to 2200. (b) Keep the 1 s goal and pay one 1 s
-  calibration per adopted champion, about an hour, while every screen and
-  race stays at 10 ms. Recommendation: (b), because a target on a ruler
-  whose levels disagree by 470 is a target on the ruler's error.
-- [ ] Calibrate four threads at 1 s, the goal's own number, hours: waits on
-  the decision above, since it is a 1 s measurement.
+- [x] **DECIDED (taken here, owner may overrule).** The goal keeps its 1 s
+  wording, "2700 on the same-clock ladder at 1 s/move". Every screen, race
+  and feature decision runs at 10 ms, and one 1 s calibration gets paid per
+  adopted champion. The alternative, restating the goal as +350 over the
+  1928 baseline, was rejected: a target on a ruler whose levels disagree by
+  470 is a target on the ruler's error.
+- [ ] Calibrate four threads at 1 s, the goal's own number, about an hour;
+  run it when the machine is otherwise idle.
 - [x] **SMP at 10 ms: four threads beat one by +70 +/- 39** (160-64-96,
   320 games, SPRT settled "better" at llr +3.24), both behind UCI, two
   concurrent games, openings 145000+. First Elo figure for the parallel
@@ -135,7 +134,13 @@ whole iteration), the evaluation ladder gave +11 and then proved saturated.
   layer in output() only; the incremental accumulator is untouched. Trainer,
   export and load carry it; the Go-agreement test extends to it. About two
   hours. Measured first as explains against the 91% ceiling, then as Elo.
-- [ ] Then move ordering, the tablebase re-measure, and the speed items.
+- [~] **The search is now the only lever left, so it gets a proper survey**:
+  five parallel investigations (move ordering, pruning parameterisation,
+  quiescence and the horizon, extensions plus table plus time management,
+  and whether the harness itself is hiding gains), each proposal then given
+  to an independent agent told to refute it. What survives becomes the
+  measurement queue. No races or trainings run during it.
+- [ ] Then the tablebase re-measure, pin-based legality and bitboards.
 
 ## Rung 2 against rung 1, 2026-09-11: nine approaches, one wall
 
