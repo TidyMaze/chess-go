@@ -80,3 +80,9 @@ games_pool.bin
 games_pool.bin.progress
 lichess_games_*.pgn.zst
 disqualified/
+
+# generated training data and checkpoints (1 GB; regenerate with nnue-bin and pytorch/train.py)
+*.bin
+*.bin.progress
+nets_torch/*.ckpt
+.coverage
