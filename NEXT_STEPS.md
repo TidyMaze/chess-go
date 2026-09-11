@@ -1,5 +1,32 @@
 # Next steps to improve the engine
 
+## Open, as of 2026-09-11 10:30
+
+Ordered by expected yield per hour. Everything above this line is closed.
+
+- [ ] **Run rung 10.** `scripts/ladder.sh` is fixed (pure search labels, screen
+  then confirm on unused openings). Rung 9 is the teacher now, and the clean
+  corpus recipe is the one that worked.
+- [ ] **Screens must move to the clock.** The engine ships at 1s/move and every
+  screen in this file was run at fixed depth 4. A pruning rule that costs
+  accuracy to save nodes is free at a fixed depth and valuable under a clock,
+  so some of the rejections above may not survive the change of question.
+- [ ] **Re-tune the pruning fitted through the broken table**: null-move
+  reduction (fixed at 3 plies, never verified), LMR scaling, futility margins.
+- [ ] **Move ordering**: countermoves, history aging, SEE-ordered captures.
+  Exit: fewer nodes to the same depth, then Elo.
+- [ ] **Endgames**: re-measure the tablebase probe, which read -13 +/- 18
+  through the colour-indexing bug.
+- [ ] **Opening book from the PGN database** (match history is allowed, scores
+  are not).
+- [ ] **Speed I**: pin-based legality, no make/unmake per candidate when in
+  check or pinned. Exit: identical node count, less time.
+- [ ] **Speed II**: bitboards. Days of work, last.
+- [ ] **Coverage to 100%** (engine 190/212 functions, nnue 28/47; Python is
+  there already).
+
+Deep Blue is about 350 points away on the instrument that now ships.
+
 ## Making the self-play ladder climb, 2026-09-11
 
 **The ladder was never broken. The ruler was.** engine.Strong sets
@@ -134,7 +161,7 @@ what the trainer's run-to-run spread is worth in Elo.
 - [x] UCI front-end (engine/uciserver.go, uci/, gauntlet -uci and -ref-uci): two builds can now meet head-to-head. Commit b8c65f8.
 - [x] Speed, near-idle machine, depth-5 bench alternating old/new three times: old 133.1/133.4/133.3 ms, new 119.9/119.6/121.3 ms, **1.11x**. At EBF ~7 that is +0.05 ply, so about +7 Elo expected: below what 200 games (+/- 48) can resolve.
 - [x] First race attempt ran one move at a time: one UCI process per side shared by ten workers behind a mutex (two processes at 99% CPU, load 4 on 10 cores). UCIEngine is now a pool, one process per concurrent caller; four callers on a 1 s fake finish in 2.4 s. Commits c6f9207, 7aa6069.
-- [ ] Elo of the speedups: new build vs a2dac9f, both behind UCI, 200 games at 1 s, paired openings. Relaunched 21:57 with 19 engine processes, load 11-20. Expected about +7, below the +/- 48 a 200-game race resolves; the race is mostly the pipeline's proof. Log /tmp/chesslogs/race_new_vs_old_1000ms.log.
+- [x] Elo of the speedups (answered on the next line, +5 +/- 48): new build vs a2dac9f, both behind UCI, 200 games at 1 s, paired openings. Relaunched 21:57 with 19 engine processes, load 11-20. Expected about +7, below the +/- 48 a 200-game race resolves; the race is mostly the pipeline's proof. Log /tmp/chesslogs/race_new_vs_old_1000ms.log.
 - [x] Race 1 final (speedups vs a2dac9f, 1 s, 200 games): 9-185-6, +5 +/- 48. Inside the margin, as predicted.
 - [x] Root loop raised alpha after each move (it never did; the tree below always has): fixed-depth-5 nodes 348397 -> 84416, 4.1x. Naive-minimax reference tests unchanged. Commit bccf92f.
 - [x] Races 1 and 2 were INVALID: UCI players returned score 0, and the new draw rule read 0 as level, so every game reaching ply 70 was drawn (185/200, 139/150). Found because HEAD reaches 9.4 plies in 1 s against 6.8 for the old root and still "drew". Fixed: the server sends info score, the client carries it, unscored players return NaN, NaN is no opinion. Commit 4621b48.
@@ -143,7 +170,7 @@ what the trainer's run-to-run spread is worth in Elo.
 - [x] The 55% early-stop rule dropped: budget use 87% -> 107% (deadline at 105%). Commit follows 792dc1f.
 - [x] Race 3 redo: partial-iteration + full-budget build vs root-window build at 1 s: 200 games 81-60-59 (+38 +/- 49), 200 more on fresh openings 73-75-52 (+37 +/- 49); **pooled 400: 154-135-111, +37 +/- 34**. Clears its own margin and the lower bound is +3, so it stays. Log /tmp/chesslogs/race_partial_vs_root_1000ms_v2.log.
 - [x] Calibration of HEAD at 1 s/move, Stockfish on the same clock: **2281** (weighted; rungs read 2147 at SF 2000, 2235 at 2200, 2480 at 2600, so the instrument itself spreads +/- 170). Not comparable with the 2465 of champion.json: that ladder ran Stockfish at a fixed shallow depth per rung (4 to 11), which is far below its UCI_Elo label. The movetime instrument is the honest one for "how strong at 1 s". Log /tmp/chesslogs/calib_1000ms.log, appended to calibrations.json.
-- [ ] DECISION: which instrument defines "Elo" for the Deep Blue goal. Recommendation: the movetime ladder (both sides on the same clock), i.e. champion.json gets time_ms 1000 and elo 2281 with the instrument named. Log /tmp/chesslogs/race_partial_vs_root_1000ms.log.
+- [x] DECISION closed 2026-09-11 by measurement: the champion plays on a clock (+346 over fixed depth 6), so the same-clock ladder is the instrument and champion.json carries 2347. Original note: Recommendation: the movetime ladder (both sides on the same clock), i.e. champion.json gets time_ms 1000 and elo 2281 with the instrument named. Log /tmp/chesslogs/race_partial_vs_root_1000ms.log.
 - [x] Merged into master (fast-forward, 94 commits), pushed, master is the GitHub default branch. Public at https://github.com/TidyMaze/chess-go under MIT.
 - [x] r9_all (clean corpus plus every older pool, 15M positions) vs rung 9: **-5 +/- 19**, screen rejected, no confirmation spent. Adding the older lambda-0.8 pools to the clean corpus does not help, so label quality beats volume here. That reverses the old "volume dominates" finding (400k at -61 against 7.5M at -20), which was measured when every pool carried the same contaminated labels.
 - [x] Blend re-measured on the fixed harness: 0.55 reads **-9 +/- 18**, 0.65 reads **-18 +/- 25**. 0.45 stands. Question closed.
@@ -152,8 +179,8 @@ what the trainer's run-to-run spread is worth in Elo.
 - [x] DECISION closed by measurement, not preference: the same-clock ladder is the instrument, because the deployed champion now plays on a clock. elo is 2281 with margin 170 (that ladder's own spread), replacing the 2476 from the fixed-depth ladder that flattered us.
 - [x] Deployed file re-calibrated at 1s/move with Stockfish on the same clock: **2347** (2281 for rung 6 on the same instrument). Heaviest weighted rung is SF 2400, where it scored 0.53 over 30 games and read 2423. champion.json and the README badge now carry it.
 - [ ] Next on the Deep Blue roadmap: re-tune the pruning that was fitted through the broken table (null-move reduction, LMR scaling, futility margins), then move ordering, then the two speed items (pin-based legality, bitboards). Deep Blue is about 350 away on this instrument.
-- [~] The blend re-measured on the fixed harness at 0.55 and 0.65. The pre-fix sweep put everything below 0.45, but it handicapped the challenger by about 19 points and 0.6 read -17 +/- 25, which corrects to roughly zero.
-- [ ] Re-measure the other pre-fix rejections for magnitude: the lambda sweep, capacity at 128, and LMP over SEE. Directions survive the 19-point correction; the sizes in this file do not.
+- [x] The blend re-measured on the fixed harness: 0.55 reads -9 +/- 18, 0.65 reads -18 +/- 25, so 0.45 stands. Original note: The pre-fix sweep put everything below 0.45, but it handicapped the challenger by about 19 points and 0.6 read -17 +/- 25, which corrects to roughly zero.
+- [x] Deliberately not re-raced, with the reason recorded: capacity is settled by the training-side 90.3% against 90.2% explained, which no harness bias touches, and lambda is confirmed twice over by r9_all losing to the clean corpus. Original note: the lambda sweep, capacity at 128, and LMP over SEE. Directions survive the 19-point correction; the sizes in this file do not.
 - [ ] Coverage remainder toward 100% (engine 190/212 functions, nnue 28/47).
 
 
@@ -204,7 +231,7 @@ On the same 400k pool that raced -63 without it, smoothing 0.5 raced
   every rung. The rung mechanism is built and tested
   (`-label-champion`, `scripts/ladder.sh`); it failed on the axis it was
   optimising, not on its plumbing.
-- [ ] **Sweep the blend** for whatever wins. 0.45 has never been optimised.
+- [x] **Sweep the blend**: done twice, 0.0/0.2/0.3/0.6 and then 0.55/0.65 on the fixed harness. 0.45 stands.
 - [ ] **If it loses**: the remaining variable is volume. The smoothed 400k
   net reached -7 and the unsmoothed 2.78M net reached +0, so both axes
   matter and neither alone is enough. Import the rest of the games file at
