@@ -48,6 +48,7 @@ var strongDefaults = engine.Strong(4)
 // on the challenger side left it playing without the mobility term for
 // seven ladder rungs, worth -19 +/- 25.
 type referenceSwitches struct {
+	timeMS         int
 	futility       bool
 	noCastle       bool
 	noRepetition   bool
@@ -56,6 +57,12 @@ type referenceSwitches struct {
 }
 
 func (s referenceSwitches) applyTo(p engine.Player) (engine.Player, error) {
+	// The harness owns the time control, the champion file only supplies the
+	// network. champion.json carries time_ms since the champion was deployed
+	// on a clock, and PlayerOrError honours it, so a reference built from it
+	// arrived with a one second budget while the challenger ran at a fixed
+	// depth. The same network on both sides then read -552 +/- 149.
+	p.TimeBudget = time.Duration(s.timeMS) * time.Millisecond
 	p.Futility = s.futility
 	p.NoCastle = s.noCastle
 	p.NoRepetition = s.noRepetition
@@ -327,6 +334,7 @@ func main() {
 	// and nowhere else. See referenceSwitches for why that matters.
 	var err error
 	reference, err = referenceSwitches{
+		timeMS:         *timeMS,
 		futility:       *futility,
 		noCastle:       *refNoCastle,
 		noRepetition:   *refNoRep,
