@@ -143,6 +143,20 @@ def test_exported_net_agrees_with_go(tmp_path):
     # evalnet compares networks on the pool.
     run_main(evalnet, ["--pool", str(pool), "--device", "cpu", "--batch", "16", "--limit", "100", str(out), str(badpath)])
 
+    # And the same check with a second hidden layer, which is where a
+    # transposed export would show up: wh2 is input-major here and in the
+    # engine, and the two would still agree on every training number if it
+    # were not.
+    deep = tmp_path / "deep.json"
+    run_main(train, ["--pool", str(pool), "--out", str(deep), "--status", str(tmp_path / "s2.json"),
+                     "--device", "cpu", "--hidden", "4", "--hidden2", "3", "--epochs", "1",
+                     "--batch", "16"])
+    assert json.loads(deep.read_text())["h2"] == 3
+    deep_cases = tmp_path / "deep_cases.json"
+    subprocess.run([str(REPO / "nnue-bin"), "-emit-eval-check", str(deep_cases), "-net-file", str(deep)],
+                   check=True, cwd=REPO, capture_output=True)
+    run_main(verify, ["--net", str(deep), "--cases", str(deep_cases)])
+
 
 def test_trainer_edge_cases(tmp_path):
     empty = tmp_path / "empty.bin"
@@ -390,3 +404,101 @@ def test_ensemble_refuses_mismatched_nets(tmp_path):
     pp.write_text(json.dumps(prob))
     with pytest.raises(ValueError):
         train.ensemble([pa, pp], tmp_path / "e2.json")
+
+
+def test_a_second_hidden_layer_is_exported_and_read_back_by_the_go_forward_pass(tmp_path):
+    """Width, king buckets and averaging all stopped at the same 91% of the
+    teacher explained, because each of them keeps the network a single
+    clipped-linear layer that can only add up one opinion per piece. A second
+    layer is the one change that alters what the network can express, and it
+    is what real NNUE does (256x2 -> 32 -> 32 -> 1).
+
+    The engine has to read exactly the function that was fitted. wh2 is
+    input-major, so the weights leaving accumulator unit i occupy
+    wh2[i*h2 : i*h2+h2]; a transposed export would train one function and
+    play another with every training number staying healthy."""
+    model = train.HalfKP(hidden=4, buckets=8, hidden2=3)
+    with torch.no_grad():
+        model.embed.weight.normal_()
+        model.embed.weight[model.inputs].zero_()
+        model.mid.weight.normal_()
+        model.mid.bias.normal_()
+    own = train.pack([[1, 2], [3]], model.inputs, "cpu")
+    opp = train.pack([[4], [5, 6]], model.inputs, "cpu")
+    out = model(own, opp)
+
+    path = tmp_path / "net.json"
+    net = train.export(model, path)
+    assert net["h"] == 4 and net["h2"] == 3
+    assert len(net["wh2"]) == 2 * 4 * 3 and len(net["bh2"]) == 3
+    # The last layer now reads the second hidden layer, not the accumulator.
+    assert len(net["w2"]) == 3
+    assert verify.forward(net, [1, 2], [4]) == pytest.approx(float(out[0].detach()), abs=1e-4)
+    assert verify.forward(net, [3], [5, 6]) == pytest.approx(float(out[1].detach()), abs=1e-4)
+
+
+def test_a_single_layer_export_says_nothing_about_a_second_one(tmp_path):
+    """Every network on disk was written by the old exporter. The new fields
+    must be absent from a single-layer file, not present and zero, so those
+    files keep loading and keep evaluating to the bit."""
+    path = tmp_path / "net.json"
+    net = train.export(train.HalfKP(hidden=4, buckets=8), path)
+    for key in ("h2", "wh2", "bh2"):
+        assert key not in net
+        assert key not in json.loads(path.read_text())
+
+
+def test_load_net_round_trips_a_second_layer(tmp_path):
+    src = train.HalfKP(hidden=5, buckets=8, hidden2=3)
+    with torch.no_grad():
+        src.embed.weight.normal_()
+        src.embed.weight[src.inputs].zero_()
+        src.mid.weight.normal_()
+        src.mid.bias.normal_()
+        src.out.weight.normal_()
+    path = tmp_path / "net.json"
+    train.export(src, path)
+    dst = train.HalfKP(hidden=5, buckets=8, hidden2=3)
+    train.load_net(dst, path)
+    own = torch.randint(0, src.inputs, (4, 7))
+    opp = torch.randint(0, src.inputs, (4, 7))
+    assert torch.allclose(src(own, opp), dst(own, opp), atol=1e-5)
+    # A warm start across a shape change would load weights that mean
+    # something else, and the run would look healthy while learning nothing.
+    with pytest.raises(ValueError):
+        train.load_net(train.HalfKP(hidden=5, buckets=8, hidden2=4), path)
+    with pytest.raises(ValueError):
+        train.load_net(train.HalfKP(hidden=5, buckets=8), path)
+
+
+def test_ensemble_refuses_a_network_with_a_second_layer(tmp_path):
+    """Averaging works by putting hidden layers side by side, which only
+    gives the mean because everything above them is linear. A second layer is
+    not, so two of them side by side is a different function, not an
+    average."""
+    a = tmp_path / "a.json"
+    train.export(train.HalfKP(hidden=4, buckets=8, hidden2=2), a)
+    b = tmp_path / "b.json"
+    train.export(train.HalfKP(hidden=4, buckets=8), b)
+    with pytest.raises(ValueError):
+        train.ensemble([a, b], tmp_path / "e.json")
+
+
+def test_the_trainer_trains_and_exports_a_second_layer(tmp_path):
+    pool = tmp_path / "pool.bin"
+    write_pool(pool, games=8, per_game=10)
+    out, ckpt = tmp_path / "net.json", tmp_path / "net.ckpt"
+    common = ["--pool", str(pool), "--out", str(out), "--status", str(tmp_path / "s.json"),
+              "--device", "cpu", "--hidden", "4", "--batch", "16", "--epochs", "1",
+              "--holdout-games", "0.25", "--checkpoint", str(ckpt), "--checkpoint-every", "1"]
+    run_main(train, common + ["--hidden2", "3"])
+    net = json.loads(out.read_text())
+    assert net["h2"] == 3 and len(net["w2"]) == 3
+    st = json.loads((tmp_path / "s.json").read_text())
+    assert "-> 3 -> 1" in st["arch"]["layers"]
+    # Resuming keeps the shape.
+    run_main(train, common + ["--hidden2", "3"])
+    # A checkpoint holding a second layer is ignored by a run without one,
+    # rather than loaded over weights that mean something else.
+    run_main(train, common)
+    assert "h2" not in json.loads(out.read_text())

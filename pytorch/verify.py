@@ -40,8 +40,16 @@ def forward(net, own, opp):
     for f in opp:
         acc_opp += w1[f]
 
-    acc = torch.cat([acc_own, acc_opp]).clamp(0.0, 1.0)
-    return float((w2 * acc).sum()) + b2
+    last = torch.cat([acc_own, acc_opp]).clamp(0.0, 1.0)
+    if net.get("h2", 0):
+        # wh2 is input-major: the weights leaving accumulator unit i are
+        # wh2[i*h2 : i*h2+h2]. Reading it output-major instead would be a
+        # silent transposition, which is exactly the class of bug this
+        # file exists to catch.
+        wh2 = torch.tensor(net["wh2"], dtype=torch.float64).view(2 * h, net["h2"])
+        bh2 = torch.tensor(net["bh2"], dtype=torch.float64)
+        last = (last @ wh2 + bh2).clamp(0.0, 1.0)
+    return float((w2 * last).sum()) + b2
 
 
 def main():

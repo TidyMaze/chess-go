@@ -144,23 +144,33 @@ def pack(index_lists, pad_index, device):
 
 
 class HalfKP(nn.Module):
-    """5120 -> h (shared, applied to both perspectives) -> 2h -> 1.
+    """5120 -> h (shared, applied to both perspectives) -> 2h -> 1,
+    or 5120 -> h -> 2h -> h2 -> 1 when hidden2 is set.
 
     The first layer is one embedding table summed over the ~30 active
     features, which is exactly what the Go accumulator does by adding one
     weight column per piece.
+
+    Everything above that accumulator is a single clipped-linear layer by
+    default, which can only add up one opinion per piece: width 64 to 128,
+    king buckets 8 to 32 and averaging two networks all stopped at the same
+    91% of the teacher explained for that reason. A second hidden layer
+    represents interactions between pieces instead, which is the shape
+    tactics take, and is what real NNUE uses (256x2 -> 32 -> 32 -> 1).
     """
 
-    def __init__(self, hidden: int, buckets: int):
+    def __init__(self, hidden: int, buckets: int, hidden2: int = 0):
         super().__init__()
         self.hidden = hidden
+        self.hidden2 = hidden2
         self.buckets = buckets
         self.inputs = inputs_for(buckets)
         # One extra row is the padding slot, pinned at zero and excluded
         # from gradients so short feature lists contribute nothing.
         self.embed = nn.Embedding(self.inputs + 1, hidden, padding_idx=self.inputs)
         self.b1 = nn.Parameter(torch.full((hidden,), 0.5))
-        self.out = nn.Linear(2 * hidden, 1)
+        self.mid = nn.Linear(2 * hidden, hidden2) if hidden2 else None
+        self.out = nn.Linear(hidden2 or 2 * hidden, 1)
         with torch.no_grad():
             nn.init.normal_(self.embed.weight, std=0.02)
             self.embed.weight[self.inputs].zero_()
@@ -172,6 +182,8 @@ class HalfKP(nn.Module):
         b = self.embed(opp).sum(dim=1) + self.b1
         # Clipped ReLU, the same activation the engine applies.
         acc = torch.cat([a, b], dim=1).clamp(0.0, 1.0)
+        if self.mid is not None:
+            acc = self.mid(acc).clamp(0.0, 1.0)
         return self.out(acc).squeeze(1)
 
 
@@ -179,7 +191,14 @@ def export(model: HalfKP, path: Path):
     """Write the JSON engine/halfkp.go reads.
 
     w1 is flattened feature-major so that column f occupies
-    w1[f*h : f*h+h], which is how the Go accumulator indexes it.
+    w1[f*h : f*h+h], which is how the Go accumulator indexes it. wh2 is
+    flattened input-major for the same reason, so the weights leaving
+    accumulator unit i occupy wh2[i*h2 : i*h2+h2]; torch stores a Linear
+    the other way round, output-major, so it is transposed on the way out.
+
+    A network without a second layer writes exactly the keys it always
+    wrote. The new ones are absent rather than present and empty, so every
+    file on disk keeps loading and keeps evaluating to the bit.
     """
     # Drop the padding row: the engine has no such feature.
     w1 = model.embed.weight.detach()[: model.inputs].cpu().contiguous().view(-1).tolist()
@@ -194,6 +213,10 @@ def export(model: HalfKP, path: Path):
         "k": 0.30,
         "buckets": model.buckets,
     }
+    if model.mid is not None:
+        net["h2"] = model.hidden2
+        net["wh2"] = model.mid.weight.detach().cpu().t().contiguous().view(-1).tolist()
+        net["bh2"] = model.mid.bias.detach().cpu().tolist()
     path.write_text(json.dumps(net))
     return net
 
@@ -232,17 +255,25 @@ def load_net(model: HalfKP, path: Path) -> None:
     new labels disagree.
     """
     net = json.loads(Path(path).read_text())
-    if net["h"] != model.hidden or net.get("buckets", 8) != model.buckets:
+    if (net["h"] != model.hidden or net.get("buckets", 8) != model.buckets
+            or net.get("h2", 0) != model.hidden2):
         raise ValueError(
-            "network is %d hidden and %d buckets, the model is %d and %d"
-            % (net["h"], net.get("buckets", 8), model.hidden, model.buckets))
+            "network is %d hidden, %d buckets and a second layer of %d, "
+            "the model is %d, %d and %d"
+            % (net["h"], net.get("buckets", 8), net.get("h2", 0),
+               model.hidden, model.buckets, model.hidden2))
     with torch.no_grad():
         w1 = torch.tensor(net["w1"], dtype=torch.float32).view(model.inputs, model.hidden)
         model.embed.weight[: model.inputs].copy_(w1)
         model.embed.weight[model.inputs].zero_()
         model.b1.copy_(torch.tensor(net["b1"], dtype=torch.float32))
+        if model.mid is not None:
+            # Input-major on disk, output-major in torch.
+            model.mid.weight.copy_(torch.tensor(net["wh2"], dtype=torch.float32)
+                                   .view(2 * model.hidden, model.hidden2).t())
+            model.mid.bias.copy_(torch.tensor(net["bh2"], dtype=torch.float32))
         model.out.weight.copy_(
-            torch.tensor(net["w2"], dtype=torch.float32).view(1, 2 * model.hidden))
+            torch.tensor(net["w2"], dtype=torch.float32).view(1, -1))
         model.out.bias.fill_(float(net["b2"]))
 
 
@@ -268,6 +299,11 @@ def ensemble(paths, out_path: Path) -> dict:
             raise ValueError("networks use %d and %d king buckets" % (buckets, n.get("buckets", 8)))
         if n.get("sigmoid", False):
             raise ValueError("a network emitting probabilities cannot be averaged in pawns")
+        if n.get("h2", 0):
+            # Side by side only gives the mean because everything above the
+            # hidden layers is linear. A second layer is not, so two of them
+            # next to each other is a different function, not an average.
+            raise ValueError("a network with a second hidden layer cannot be averaged this way")
     inputs = inputs_for(buckets)
     widths = [n["h"] for n in nets]
     w1: list = []
@@ -324,6 +360,11 @@ def main():
     ap.add_argument("--out", default="pytorch_net.json")
     ap.add_argument("--hidden", type=int, default=32)
     ap.add_argument("--buckets", type=int, default=8)
+    ap.add_argument("--hidden2", type=int, default=0,
+                    help="units in a second hidden layer, 0 for none. One clipped-linear "
+                         "layer can only add up an opinion per piece, which is why width, "
+                         "king buckets and averaging all stopped at 91%% explained. A second "
+                         "layer represents interactions between pieces instead.")
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--epochs", type=int, default=30)
     ap.add_argument("--batch", type=int, default=8192)
@@ -415,14 +456,21 @@ def main():
     te = [i for i, gi in enumerate(games) if gi in held]
     log("%d training positions, %d held out over %d games" % (len(tr), len(te), len(uniq)))
 
+    layers = "%d -> %d (shared, both perspectives) -> %d" % (
+        inputs_for(args.buckets), args.hidden, 2 * args.hidden)
+    params = inputs_for(args.buckets) * args.hidden + args.hidden
+    if args.hidden2:
+        layers += " -> %d" % args.hidden2
+        params += 2 * args.hidden * args.hidden2 + args.hidden2
+    params += (args.hidden2 or 2 * args.hidden) + 1
     arch = {
         "features": "HalfKP (%d king slots x piece x square)" % args.buckets,
         "inputs": inputs_for(args.buckets),
         "hidden": args.hidden,
-        "layers": "%d -> %d (shared, both perspectives) -> %d -> 1"
-                  % (inputs_for(args.buckets), args.hidden, 2 * args.hidden),
+        "hidden2": args.hidden2,
+        "layers": layers + " -> 1",
         "activation": "clipped ReLU [0,1]",
-        "params": inputs_for(args.buckets) * args.hidden + args.hidden + 2 * args.hidden + 1,
+        "params": params,
         "trainer": "PyTorch %s on %s" % (torch.__version__, device),
         "optimiser": "Adam lr %g" % args.lr,
         "patience": args.patience,
@@ -437,11 +485,12 @@ def main():
             return
         st = {"phase": "training", "at": int(time.time()), "arch": arch,
               "pool": len(targets), "generation": 1, "generations": 1,
-              "label": args.label or ("PyTorch, %d hidden" % args.hidden)}
+              "label": args.label or ("PyTorch, %d hidden" % args.hidden
+                                      + (" and %d" % args.hidden2 if args.hidden2 else ""))}
         st.update(extra)
         Path(args.status).write_text(json.dumps(st))
 
-    model = HalfKP(args.hidden, args.buckets).to(device)
+    model = HalfKP(args.hidden, args.buckets, args.hidden2).to(device)
     if args.init_from:
         load_net(model, Path(args.init_from))
         model.to(device)
@@ -499,7 +548,8 @@ def main():
         except Exception as exc:
             log("ignoring %s: it does not load (%s)" % (ckpt_path, exc))
             ck = {}
-        if ck.get("hidden") == args.hidden and ck.get("buckets") == args.buckets:
+        if (ck.get("hidden") == args.hidden and ck.get("buckets") == args.buckets
+                and ck.get("hidden2", 0) == args.hidden2):
             try:
                 model.load_state_dict(ck["model"])
                 opt.load_state_dict(ck["opt"])
@@ -513,15 +563,18 @@ def main():
             # A checkpoint from another architecture would load weights
             # that mean something else, and the run would look healthy
             # while learning nothing.
-            log("ignoring %s: it holds %s hidden units at %s buckets, this run wants %d at %d"
-                % (ckpt_path, ck.get("hidden"), ck.get("buckets"), args.hidden, args.buckets))
+            log("ignoring %s: it holds %s hidden units at %s buckets with a second layer of %s, "
+                "this run wants %d, %d and %d"
+                % (ckpt_path, ck.get("hidden"), ck.get("buckets"), ck.get("hidden2", 0),
+                   args.hidden, args.buckets, args.hidden2))
 
     def save_checkpoint(epoch, best, best_epoch, best_state):
         tmp = ckpt_path.with_suffix(ckpt_path.suffix + ".tmp")
         torch.save({"model": model.state_dict(), "opt": opt.state_dict(),
                     "epoch": epoch, "best": best, "best_epoch": best_epoch,
                     "best_state": best_state,
-                    "hidden": args.hidden, "buckets": args.buckets}, tmp)
+                    "hidden": args.hidden, "buckets": args.buckets,
+                    "hidden2": args.hidden2}, tmp)
         # Renamed into place so a kill during the write cannot leave a
         # half-written checkpoint where a good one used to be.
         tmp.replace(ckpt_path)
@@ -579,7 +632,7 @@ def main():
     if ckpt_path.exists() and not args.fresh:
         try:
             ck = torch.load(ckpt_path, map_location=device, weights_only=False)
-            if ck.get("hidden") == args.hidden:
+            if ck.get("hidden") == args.hidden and ck.get("hidden2", 0) == args.hidden2:
                 best, best_epoch = ck["best"], ck["best_epoch"]
                 best_state = ck.get("best_state")
         except Exception:
