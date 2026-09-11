@@ -33,6 +33,12 @@ if [ "$LABEL_DEPTH" -le "$DEPTH" ]; then
   echo "label depth $LABEL_DEPTH must be deeper than play depth $DEPTH, or the rung has nothing to teach" >&2
   exit 1
 fi
+# Build what this script runs; a race this evening went through a binary
+# older than the engine and reported the loader's refusal as its result.
+go build -o nnue-bin ./nnue || exit 1
+# Nothing to run means stop here. BSD seq counts down when first is above
+# last, so "seq 1 0" prints 1 and 0 and a run asked for zero rungs ran two.
+[ "$RUNGS" -gt 0 ] || exit 0
 CHAMP=scratch_champion.json
 LOG=/tmp/chesslogs/scratch.log
 PGN=lichess_games_2015-01.pgn.zst

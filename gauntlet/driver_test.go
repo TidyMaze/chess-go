@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"os/exec"
+	"strings"
 	"testing"
 	"time"
 )
@@ -30,5 +31,35 @@ func TestTheMatchDriverRebuildsTheGauntletBeforeRacing(t *testing.T) {
 	if info.ModTime().Before(start) {
 		t.Errorf("gauntlet-bin dates from %s, before this run at %s: the driver raced whatever binary was lying around",
 			info.ModTime().Format("15:04:05"), start.Format("15:04:05"))
+	}
+}
+
+// Both ladders run nnue-bin for generation, labelling and the export check,
+// so they build it before anything else; asked for zero rungs they build and
+// stop. Zero rungs used to mean two: BSD seq counts down when first is above
+// last, so "seq 1 0" prints 1 and 0.
+func TestTheLaddersBuildTheLabellerAndStopOnZeroRungs(t *testing.T) {
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("no go tool on PATH")
+	}
+	for _, script := range []string{"scripts/ladder.sh", "scripts/ladder_scratch.sh"} {
+		start := time.Now()
+		cmd := exec.Command("sh", script, "0")
+		cmd.Dir = ".."
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("%s with zero rungs failed: %v\n%s", script, err, out)
+		}
+		if s := string(out); strings.Contains(s, "rung ") || strings.Contains(s, "starting") {
+			t.Errorf("%s with zero rungs started work:\n%s", script, s)
+		}
+		info, err := os.Stat("../nnue-bin")
+		if err != nil {
+			t.Fatalf("%s left no nnue-bin behind: %v", script, err)
+		}
+		if info.ModTime().Before(start) {
+			t.Errorf("%s left nnue-bin from %s, before this run at %s: it labels with whatever binary is lying around",
+				script, info.ModTime().Format("15:04:05"), start.Format("15:04:05"))
+		}
 	}
 }

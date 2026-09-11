@@ -79,6 +79,12 @@ GAMES=${4:-2500}
 # were labelled by an older champion, so retraining them against the
 # current one races stale data and stops the ladder on a false negative.
 START=${5:-1}
+# Build what this script runs; a race this evening went through a binary
+# older than the engine and reported the loader's refusal as its result.
+go build -o nnue-bin ./nnue || exit 1
+# Nothing to run means stop here. BSD seq counts down when first is above
+# last, so "seq 1 0" prints 1 and 0 and a run asked for zero rungs ran two.
+[ "$RUNGS" -gt 0 ] || exit 0
 LOG=/tmp/chesslogs/ladder.log
 PGN=lichess_games_2015-01.pgn.zst
 
