@@ -62,6 +62,64 @@ func TestBudgetUsage(t *testing.T) {
 // middlegame positions, and reached the same depth a fixed depth 6 does,
 // so the clock was buying nothing. It may also not overrun: the previous
 // policy let one position run to 112%.
+// At 10 ms a move the clock has to be read often enough to matter. The
+// search reads it every 2048 nodes, three to five milliseconds of work,
+// which is half a 10 ms budget in overrun and makes every 10 ms race and
+// calibration measure the overrun as much as the engine.
+func TestTenMillisecondBudgetIsRespected(t *testing.T) {
+	net, err := LoadHalfKPNet("../champion_net.json")
+	if err != nil {
+		t.Skip("no champion network:", err)
+	}
+	// 1 ms is allowed twice its budget: at that scale the fixed cost of a
+	// search, resetting a context and reading the clock, is a real share.
+	for _, c := range []struct {
+		budget time.Duration
+		allow  float64
+	}{{10 * time.Millisecond, 1.3}, {time.Millisecond, 2.0}} {
+		worst := time.Duration(0)
+		for _, fen := range correctnessPositions[3:8] {
+			g, _ := game.ParseFEN(fen)
+			p := Strong(1)
+			p.HalfKP, p.HalfKPBlend, p.TimeBudget = net, 0.45, c.budget
+			tt := NewTranspositionTable(18)
+			for i := 0; i < 3; i++ {
+				start := time.Now()
+				PlayerPickWith(p, g, tt)
+				if el := time.Since(start); el > worst {
+					worst = el
+				}
+			}
+		}
+		t.Logf("budget %v: worst %v (%.0f%%)", c.budget, worst, 100*float64(worst)/float64(c.budget))
+		if float64(worst) > c.allow*float64(c.budget) {
+			t.Errorf("a %v move took %v, %.0f%% of its budget", c.budget, worst, 100*float64(worst)/float64(c.budget))
+		}
+	}
+}
+
+// The clock is read more often the shorter the budget, and the mask stays a
+// power of two minus one so the check remains a single AND.
+func TestClockIsReadOftenEnoughForTheBudget(t *testing.T) {
+	for _, c := range []struct {
+		budget time.Duration
+		mask   int
+	}{
+		{time.Millisecond, 15},
+		{10 * time.Millisecond, 63},
+		{49 * time.Millisecond, 63},
+		{100 * time.Millisecond, 511},
+		{time.Second, 2047},
+	} {
+		if got := clockCheckMask(c.budget); got != c.mask {
+			t.Errorf("budget %v: mask %d, want %d", c.budget, got, c.mask)
+		}
+		if m := clockCheckMask(c.budget); m&(m+1) != 0 {
+			t.Errorf("mask %d is not a power of two minus one", m)
+		}
+	}
+}
+
 func TestTimedSearchUsesItsBudget(t *testing.T) {
 	net, err := LoadHalfKPNet("../champion_net.json")
 	if err != nil {

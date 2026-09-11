@@ -81,6 +81,7 @@ func (c *searchCtx) reset() {
 	c.history = [2][64][64]int32{}
 	c.path = [maxSearchPly]uint64{}
 	c.abortAtNodes = 0
+	c.checkMask = 2047
 	c.stop = nil
 	c.played = nil
 	c.nodes = 0
@@ -193,6 +194,11 @@ type searchCtx struct {
 	// searched, so what happens at a cut-off can be tested exactly instead
 	// of by racing a clock.
 	abortAtNodes int64
+	// checkMask decides how often the clock is read: on every node whose
+	// count has no bits in common with it. 2047 for a budget of hundreds of
+	// milliseconds, far fewer for a 10 ms one, where 2048 nodes is half the
+	// budget and the search overran by 113%.
+	checkMask int
 	// stop is shared by the threads of one parallel search: set once the
 	// main thread has its move, so the helpers abandon theirs.
 	stop    *int32
@@ -348,7 +354,7 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 	if c.aborted {
 		return 0
 	}
-	if c.nodes&2047 == 0 {
+	if c.nodes&c.checkMask == 0 {
 		if !c.deadline.IsZero() && time.Now().After(c.deadline) {
 			c.aborted = true
 			return 0
@@ -770,6 +776,25 @@ func chooseMoveIterativeScoredThreads(g *game.Game, color board.Color, maxDepth 
 	return m, score, ok
 }
 
+// clockCheckMask is how many nodes may pass between two reads of the clock,
+// minus one, for a given budget. Reading time.Now is not free and this is
+// the hottest loop in the engine, so a long budget reads it every 2048
+// nodes; a 10 ms budget cannot afford that, since 2048 nodes is three to
+// five milliseconds and the search overran by 113% on the test positions.
+// Sixty-four nodes is well under a millisecond and costs nothing visible.
+func clockCheckMask(budget time.Duration) int {
+	switch {
+	case budget < 5*time.Millisecond:
+		return 15
+	case budget < 50*time.Millisecond:
+		return 63
+	case budget < 250*time.Millisecond:
+		return 511
+	default:
+		return 2047
+	}
+}
+
 // smpShared is what the threads of one parallel search share besides the
 // table: the stop signal, and the main thread's completed depth so the
 // helpers can stay ahead of it. Helpers that iterate in lockstep with the
@@ -829,6 +854,7 @@ func searchIterative(g *game.Game, color board.Color, maxDepth int, ev *Eval, us
 	ctx.ev.acc = &ctx.acc
 	ctx.acc[0].valid = false
 	if budget > 0 {
+		ctx.checkMask = clockCheckMask(budget)
 		// Five percent past the budget, hard. The between-iteration check
 		// below deliberately starts iterations that may not finish, so
 		// this abort is the usual way a move ends, not a backstop; an
