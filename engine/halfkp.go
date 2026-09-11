@@ -200,6 +200,23 @@ type HalfKPNet struct {
 	// 32. Zero means 8, which is what every network written before this
 	// field existed used.
 	Buckets int `json:"buckets,omitempty"`
+	// H2 is the width of an optional second hidden layer between the
+	// concatenated accumulators and the output, clipped like the first.
+	// Zero, and the three fields absent from the file, is the original
+	// shape, which is what every network trained before this existed has.
+	//
+	// One clipped-linear layer can only add up an opinion per piece, so
+	// width, king buckets and averaging all landed at the same 91% of the
+	// teacher explained. Two layers can express that a knight on e5 is
+	// worth more because their bishop is gone, which is the shape tactics
+	// take, and is what real NNUE does (256x2 -> 32 -> 32 -> 1).
+	H2 int `json:"h2,omitempty"`
+	// WH2 is 2H x H2, input-major like W1: the weights leaving
+	// accumulator unit i occupy wh2[i*H2 : i*H2+H2]. Feature-major there
+	// and input-major here for the same reason, the forward pass walks
+	// one input at a time and wants its weights contiguous.
+	WH2 []float32 `json:"wh2,omitempty"`
+	BH2 []float32 `json:"bh2,omitempty"` // H2
 }
 
 // buckets returns the granularity, defaulting to 8 for older files.
@@ -299,16 +316,22 @@ func (n *HalfKPNet) Evaluate(b *board.Board) float64 {
 		}
 	}
 
-	out := n.B2
-	for i := 0; i < 2*h; i++ {
-		a := acc[i]
-		if a < 0 {
-			a = 0
-		} else if a > 1 {
-			a = 1
-		}
-		out += n.W2[i] * a
+	return n.head(acc[:h:h], acc[h:2*h:2*h])
+}
+
+// clip01 is the clipped ReLU both layers use.
+func clip01(v float32) float32 {
+	if v < 0 {
+		return 0
 	}
+	if v > 1 {
+		return 1
+	}
+	return v
+}
+
+// toPawns turns the last layer's number into a score the search can use.
+func (n *HalfKPNet) toPawns(out float32) float64 {
 	if n.Sigmoid {
 		k := n.K
 		if k == 0 {
@@ -317,6 +340,55 @@ func (n *HalfKPNet) Evaluate(b *board.Board) float64 {
 		return probabilityToPawns(float64(out), k)
 	}
 	return float64(out * n.Scale)
+}
+
+// head runs everything above the accumulator: the clipped ReLU on both
+// perspectives, the optional second hidden layer, then the linear output.
+//
+// own and opp are the two raw accumulator halves, White's perspective
+// first. Nothing here allocates: the second layer's activations are a
+// stack array bounded by maxHalfKPHidden, which is also what a network is
+// allowed to declare as H2.
+func (n *HalfKPNet) head(own, opp []float32) float64 {
+	h := n.H
+	if n.H2 == 0 {
+		// Own perspective in full, then the other, in that order. float32
+		// addition is not associative, so any other order would move the
+		// last digits of every network trained before this layer existed,
+		// and every calibration made against them.
+		out := n.B2
+		for i := 0; i < h; i++ {
+			out += n.W2[i] * clip01(own[i])
+		}
+		for i := 0; i < h; i++ {
+			out += n.W2[h+i] * clip01(opp[i])
+		}
+		return n.toPawns(out)
+	}
+	var midArr [maxHalfKPHidden]float32
+	mid := midArr[:n.H2:n.H2]
+	copy(mid, n.BH2)
+	for i := 0; i < h; i++ {
+		n.spread(mid, i, clip01(own[i]))
+	}
+	for i := 0; i < h; i++ {
+		n.spread(mid, h+i, clip01(opp[i]))
+	}
+	out := n.B2
+	for j := 0; j < n.H2; j++ {
+		out += n.W2[j] * clip01(mid[j])
+	}
+	return n.toPawns(out)
+}
+
+// spread adds one clipped accumulator unit's contribution to every unit
+// of the second hidden layer. WH2 is input-major, so the weights it needs
+// are one contiguous run.
+func (n *HalfKPNet) spread(mid []float32, i int, v float32) {
+	w := n.WH2[i*n.H2 : i*n.H2+n.H2 : i*n.H2+n.H2]
+	for j := range mid {
+		mid[j] += w[j] * v
+	}
 }
 
 func LoadHalfKPNet(path string) (*HalfKPNet, error) {
@@ -340,9 +412,28 @@ func LoadHalfKPNet(path string) (*HalfKPNet, error) {
 		return nil, fmt.Errorf("halfkp %s: %d first-layer weights for %d hidden units "+
 			"at %d king buckets, want %d", path, len(n.W1), n.H, n.buckets(), want)
 	}
-	if len(n.B1) != n.H || len(n.W2) != 2*n.H {
-		return nil, fmt.Errorf("halfkp %s: biases %d and output weights %d do not match "+
-			"%d hidden units", path, len(n.B1), len(n.W2), n.H)
+	if len(n.B1) != n.H {
+		return nil, fmt.Errorf("halfkp %s: %d first-layer biases for %d hidden units",
+			path, len(n.B1), n.H)
+	}
+	// The output layer reads 2H units without a second hidden layer and H2
+	// with one, so which length is right depends on H2.
+	if n.H2 < 0 || n.H2 > maxHalfKPHidden {
+		return nil, fmt.Errorf("halfkp %s: second hidden layer of %d units, "+
+			"the engine evaluates up to %d", path, n.H2, maxHalfKPHidden)
+	}
+	last := 2 * n.H
+	if n.H2 > 0 {
+		last = n.H2
+		if len(n.WH2) != 2*n.H*n.H2 || len(n.BH2) != n.H2 {
+			return nil, fmt.Errorf("halfkp %s: second layer has %d weights and %d biases, "+
+				"want %d and %d for %d units over %d accumulator inputs",
+				path, len(n.WH2), len(n.BH2), 2*n.H*n.H2, n.H2, n.H2, 2*n.H)
+		}
+	}
+	if len(n.W2) != last {
+		return nil, fmt.Errorf("halfkp %s: %d output weights, want %d",
+			path, len(n.W2), last)
 	}
 	return &n, nil
 }
@@ -453,31 +544,14 @@ func (n *HalfKPNet) addRow(a []float32, f int32, sign float32) {
 	}
 }
 
-// output is the second layer applied to a valid accumulator.
+// output is everything above a valid accumulator: the same layers
+// Evaluate runs, reading the incrementally maintained halves instead of
+// ones it computed itself. The accumulator update knows nothing about
+// what sits on top of it and did not change when the second layer
+// arrived.
 func (n *HalfKPNet) output(acc *halfKPAcc) float64 {
 	h := n.H
-	out := n.B2
-	for side := 0; side < 2; side++ {
-		a := acc.acc[side][:h]
-		w := n.W2[side*h : side*h+h]
-		for i := 0; i < h; i++ {
-			v := a[i]
-			if v < 0 {
-				v = 0
-			} else if v > 1 {
-				v = 1
-			}
-			out += w[i] * v
-		}
-	}
-	if n.Sigmoid {
-		k := n.K
-		if k == 0 {
-			k = 0.30
-		}
-		return probabilityToPawns(float64(out), k)
-	}
-	return float64(out * n.Scale)
+	return n.head(acc.acc[0][:h:h], acc.acc[1][:h:h])
 }
 
 // EvaluateWith is Evaluate with the accumulator taken from, and left in,

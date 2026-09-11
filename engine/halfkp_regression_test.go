@@ -37,6 +37,10 @@ func TestChampionNetworkStillEvaluatesToTheBit(t *testing.T) {
 	if err != nil {
 		t.Skip("no champion network here:", err)
 	}
+	if net.H2 != 0 {
+		t.Fatalf("champion_net.json declares a second hidden layer of %d units, "+
+			"so it is not the file this baseline was recorded from", net.H2)
+	}
 	for _, c := range championOutputs {
 		g, err := game.ParseFEN(c.fen)
 		if err != nil {
