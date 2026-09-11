@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -125,16 +126,23 @@ func TestParallelDepthInOneSecond(t *testing.T) {
 	if err != nil {
 		t.Skip("no champion network:", err)
 	}
+	// SMP_MS picks the clock; 1000 by default. Short clocks are where a
+	// threading gain is smallest, since helpers only pull ahead once the
+	// main thread has published a few completed depths.
+	budget := time.Second
+	if ms, err := strconv.Atoi(os.Getenv("SMP_MS")); err == nil && ms > 0 {
+		budget = time.Duration(ms) * time.Millisecond
+	}
 	for _, threads := range []int{1, 2, 4, 8} {
 		total := 0
 		for _, fen := range correctnessPositions[3:8] {
 			g, _ := game.ParseFEN(fen)
 			p := Strong(4)
-			p.HalfKP, p.HalfKPBlend, p.TimeBudget, p.Threads = net, 0.45, time.Second, threads
+			p.HalfKP, p.HalfKPBlend, p.TimeBudget, p.Threads = net, 0.45, budget, threads
 			PlayerPick(p, g)
 			total += LastSearchDepth()
 		}
-		t.Logf("%d threads: mean depth %.1f in 1s", threads, float64(total)/5)
+		t.Logf("%d threads: mean depth %.1f in %v", threads, float64(total)/5, budget)
 	}
 }
 
