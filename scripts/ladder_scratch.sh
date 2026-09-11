@@ -10,14 +10,29 @@
 # It never touches champion.json. Its own descriptor, its own pools, its own
 # networks, so the deployed engine is not at risk from an experiment.
 #
-# Usage: scripts/ladder_scratch.sh [rungs] [positions] [games] [ms]
+# The one rule that decides whether a rung is worth anything: the labelling
+# search must be DEEPER than the search that plays. A network taught by a
+# depth-3 search helps a shallower search and hurts a deeper one, because a
+# deeper search already computes everything the network was taught and the
+# network can then only add its own error. Measured on one network against
+# one opponent: +14 at depth 1, +17 +/- 12 over 3500 games at depth 2, +16 at
+# depth 4, and -36 to -66 at 100ms, which reaches 5 to 9 plies.
+#
+# Usage: scripts/ladder_scratch.sh [rungs] [positions] [games] [play-depth] [label-depth] [first-rung]
 set -u
 cd "$(dirname "$0")/.." || exit 1
 
-RUNGS=${1:-6}
-POSITIONS=${2:-400000}
-GAMES=${3:-300}
-MS=${4:-100}
+RUNGS=${1:-4}
+POSITIONS=${2:-800000}
+GAMES=${3:-1500}
+DEPTH=${4:-2}
+LABEL_DEPTH=${5:-3}
+FIRST=${6:-1}
+
+if [ "$LABEL_DEPTH" -le "$DEPTH" ]; then
+  echo "label depth $LABEL_DEPTH must be deeper than play depth $DEPTH, or the rung has nothing to teach" >&2
+  exit 1
+fi
 CHAMP=scratch_champion.json
 LOG=/tmp/chesslogs/scratch.log
 PGN=lichess_games_2015-01.pgn.zst
@@ -27,22 +42,22 @@ mkdir -p /tmp/chesslogs nets_torch
 
 # Rung 0 is the hand-written evaluation with no network at all.
 if [ ! -f "$CHAMP" ]; then
-  printf '{"label":"scratch rung 0: hand evaluation, no network","depth":4,"time_ms":%d,"hand_blend":0.45}\n' "$MS" > "$CHAMP"
+  printf '{"label":"scratch rung 0: hand evaluation, no network","depth":%d,"hand_blend":0.45}\n' "$DEPTH" > "$CHAMP"
   say "starting from the hand evaluation alone"
 fi
 
-say "ladder from scratch: $RUNGS rungs, $POSITIONS positions each, $GAMES games at ${MS}ms"
+say "ladder from scratch: $RUNGS rungs, $POSITIONS positions each, $GAMES games at fixed depth $DEPTH, labels at depth $LABEL_DEPTH"
 
-for rung in $(seq 1 "$RUNGS"); do
+for rung in $(seq "$FIRST" $((FIRST + RUNGS - 1))); do
   pool="scratch_r${rung}.bin"
   net="nets_torch/scratch_r${rung}.json"
   label=$(python3 -c "import json;print(json.load(open('$CHAMP'))['label'])")
-  say "rung $rung: labelling $POSITIONS positions with [$label] at depth 3, lambda 1"
+  say "rung $rung: labelling $POSITIONS positions with [$label] at depth $LABEL_DEPTH, lambda 1"
 
   have=$([ -f "$pool" ] && ./nnue-bin -count-pool "$pool" 2>/dev/null || echo 0)
   if [ "${have:-0}" -lt "$POSITIONS" ]; then
     zstd -dcq "$PGN" 2>/dev/null | ./nnue-bin -import-pgn - \
-      -pool-file "$pool" -import-max $((POSITIONS - have)) -label-depth 3 \
+      -pool-file "$pool" -import-max $((POSITIONS - have)) -label-depth "$LABEL_DEPTH" \
       -pgn-skip-plies 8 -label-champion "$CHAMP" -lambda 1 \
       >> "/tmp/chesslogs/scratch_gen_r${rung}.log" 2>&1
   fi
@@ -71,7 +86,7 @@ for rung in $(seq 1 "$RUNGS"); do
   # Screen, then confirm on openings the screen never used. Only the
   # confirmation decides, because a rung adopted on the race that selected
   # it is selected on its own test set.
-  ./scripts/chunked_match.sh "$GAMES" 100 -depth 4 -time-ms "$MS" -max-moves 160 \
+  ./scripts/chunked_match.sh "$GAMES" 250 -depth "$DEPTH" -max-moves 160 \
     -halfkp "$net" -blend 0.45 -ref-champion "$CHAMP" \
     -match-openings openings.txt > "/tmp/chesslogs/scratch_screen_r${rung}.log" 2>&1
   screen=$(grep pooled "/tmp/chesslogs/scratch_screen_r${rung}.log" | tail -1)
@@ -82,7 +97,7 @@ for rung in $(seq 1 "$RUNGS"); do
     exit 0
   fi
 
-  START_OFFSET=$((120000 + rung * 2000)) ./scripts/chunked_match.sh "$GAMES" 100 -depth 4 -time-ms "$MS" -max-moves 160 \
+  START_OFFSET=$((700000 + rung * 10000)) ./scripts/chunked_match.sh $((GAMES * 2)) 500 -depth "$DEPTH" -max-moves 160 \
     -halfkp "$net" -blend 0.45 -ref-champion "$CHAMP" \
     -match-openings openings.txt > "/tmp/chesslogs/scratch_confirm_r${rung}.log" 2>&1
   result=$(grep pooled "/tmp/chesslogs/scratch_confirm_r${rung}.log" | tail -1)
@@ -93,11 +108,11 @@ for rung in $(seq 1 "$RUNGS"); do
   if [ -z "${elo:-}" ]; then say "rung $rung: STOPPING, no Elo in the confirmation"; exit 1; fi
   if [ $((elo - margin)) -gt 0 ]; then
     cp "$net" "scratch_net.json.tmp" && mv -f "scratch_net.json.tmp" scratch_net.json
-    python3 - "$rung" "$elo" "$margin" "$CHAMP" "$MS" <<'PY'
+    python3 - "$rung" "$elo" "$margin" "$CHAMP" "$DEPTH" <<'PY'
 import json, sys, time
-rung, elo, margin, path, ms = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), sys.argv[4], int(sys.argv[5])
+rung, elo, margin, path, depth = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), sys.argv[4], int(sys.argv[5])
 c = json.load(open(path))
-json.dump({"label": "scratch rung %s" % rung, "depth": 4, "time_ms": ms,
+json.dump({"label": "scratch rung %s" % rung, "depth": depth,
            "elo": c.get("elo", 0) + elo, "margin": margin,
            "net_file": "scratch_net.json", "hand_blend": 0.45,
            "adopted": time.strftime("%Y-%m-%dT%H:%M:%S%z")},

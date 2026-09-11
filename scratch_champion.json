@@ -1,0 +1,10 @@
+{
+  "label": "scratch rung 1: 3M positions labelled by the hand evaluation at depth 3",
+  "depth": 2,
+  "elo": 17,
+  "margin": 12,
+  "net_file": "scratch_net.json",
+  "hand_blend": 0.45,
+  "adopted": "2026-09-11T14:40:38+0200",
+  "elo_note": "Beat the hand evaluation it learned from by +17 +/- 12 over 3500 games at fixed depth 2, on openings no screening race had used. depth 2 is not incidental: the network was taught what a depth-3 search knows, so it helps a search shallower than that and hurts a deeper one. Same network, same opponent: +14 at depth 1, +28 at depth 2, +16 at depth 4, and -36 to -66 at 100ms, which reaches 5 to 9 plies."
+}
