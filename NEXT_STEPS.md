@@ -23,6 +23,25 @@ Run the self-test before trusting any race: the champion against itself
 must read zero, and 300 games (+/- 40) is not enough to see an 18-Elo
 handicap.
 
+On the fixed ruler, over 2000 games at depth 4 against the champion:
+
+| net | before the fix | after |
+|---|---|---|
+| r9_mse | -20 +/- 25 | **+7 +/- 15** |
+| r9_twin | -2 +/- 22 | **+2 +/- 15** |
+| r9_avg (averaged weights) | -15 +/- 25 | -16 +/- 25 |
+
+A rung is now level with the champion that taught it, or a little ahead,
+where it used to be reproducibly twenty behind. Neither clears its own
+margin yet, so nothing is adopted.
+
+Averaging the best eight epochs is a separate finding and a negative one:
+it improves the held-out loss, 1.4776 against 1.4821, and loses games,
+-16 +/- 18 pooled over 1500. Held-out squared error is fitted on one
+number per position and a game depends on the ranking of moves, so a
+smoother function can predict better and choose worse. The option stays
+in the trainer; the ladder does not use it.
+
 Two levers closed by measurement, one opened.
 
 **The game-outcome term was noise, and the ladder had been using it.**
