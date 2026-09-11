@@ -56,12 +56,30 @@ makes the rest of the row trustworthy:
 |---|---|---|---|---|
 | r9_mse (squared error in pawns) | 90.2% | 0.399 | reference | -20 +/- 25 |
 | r9_sig (win probability) | 88.4% | 0.411 | -37 +/- 31 | -40 +/- 31 |
+| r9_h128 (128 hidden units) | see below | | -27 +/- 25 | -27 +/- 31 |
 
 r9_mse lands on -20 +/- 25 against the champion, against ladder rung 8's
 -20 +/- 18 on the same pools: the ladder is reproducibly stuck at minus
 twenty, and it is not the loss that puts it there. The win-probability
 arm also plateaus at epoch 26 against 60 under a threshold that is now
 fair to both, so it converges sooner and to a worse network.
+
+Doubling the network closed the same way: 128 hidden units, the most the
+Go accumulator allows without a change, read -27 +/- 25 against the
+64-unit arm and -27 +/- 31 against the champion.
+
+So five levers are now closed by measurement: label depth, the
+game-outcome term, the hand blend, the loss, and capacity. Every arm
+lands between -20 and -40 against the champion whatever is changed, which
+is the signature of the champion being special rather than of the changes
+mattering. champion_net.json is byte-for-byte nets_torch/ladder_r6.json,
+so it is an ordinary product of this recipe on strictly less data than
+the arms that lose to it. Two candidates remain: the two newest pools
+hurt, or rung 6 was adopted because it won a race and sits in the upper
+tail of the training distribution, in which case every rung since has
+been asked to beat a lucky draw. Running now: the same recipe on exactly
+the champion's corpus, and a second draw of the same recipe to measure
+what the trainer's run-to-run spread is worth in Elo.
 
 ## Task list, 2026-09-10 evening: measurement fixed, engine profiled
 
