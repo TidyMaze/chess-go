@@ -1,5 +1,33 @@
 # Next steps to improve the engine
 
+## Toward 2700 on the same-clock ladder, 2026-09-11 evening
+
+Standing at 2347 at 1 s/move with Stockfish on the same clock. The gap is
+about 350, and today's numbers say it comes from the search: the search
+gave +168 (root window), +346 (playing on the clock) and +37 (using the
+whole iteration), the evaluation ladder gave +11 and then proved saturated.
+
+- [x] **Lazy SMP built**, test first, race-detector clean. Helpers share the
+  transposition table (stripe-locked only once shared, so one thread pays
+  nothing), each with its own game, Eval and context, copied before the
+  main search starts. Four threads on one table stay exact against plain
+  minimax. Commit d896f6e.
+- [x] **First version gained nothing**: 5.6x the nodes, same depth, because
+  helpers iterated in lockstep with the main thread over the same tree.
+  Fixed by having each helper target the main thread's published depth
+  plus one or two and shuffle its root order. Mean depth in 1 s over five
+  positions: 10.6 / 11.0 / 11.8 / 11.8 for 1 / 2 / 4 / 8 threads. Four is
+  the number of performance cores. Commit 562cf6c.
+- [~] **SMP measured as Elo**: four threads vs one at 1 s/move, 80 games,
+  two concurrent games so each four-thread side has real cores. Running.
+- [ ] Calibrate the champion with threads 4 against the ladder, workers 2.
+  That is the goal's own number and it takes hours, so it runs overnight.
+- [ ] Resume the clocked pruning screens (rfp was at 50 games, +56 +/- 100
+  when paused for the SMP measurement); then scaledlmr, nullgate, iir,
+  countermove. Both sides single-threaded: a feature screen compares
+  features, not cores.
+- [ ] Then move ordering, the tablebase re-measure, and the speed items.
+
 ## Rung 2 against rung 1, 2026-09-11: nine approaches, one wall
 
 Goal: a rung 2 that beats rung 1. Every race below is the rung-2 candidate
