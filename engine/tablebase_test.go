@@ -2,11 +2,46 @@ package engine
 
 import (
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"chess/board"
 	"chess/game"
 )
+
+var (
+	krvkOnce struct {
+		sync.Once
+		set *TablebaseSet
+	}
+	kpvkOnce struct {
+		sync.Once
+		set *TablebaseSet
+	}
+)
+
+func cachedKRVKSet() *TablebaseSet {
+	krvkOnce.Do(func() {
+		krvkOnce.set = BuildTablebases([][]board.ColoredPiece{
+			{{Color: board.White, Type: board.King}, {Color: board.Black, Type: board.King}},
+			krvk(),
+		}, nil)
+	})
+	return krvkOnce.set
+}
+
+func cachedKPVKSet() *TablebaseSet {
+	kpvkOnce.Do(func() {
+		kpvkOnce.set = BuildTablebases([][]board.ColoredPiece{
+			{{Color: board.White, Type: board.King}, {Color: board.Black, Type: board.King}},
+			{{Color: board.White, Type: board.King}, {Color: board.White, Type: board.Queen},
+				{Color: board.Black, Type: board.King}},
+			{{Color: board.White, Type: board.King}, {Color: board.White, Type: board.Pawn},
+				{Color: board.Black, Type: board.King}},
+		}, nil)
+	})
+	return kpvkOnce.set
+}
 
 func krvk() []board.ColoredPiece {
 	return []board.ColoredPiece{
@@ -18,6 +53,9 @@ func krvk() []board.ColoredPiece {
 
 func setOf(t *testing.T, pieces []board.ColoredPiece) *TablebaseSet {
 	t.Helper()
+	if len(pieces) == 3 && pieces[0].Type == board.King && pieces[1].Type == board.Rook && pieces[2].Type == board.King {
+		return cachedKRVKSet()
+	}
 	// Bare kings first: every other configuration can be captured down to
 	// it, and generating without that prior makes captures unresolvable.
 	return BuildTablebases([][]board.ColoredPiece{
@@ -148,13 +186,7 @@ func TestProbeMissesUncoveredMaterial(t *testing.T) {
 // comes out uniformly drawn is a failing result, not a passing one, so
 // this asserts the shape of the answer and not just that a file appeared.
 func TestKingAndPawnAgainstKingContainsWins(t *testing.T) {
-	set := BuildTablebases([][]board.ColoredPiece{
-		{{Color: board.White, Type: board.King}, {Color: board.Black, Type: board.King}},
-		{{Color: board.White, Type: board.King}, {Color: board.White, Type: board.Queen},
-			{Color: board.Black, Type: board.King}},
-		{{Color: board.White, Type: board.King}, {Color: board.White, Type: board.Pawn},
-			{Color: board.Black, Type: board.King}},
-	}, nil)
+	set := cachedKPVKSet()
 	if set.byKey["KPvK"] == nil || len(set.byKey["KPvK"].dtm) == 0 {
 		t.Fatal("king and pawn against king has no decisive positions at all")
 	}
@@ -176,13 +208,7 @@ func TestKingAndPawnAgainstKingContainsWins(t *testing.T) {
 // The classic drawn case: the defending king is in front of the pawn on
 // the queening square. The engine must not think it is winning here.
 func TestKingAndPawnDrawnOppositionIsNotAWin(t *testing.T) {
-	set := BuildTablebases([][]board.ColoredPiece{
-		{{Color: board.White, Type: board.King}, {Color: board.Black, Type: board.King}},
-		{{Color: board.White, Type: board.King}, {Color: board.White, Type: board.Queen},
-			{Color: board.Black, Type: board.King}},
-		{{Color: board.White, Type: board.King}, {Color: board.White, Type: board.Pawn},
-			{Color: board.Black, Type: board.King}},
-	}, nil)
+	set := cachedKPVKSet()
 	// Black king on a8 in front of an a-pawn: a rook pawn with the
 	// defender in the corner is drawn however White plays.
 	g, err := game.ParseFEN("k7/P7/K7/8/8/8/8/8 b - - 0 1")

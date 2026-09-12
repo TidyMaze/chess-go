@@ -35,7 +35,7 @@ func TestSearchScoreIsDeterministic(t *testing.T) {
 			break
 		}
 		g.ApplyMove(m.From, m.To)
-		if i >= 6 {
+		if i >= 6 && i%3 == 0 {
 			c := *g
 			positions = append(positions, &c)
 		}

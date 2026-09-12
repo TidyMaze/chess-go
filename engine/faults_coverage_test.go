@@ -4,7 +4,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"sync"
 	"testing"
 
 	"chess/board"
@@ -25,23 +24,8 @@ func (w *failAfter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-var krkOnce struct {
-	sync.Once
-	set *TablebaseSet
-}
-
-// krk is the king-and-rook table, generated once per test binary: the
-// generation takes twenty-odd seconds.
 func krk() *TablebaseSet {
-	krkOnce.Do(func() {
-		tb := GenerateTablebase([]board.ColoredPiece{
-			{Color: board.White, Type: board.King}, {Color: board.White, Type: board.Rook}, {Color: board.Black, Type: board.King}}, nil)
-		// Keyed the way Probe looks positions up: by the material signature.
-		g, _ := game.ParseFEN("4k3/8/8/8/8/8/8/4K2R w - - 0 1")
-		key, _ := materialKey(nil, &g.Board)
-		krkOnce.set = &TablebaseSet{byKey: map[string]*Tablebase{string(key): tb}}
-	})
-	return krkOnce.set
+	return cachedKRVKSet()
 }
 
 func TestTablebaseSerializationFaults(t *testing.T) {
