@@ -127,3 +127,18 @@ func TestChampionCarriesALoadableNetwork(t *testing.T) {
 		t.Errorf("blend %v, want 0.45", p.HalfKPBlend)
 	}
 }
+
+func TestChampionAppliesFeatures(t *testing.T) {
+	c := Champion{
+		Label:    "test features",
+		Depth:    5,
+		Features: "lmp,rfp,scaledlmr,countermove,see,historymalus,iir",
+	}
+	p, err := c.PlayerOrError()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !p.LMP || !p.DeepRFP || !p.ScaledLMR || !p.Countermoves || !p.MainSEE || !p.HistoryMalus || !p.IIR {
+		t.Errorf("features not enabled on player: %+v", p)
+	}
+}

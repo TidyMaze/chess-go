@@ -48,6 +48,8 @@ type Champion struct {
 	// downloaded, because reading the real Syzygy format correctly is a
 	// large piece of work and its seven-piece set is terabytes.
 	Syzygy string `json:"tablebases,omitempty"`
+	// Features, when set, is a comma-separated list of search features to enable.
+	Features string `json:"features,omitempty"`
 }
 
 // DefaultChampion is what the engine was before this campaign started:
@@ -135,6 +137,9 @@ func (c Champion) PlayerOrError() (Player, error) {
 			return p, fmt.Errorf("tablebases %s named by the champion did not load: %w", c.Syzygy, err)
 		}
 		p.Tablebases = tb
+	}
+	if c.Features != "" {
+		p.ApplyFeatures(c.Features)
 	}
 	return p, nil
 }

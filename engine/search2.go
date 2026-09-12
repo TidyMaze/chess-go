@@ -314,6 +314,9 @@ func (c *searchCtx) scoreMove(g *game.Game, m game.Move, ttMove game.Move, ply i
 		}
 		return 1<<20 + mvvLvaPiece[victim.Type]*100 - mvvLvaPiece[attacker.Type], 0
 	}
+	if pawnReachesLastRank(g, m) {
+		return 1<<20 - 100, 0
+	}
 	if ply < maxSearchPly {
 		if c.killers[ply][0] == m {
 			return 1 << 19, 0

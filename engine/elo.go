@@ -5,6 +5,7 @@ import (
 	"math"
 	"math/rand"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -144,6 +145,33 @@ type Player struct {
 	// UCIMoveTimeMS, when positive, gives the external engine a per-move
 	// clock instead of UCIDepth, so a timed match is timed on both sides.
 	UCIMoveTimeMS int
+}
+
+// ApplyFeatures enables search features from a comma-separated string.
+func (p *Player) ApplyFeatures(features string) {
+	for _, f := range strings.Split(features, ",") {
+		switch strings.TrimSpace(f) {
+		case "":
+		case "lmp":
+			p.LMP = true
+		case "scaledlmr":
+			p.ScaledLMR = true
+		case "rfp":
+			p.DeepRFP = true
+		case "nullgate":
+			p.NullGate = true
+		case "countermove":
+			p.Countermoves = true
+		case "iir":
+			p.IIR = true
+		case "see":
+			p.MainSEE = true
+		case "historymalus":
+			p.HistoryMalus = true
+		case "historyaging":
+			p.HistoryAging = true
+		}
+	}
 }
 
 // withTable is the transposition table this player reuses for the whole
