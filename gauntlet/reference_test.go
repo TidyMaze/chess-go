@@ -73,7 +73,7 @@ func TestReferenceSwitchesSurviveAChampionReplacement(t *testing.T) {
 	}
 	// Untouched features stay off, so a feature list cannot switch on more
 	// than it names.
-	if got.DeepRFP || got.NullGate || got.Countermoves || got.ScaledLMR {
+	if got.DeepRFP || got.NullGate || got.Countermoves || got.ScaledLMR || got.LMRTwoStep || got.HistoryAging {
 		t.Error("a feature nobody asked for was switched on")
 	}
 }

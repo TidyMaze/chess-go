@@ -170,6 +170,11 @@ type Eval struct {
 	// ScaledLMR reduces more with depth and move number instead of a flat
 	// one ply.
 	ScaledLMR bool
+	// LMRTwoStep confirms a fail-high on a reduced search with a zero-window
+	// full-depth search before opening a full window.
+	LMRTwoStep bool
+	// HistoryAging decays history table between iterative deepening iterations.
+	HistoryAging bool
 	// NoCastle is a measurement instrument, never a playing mode. Castling
 	// is a rule of chess and is implemented; this flag exists only so one
 	// side of an A/B can decline it, which is the only way to price the

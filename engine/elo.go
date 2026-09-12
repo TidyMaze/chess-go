@@ -94,6 +94,10 @@ type Player struct {
 	MainSEE bool
 	// ScaledLMR scales the reduction with depth and move number.
 	ScaledLMR bool
+	// LMRTwoStep confirms fail-high on reduced search with zero-window before full window.
+	LMRTwoStep bool
+	// HistoryAging decays history between iterative deepening depths.
+	HistoryAging bool
 	// NoRepetition disables repetition detection. Measurement only.
 	NoRepetition bool
 	// NullReduction and NullScale tune null-move pruning. 0 means 3.
@@ -618,7 +622,8 @@ func evalForPlayer(p Player) *Eval {
 		NoCastle: p.NoCastle, NoLMR: p.NoLMR, ScaledLMR: p.ScaledLMR, LMP: p.LMP,
 		DeepRFP: p.DeepRFP, NullGate: p.NullGate, Countermoves: p.Countermoves, IIR: p.IIR, MainSEE: p.MainSEE,
 		NoRepetition: p.NoRepetition, KeepNullMoveEP: p.KeepNullMoveEP,
-		DeltaPruning: p.DeltaPruning,
+		DeltaPruning: p.DeltaPruning, LMRTwoStep: p.LMRTwoStep,
+		HistoryAging: p.HistoryAging,
 		NullReduction: p.NullReduction, NullScale: p.NullScale,
 		Extras: p.Extras, Shape: p.Shape, ShapeW: p.ShapeW,
 		PSTScale: p.PSTScale, MobilityW: p.MobilityW, StructureW: p.StructureW,

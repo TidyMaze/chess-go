@@ -100,6 +100,7 @@ func TestMainSearchSEECutsNodes(t *testing.T) {
 	for _, fen := range correctnessPositions[:6] {
 		g, _ := game.ParseFEN(fen)
 		off, on := Strong(6), Strong(6)
+		off.MainSEE = false
 		on.MainSEE = true
 		ResetNodes()
 		PlayerScoreWith(off, g, nil)

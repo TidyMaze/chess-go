@@ -89,6 +89,10 @@ func (s referenceSwitches) applyTo(p engine.Player) (engine.Player, error) {
 			p.IIR = true
 		case "see":
 			p.MainSEE = true
+		case "lmrtwostep":
+			p.LMRTwoStep = true
+		case "historyaging":
+			p.HistoryAging = true
 		default:
 			return p, fmt.Errorf("unknown feature %q", f)
 		}
@@ -180,6 +184,10 @@ func main() {
 			challenger.IIR = true
 		case "see":
 			challenger.MainSEE = true
+		case "lmrtwostep":
+			challenger.LMRTwoStep = true
+		case "historyaging":
+			challenger.HistoryAging = true
 		default:
 			fmt.Printf("unknown feature %q\n", f)
 			return

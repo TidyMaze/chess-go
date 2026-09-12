@@ -155,3 +155,31 @@ func TestNodeSavingsConvertToDepth(t *testing.T) {
 		p.NullGate, p.IIR = true, true
 	})
 }
+
+// TestHistoryAgingDecaysHistory verifies that aging halves history values and
+// produces legal moves across test positions.
+func TestHistoryAgingDecaysHistory(t *testing.T) {
+	c := searchCtxPool.Get().(*searchCtx)
+	defer searchCtxPool.Put(c)
+	c.reset()
+	c.history[0][10][20] = 100
+	c.history[1][5][15] = 50
+	c.ageHistory()
+	if c.history[0][10][20] != 50 || c.history[1][5][15] != 25 {
+		t.Errorf("history values not halved: got %d and %d", c.history[0][10][20], c.history[1][5][15])
+	}
+
+	for _, fen := range correctnessPositions[:6] {
+		g, err := game.ParseFEN(fen)
+		if err != nil {
+			t.Fatal(err)
+		}
+		p := Strong(5)
+		p.HistoryAging = true
+		m, ok := PlayerPick(p, g)
+		if !ok || m.From == m.To {
+			t.Errorf("history aging failed to pick move on %s", fen)
+		}
+	}
+}
+

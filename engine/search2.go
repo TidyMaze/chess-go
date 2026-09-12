@@ -263,6 +263,16 @@ func (c *searchCtx) recordHistory(color board.Color, m game.Move, depth int) {
 	c.history[color][sqIndex(m.From)][sqIndex(m.To)] += int32(depth * depth)
 }
 
+func (c *searchCtx) ageHistory() {
+	for co := 0; co < 2; co++ {
+		for f := 0; f < 64; f++ {
+			for t := 0; t < 64; t++ {
+				c.history[co][f][t] /= 2
+			}
+		}
+	}
+}
+
 // scoreMove ranks a move for ordering: transposition-table move first,
 // then captures by MVV-LVA, then killers, then history.
 func (c *searchCtx) scoreMove(g *game.Game, m game.Move, ttMove game.Move, ply int, color board.Color) int {
@@ -278,6 +288,9 @@ func (c *searchCtx) scoreMove(g *game.Game, m game.Move, ttMove game.Move, ply i
 		if c.ev != nil && c.ev.MainSEE {
 			// Winning captures first by what they win, losing captures
 			// after every quiet move.
+			if mvvLvaPiece[victim.Type] >= mvvLvaPiece[attacker.Type] {
+				return 1<<20 + (mvvLvaPiece[victim.Type]-mvvLvaPiece[attacker.Type])*100 + mvvLvaPiece[victim.Type]
+			}
 			if x := see(&g.Board, m); x < 0 {
 				return -1<<20 + x*100
 			} else {
@@ -554,7 +567,14 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 		isCapture := isCaptureMove(g, m)
 		exchange := 0
 		if isCapture && c.ev != nil && c.ev.MainSEE && depth <= 6 {
-			exchange = see(&g.Board, m)
+			attacker, _ := g.Board.PieceAt(m.From)
+			victim, onSquare := g.Board.PieceAt(m.To)
+			if !onSquare {
+				victim = board.Piece{Type: board.Pawn}
+			}
+			if mvvLvaPiece[victim.Type] < mvvLvaPiece[attacker.Type] {
+				exchange = see(&g.Board, m)
+			}
 		}
 
 		// Make/unmake rather than copying the board into a child Game:
@@ -571,7 +591,7 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 
 		lmp := c.ev != nil && c.ev.LMP && zeroWindow(alpha, beta)
 		givesCheck := false
-		if c.extensions || futile || lmp || (isCapture && c.ev != nil && c.ev.MainSEE) {
+		if c.extensions || futile || lmp || (isCapture && c.ev != nil && c.ev.MainSEE && exchange < -depth) {
 			givesCheck = moves.IsInCheck(&g.Board, color.Other())
 		}
 
@@ -640,12 +660,20 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 			// Principal variation search: try a zero-width window first.
 			if maximizing {
 				value = c.search(g, color.Other(), maximizingFor, depth-1-reduction+extension, ply+1, alpha, alpha+1e-6)
-				if value > alpha {
+				twoStep := c.ev != nil && c.ev.LMRTwoStep
+				if value > alpha && reduction > 0 && twoStep {
+					value = c.search(g, color.Other(), maximizingFor, depth-1+extension, ply+1, alpha, alpha+1e-6)
+				}
+				if value > alpha && (!twoStep || value < beta) {
 					value = c.search(g, color.Other(), maximizingFor, depth-1+extension, ply+1, alpha, beta)
 				}
 			} else {
 				value = c.search(g, color.Other(), maximizingFor, depth-1-reduction+extension, ply+1, beta-1e-6, beta)
-				if value < beta {
+				twoStep := c.ev != nil && c.ev.LMRTwoStep
+				if value < beta && reduction > 0 && twoStep {
+					value = c.search(g, color.Other(), maximizingFor, depth-1+extension, ply+1, beta-1e-6, beta)
+				}
+				if value < beta && (!twoStep || value > alpha) {
 					value = c.search(g, color.Other(), maximizingFor, depth-1+extension, ply+1, alpha, beta)
 				}
 			}
@@ -1000,6 +1028,9 @@ func searchIterative(g *game.Game, color board.Color, maxDepth int, ev *Eval, us
 			iterBest = tied[randIntn(len(tied))]
 		}
 		best = iterBest
+		if ctx.ev != nil && ctx.ev.HistoryAging {
+			ctx.ageHistory()
+		}
 	}
 	return best, prevScore, true
 }

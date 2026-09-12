@@ -79,3 +79,36 @@ func TestLogarithmicLMRCutsNodes(t *testing.T) {
 		t.Errorf("logarithmic reductions removed no nodes: %d against %d", log, flat)
 	}
 }
+
+// TestLMRTwoStepCutsNodes verifies that confirming reduced fail-highs with a
+// zero-window full-depth search reduces nodes visited across test positions.
+func TestLMRTwoStepCutsNodes(t *testing.T) {
+	var oneStep, twoStep int
+	for _, fen := range correctnessPositions[:6] {
+		g, err := game.ParseFEN(fen)
+		if err != nil {
+			t.Fatal(err)
+		}
+		a, b := Strong(6), Strong(6)
+		a.LMRTwoStep = false
+		b.LMRTwoStep = true
+		ResetNodes()
+		m1, ok1 := PlayerPick(a, g)
+		oneStep += TotalNodes()
+		ResetNodes()
+		m2, ok2 := PlayerPick(b, g)
+		twoStep += TotalNodes()
+
+		if !ok1 || !ok2 {
+			t.Fatalf("PlayerPick failed on %s: ok1=%v, ok2=%v", fen, ok1, ok2)
+		}
+		if m1.From == m1.To || m2.From == m2.To {
+			t.Errorf("null move on %s: m1=%v, m2=%v", fen, m1, m2)
+		}
+	}
+	t.Logf("nodes: %d single-step, %d two-step (%.2fx)", oneStep, twoStep, float64(oneStep)/float64(twoStep))
+	if twoStep >= oneStep {
+		t.Errorf("two-step LMR re-search did not reduce nodes: single=%d, two=%d", oneStep, twoStep)
+	}
+}
+
