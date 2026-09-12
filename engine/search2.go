@@ -209,6 +209,7 @@ type searchCtx struct {
 	// that led to ply+1, so a node's previous move is moveStack[ply-1].
 	counter   [2][64][64]game.Move
 	moveStack [maxSearchPly]game.Move
+	seeVals   [maxSearchPly][128]int16
 	prevMove  game.Move
 }
 
@@ -288,9 +289,9 @@ func (c *searchCtx) ageHistory() {
 
 // scoreMove ranks a move for ordering: transposition-table move first,
 // then captures by MVV-LVA, then killers, then history.
-func (c *searchCtx) scoreMove(g *game.Game, m game.Move, ttMove game.Move, ply int, color board.Color) int {
+func (c *searchCtx) scoreMove(g *game.Game, m game.Move, ttMove game.Move, ply int, color board.Color) (int, int16) {
 	if m == ttMove {
-		return 1 << 30
+		return 1 << 30, 0
 	}
 	if isCaptureMove(g, m) {
 		victim, onSquare := g.Board.PieceAt(m.To)
@@ -302,28 +303,29 @@ func (c *searchCtx) scoreMove(g *game.Game, m game.Move, ttMove game.Move, ply i
 			// Winning captures first by what they win, losing captures
 			// after every quiet move.
 			if mvvLvaPiece[victim.Type] >= mvvLvaPiece[attacker.Type] {
-				return 1<<20 + (mvvLvaPiece[victim.Type]-mvvLvaPiece[attacker.Type])*100 + mvvLvaPiece[victim.Type]
+				return 1<<20 + (mvvLvaPiece[victim.Type]-mvvLvaPiece[attacker.Type])*100 + mvvLvaPiece[victim.Type], 0
 			}
-			if x := see(&g.Board, m); x < 0 {
-				return -1<<20 + x*100
+			x := see(&g.Board, m)
+			if x < 0 {
+				return -1<<20 + x*100, int16(x)
 			} else {
-				return 1<<20 + x*100 + mvvLvaPiece[victim.Type]
+				return 1<<20 + x*100 + mvvLvaPiece[victim.Type], int16(x)
 			}
 		}
-		return 1<<20 + mvvLvaPiece[victim.Type]*100 - mvvLvaPiece[attacker.Type]
+		return 1<<20 + mvvLvaPiece[victim.Type]*100 - mvvLvaPiece[attacker.Type], 0
 	}
 	if ply < maxSearchPly {
 		if c.killers[ply][0] == m {
-			return 1 << 19
+			return 1 << 19, 0
 		}
 		if c.killers[ply][1] == m {
-			return 1<<19 - 1
+			return 1<<19 - 1, 0
 		}
 	}
 	if c.ev != nil && c.ev.Countermoves && m == c.counterFor(color, c.prevMove) {
-		return 1 << 18
+		return 1 << 18, 0
 	}
-	return int(c.history[color][sqIndex(m.From)][sqIndex(m.To)])
+	return int(c.history[color][sqIndex(m.From)][sqIndex(m.To)]), 0
 }
 
 func (c *searchCtx) orderMoves(g *game.Game, ms []game.Move, ttMove game.Move, ply int, color board.Color) {
@@ -338,17 +340,32 @@ func (c *searchCtx) orderMoves(g *game.Game, ms []game.Move, ttMove game.Move, p
 		scores = make([]int, 0, len(ms))
 	}
 	scores = scores[:len(ms)]
+	canCacheSEE := ply < maxSearchPly && len(ms) <= 128
 	for i, m := range ms {
-		scores[i] = c.scoreMove(g, m, ttMove, ply, color)
+		sc, sv := c.scoreMove(g, m, ttMove, ply, color)
+		scores[i] = sc
+		if canCacheSEE {
+			c.seeVals[ply][i] = sv
+		}
 	}
 	for i := 1; i < len(ms); i++ {
 		m, sc := ms[i], scores[i]
+		var sv int16
+		if canCacheSEE {
+			sv = c.seeVals[ply][i]
+		}
 		j := i - 1
 		for j >= 0 && scores[j] < sc {
 			ms[j+1], scores[j+1] = ms[j], scores[j]
+			if canCacheSEE {
+				c.seeVals[ply][j+1] = c.seeVals[ply][j]
+			}
 			j--
 		}
 		ms[j+1], scores[j+1] = m, sc
+		if canCacheSEE {
+			c.seeVals[ply][j+1] = sv
+		}
 	}
 }
 
@@ -586,7 +603,11 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 				victim = board.Piece{Type: board.Pawn}
 			}
 			if mvvLvaPiece[victim.Type] < mvvLvaPiece[attacker.Type] {
-				exchange = see(&g.Board, m)
+				if ply < maxSearchPly && i < 128 && m != ttMove {
+					exchange = int(c.seeVals[ply][i])
+				} else {
+					exchange = see(&g.Board, m)
+				}
 			}
 		}
 
