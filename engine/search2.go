@@ -906,9 +906,9 @@ func searchIterative(g *game.Game, color board.Color, maxDepth int, ev *Eval, us
 	start := time.Now()
 	for depth := startDepth; depth <= maxDepth; depth++ {
 		if !main && shared != nil {
-			// Stay ahead of the main thread: one ply past what it has
-			// completed, two for the odd-numbered helpers.
-			if lead := int(atomic.LoadInt32(&shared.mainDepth)) + 1 + int(seed%2); lead > depth {
+			// Stay ahead of the main thread: staggered one to three plies
+			// past what it has completed.
+			if lead := int(atomic.LoadInt32(&shared.mainDepth)) + 1 + int(seed%3); lead > depth {
 				depth = lead
 			}
 			if depth > maxDepth {
@@ -937,9 +937,9 @@ func searchIterative(g *game.Game, color board.Color, maxDepth int, ev *Eval, us
 		// then run with far tighter bounds and prune much harder; the
 		// occasional miss costs one re-search with a full window.
 		alpha, beta := negInf, posInf
+		delta := 0.5
 		if ev.Aspiration && depth >= 3 && depth > startDepth {
-			const window = 0.5
-			alpha, beta = prevScore-window, prevScore+window
+			alpha, beta = prevScore-delta, prevScore+delta
 		}
 
 	researchFullWindow:
@@ -1000,9 +1000,19 @@ func searchIterative(g *game.Game, color board.Color, maxDepth int, ev *Eval, us
 			break
 		}
 		// The true score fell outside the aspiration window, so the search
-		// result is only a bound: redo this depth with a full window.
+		// result is only a bound: redo this depth with a widened window.
 		if (bestScore <= alpha || bestScore >= beta) && (alpha != negInf || beta != posInf) {
-			alpha, beta = negInf, posInf
+			delta *= 2
+			if delta > 3.0 {
+				alpha, beta = negInf, posInf
+			} else {
+				if bestScore <= alpha {
+					alpha = prevScore - delta
+				}
+				if bestScore >= beta {
+					beta = prevScore + delta
+				}
+			}
 			goto researchFullWindow
 		}
 		prevScore = bestScore
