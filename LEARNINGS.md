@@ -77,6 +77,7 @@ in its architecture, and not in its optimiser.
 | Playing on a clock instead of a fixed depth | +346 +/- 115 | the single biggest change ever made here |
 | Raising alpha at the root after each move | +168 +/- 78 | 4.1x fewer nodes, invisible to every fixed-depth test |
 | Four search threads (Lazy SMP) | +70 +/- 39, then +147 +/- 69 | screen then confirm on unused openings |
+| Delta pruning in quiescence search | +49 +/- 32 | SPRT 460 games, adopted |
 | Keeping the iteration the clock cut off | +37 +/- 34 | when it beat the standing move on an exact score |
 | The first network rung | +17 +/- 12 | and the last one |
 
@@ -228,14 +229,10 @@ than following it far.
 
 A caveat this raises about the 10 ms instrument. The engine reaches four
 plies at 10 ms and 10.6 at 1 s, so a change that spends nodes to buy accuracy
-is measured at its worst here, and one that saves nodes at its best. The
-three other quiescence findings (probe the table inside quiescence, use the
-real static exchange evaluation that already exists in `see.go` instead of
-the hand-rolled heuristic, and delta pruning) all *save* nodes, so they
-should screen better at 10 ms than the cap did. A test for the table inside
-quiescence is written and parked in the session scratchpad as
-`quiescett_test.go.prepared`: it asserts the score does not move and that
-quiescence nodes drop at least 5%.
+is measured at its worst here, and one that saves nodes at its best. The three other quiescence findings were screened: probe the table
+inside quiescence (QuiesceTT: -37 +/- 49, rejected), use the real static
+exchange evaluation (QuiesceSEE: +10 +/- 48, neutral), and delta pruning
+(+49 +/- 32, SPRT accepted at 460 games: 215-94-151, adopted).
 
 **In progress.**
 

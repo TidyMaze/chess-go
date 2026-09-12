@@ -697,12 +697,13 @@ roughly three quarters of them evaporate.
 | Mobility term, hand-picked weights | +9 +/- 34 (400 games) | neutral, off by default |
 | Mobility term, fitted weights | -73 +/- 35 (400 games) | rejected |
 | Full fitted set incl. mobility | -55 +/- 34 (400 games) | rejected |
+| Delta pruning in quiescence search | +49 +/- 32 (460 games SPRT: 215-94-151) | adopted |
 | Fused evaluation, one pass not seven | 1.20x faster, identical output | kept |
 | Table reuse per game, 24-byte entries | ~1.5x faster in matches | kept |
 | Occupied list as indices, no board clone | 1.28x total at depth 7 | kept |
 
 Nothing here is confirmed at 1%. Several land around +20, which is
-exactly the size that 300 games cannot resolve.
+exactly the size that 300 games cannot resolve. Delta pruning is adopted (+49 Elo).
 
 ## Do these next, in this order
 

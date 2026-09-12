@@ -69,6 +69,7 @@ func TestFutilityAgreesOnQuietPosition(t *testing.T) {
 // is pure overhead and should be switched off.
 func TestFutilityReducesNodes(t *testing.T) {
 	count := func(on bool) int {
+		SeedRandom(42)
 		g := midOpeningPosition()
 		ResetNodes()
 		ChooseMoveIterative(g, g.Turn, 5, futilityEval(on), true)
