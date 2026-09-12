@@ -70,8 +70,10 @@ better held-out loss turned out not to mean a stronger player.
 
 The rejections are listed without numbers on purpose: they were measured
 before a harness bug was found and their sizes are overstated by about 19
-points. Every direction survives the correction. `NEXT_STEPS.md` has the full
-record with that caveat attached.
+points. Every direction survives the correction. What every measurement added
+up to, the bugs that cost the most, and how to measure anything here without
+fooling yourself: [LEARNINGS.md](LEARNINGS.md). `NEXT_STEPS.md` has the raw
+chronological record with that caveat attached.
 
 ## Two habits worth stealing
 
