@@ -204,6 +204,39 @@ target on the ruler's error.
 
 ## Next steps
 
+**The first search result, 2026-09-12.** The survey's quiescence dimension
+reported that the capture search stops at four plies and returns a static
+evaluation mid-exchange. Verified by reading the code: `const maxQuiescePly
+= 4` in `engine/search.go`, and the cap returns the stand-pat score even
+while in check. The cap already has a harness flag, so it screened with no
+code change, 400 games each at 10 ms on four separate opening bands, after a
+self-test that read +14 +/- 49 with the same network and cap on both sides.
+
+| cap | result at 10 ms |
+|---|---|
+| 6 | -10 +/- 34 |
+| 8 | **+30 +/- 34** |
+| 12 | +10 +/- 34 |
+| 16 | +21 +/- 34 |
+
+Three of four are positive and none is clear of zero, so this is a signal,
+not a result. Pooled over all 1600 games the four deeper caps score above
+the default, which is worth confirming properly: rerun 8 and 16 at 2000
+games each on unused bands. Note the shape, though: the gain does not grow
+with the cap, so what helps is probably resolving the exchange at all rather
+than following it far.
+
+A caveat this raises about the 10 ms instrument. The engine reaches four
+plies at 10 ms and 10.6 at 1 s, so a change that spends nodes to buy accuracy
+is measured at its worst here, and one that saves nodes at its best. The
+three other quiescence findings (probe the table inside quiescence, use the
+real static exchange evaluation that already exists in `see.go` instead of
+the hand-rolled heuristic, and delta pruning) all *save* nodes, so they
+should screen better at 10 ms than the cap did. A test for the table inside
+quiescence is written and parked in the session scratchpad as
+`quiescett_test.go.prepared`: it asserts the score does not move and that
+quiescence nodes drop at least 5%.
+
 **In progress.**
 
 1. **A five-way survey of the search**, since it is the only lever left:

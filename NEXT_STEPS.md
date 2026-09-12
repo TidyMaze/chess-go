@@ -134,6 +134,23 @@ whole iteration), the evaluation ladder gave +11 and then proved saturated.
   layer in output() only; the incremental accumulator is untouched. Trainer,
   export and load carry it; the Go-agreement test extends to it. About two
   hours. Measured first as explains against the 91% ceiling, then as Elo.
+- [~] **First search result: the quiescence ply cap.** The capture search
+  stops at four plies (`const maxQuiescePly = 4`) and returns the stand-pat
+  score mid-exchange, in check included. It already has a `-qply` flag, so
+  it screened with no code change, 400 games each at 10 ms on four bands,
+  after a self-test at +14 +/- 49. Caps 6 / 8 / 12 / 16 read -10 / **+30** /
+  +10 / +21, all +/- 34. A signal, not a result: rerun 8 and 16 at 2000
+  games on unused bands before adopting anything. The gain does not grow
+  with the cap, so what helps is resolving the exchange at all, not chasing
+  it far.
+- [ ] The three quiescence findings that SAVE nodes should screen better
+  at 10 ms than the cap did, since the engine only reaches four plies here:
+  probe and store the table inside quiescence (28% of quiescence nodes are
+  claimed re-visits), use the real `see()` in `engine/see.go` instead of the
+  hand-rolled most-valuable-victim heuristic in the capture loop, and delta
+  pruning. A test for the first is written and parked in the session
+  scratchpad as `quiescett_test.go.prepared`: the score must not move and
+  quiescence nodes must drop at least 5%.
 - [~] **The search is now the only lever left, so it gets a proper survey**:
   five parallel investigations (move ordering, pruning parameterisation,
   quiescence and the horizon, extensions plus table plus time management,

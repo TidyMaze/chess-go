@@ -79,20 +79,19 @@ func materialKey(dst []byte, b *board.Board) ([]byte, int) {
 	if len(pieces) > 5 {
 		return nil, len(pieces)
 	}
+	// nw and nb can never reach len(w)/len(bl) (5): the guard above already
+	// caps len(pieces) at 5, so the two counts, which always sum to
+	// len(pieces), can never individually pass 5 either. The overflow
+	// checks that used to guard w[nw] and bl[nb] here were unreachable and
+	// were removed.
 	var w, bl [5]byte
 	nw, nb := 0, 0
 	for _, p := range pieces {
 		c := pieceLetters[p.Type]
 		if p.Color == board.White {
-			if nw == len(w) {
-				return nil, len(pieces)
-			}
 			w[nw] = c
 			nw++
 		} else {
-			if nb == len(bl) {
-				return nil, len(pieces)
-			}
 			bl[nb] = c
 			nb++
 		}
