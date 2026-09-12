@@ -113,3 +113,38 @@ func TestMainSearchSEECutsNodes(t *testing.T) {
 		t.Errorf("SEE in the main search removed no nodes: %d with, %d without", with, without)
 	}
 }
+
+// TestDeltaPruningCutsNodes asserts that delta pruning in quiescence search
+// drops node count while retaining valid legal moves.
+func TestDeltaPruningCutsNodes(t *testing.T) {
+	var with, without int
+	for _, fen := range correctnessPositions[:6] {
+		g, err := game.ParseFEN(fen)
+		if err != nil {
+			t.Fatal(err)
+		}
+		off, on := Strong(5), Strong(5)
+		off.DeltaPruning = false
+		on.DeltaPruning = true
+
+		ResetNodes()
+		mOff, ok1 := PlayerPick(off, g)
+		without += TotalNodes()
+
+		ResetNodes()
+		mOn, ok2 := PlayerPick(on, g)
+		with += TotalNodes()
+
+		if !ok1 || !ok2 {
+			t.Fatalf("PlayerPick failed on fen %s: ok1=%v, ok2=%v", fen, ok1, ok2)
+		}
+		if mOff.From == mOff.To || mOn.From == mOn.To {
+			t.Errorf("empty move picked on fen %s: off=%v, on=%v", fen, mOff, mOn)
+		}
+	}
+	t.Logf("nodes: %d without delta pruning, %d with (%.2fx)", without, with, float64(without)/float64(with))
+	if with >= without {
+		t.Errorf("delta pruning did not reduce nodes: without=%d, with=%d", without, with)
+	}
+}
+

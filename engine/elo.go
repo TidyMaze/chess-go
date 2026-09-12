@@ -120,6 +120,8 @@ type Player struct {
 	StructureW *StructureWeights
 	// Tablebases gives exact endgame results.
 	Tablebases *TablebaseSet
+	// DeltaPruning skips captures in quiescence that cannot improve alpha even with a safety margin.
+	DeltaPruning bool
 	// TimeBudget, when positive, replaces the fixed depth with a per-move
 	// time budget: the search deepens until the next iteration would not
 	// fit. Depth then becomes the ceiling rather than the target.
@@ -616,6 +618,7 @@ func evalForPlayer(p Player) *Eval {
 		NoCastle: p.NoCastle, NoLMR: p.NoLMR, ScaledLMR: p.ScaledLMR, LMP: p.LMP,
 		DeepRFP: p.DeepRFP, NullGate: p.NullGate, Countermoves: p.Countermoves, IIR: p.IIR, MainSEE: p.MainSEE,
 		NoRepetition: p.NoRepetition, KeepNullMoveEP: p.KeepNullMoveEP,
+		DeltaPruning: p.DeltaPruning,
 		NullReduction: p.NullReduction, NullScale: p.NullScale,
 		Extras: p.Extras, Shape: p.Shape, ShapeW: p.ShapeW,
 		PSTScale: p.PSTScale, MobilityW: p.MobilityW, StructureW: p.StructureW,
@@ -730,6 +733,6 @@ func Strong(depth int) Player {
 		// full reference search is smaller than without it, 1.038 pawns
 		// against 1.867. Cheaper and no worse, so it stays.
 		Extensions: true, Aspiration: true, SEEPruning: true, Futility: true,
-		Mobility: true, KingSafety: 0.01,
+		Mobility: true, KingSafety: 0.01, DeltaPruning: true,
 	}
 }

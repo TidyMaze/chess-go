@@ -200,6 +200,8 @@ type Eval struct {
 	// did until it was found. Never set in play. It exists so the cost of
 	// the bug can be measured rather than guessed at.
 	KeepNullMoveEP bool
+	// DeltaPruning skips captures in quiescence that cannot improve alpha even with a safety margin.
+	DeltaPruning bool
 	// STM is the side to move at the position being evaluated.
 	//
 	// The evaluation's `color` argument is the side the score is *for*,
@@ -257,6 +259,8 @@ func (e *Eval) structureWeights() StructureWeights {
 }
 
 func (e *Eval) useSEEPruning() bool { return e != nil && e.SEEPruning }
+
+func (e *Eval) useDeltaPruning() bool { return e != nil && e.DeltaPruning }
 
 func (e *Eval) quiescePly() int {
 	if e == nil || e.QuiescePly <= 0 {

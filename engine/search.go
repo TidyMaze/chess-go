@@ -282,6 +282,22 @@ func quiesce(g *game.Game, color, maximizingFor board.Color, alpha, beta float64
 			losesOnItsFace = mvvLvaPiece[attacker.Type] > mvvLvaPiece[victim.Type] &&
 				moves.IsAttackedBy(&g.Board, m.To, color.Other())
 		}
+		// Delta pruning: if standPat plus the captured piece value plus a 2-pawn margin
+		// cannot reach alpha (for maximizer) or beta (for minimizer), prune the capture.
+		if !inCheck && isCapture && !promotes && ev.useDeltaPruning() {
+			victim, onSquare := g.Board.PieceAt(m.To)
+			if !onSquare {
+				victim = board.Piece{Type: board.Pawn}
+			}
+			margin := float64(mvvLvaPiece[victim.Type]) + 2.0
+			if maximizing && standPat+margin < alpha {
+				continue
+			}
+			if !maximizing && standPat-margin > beta {
+				continue
+			}
+		}
+
 		undo, _ := makeSearchMove(g, m)
 		if losesOnItsFace && !moves.IsInCheck(&g.Board, color.Other()) {
 			g.Board.UnmakeMove(undo)
