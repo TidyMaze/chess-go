@@ -63,6 +63,10 @@ func TestAbortedIterationKeepsACompletedBetterMove(t *testing.T) {
 					t.Errorf("%s aborted at %d%%: played %v over %v at completed depth %d; deeper scores %v (done %v) vs %v (done %v)",
 						fen, pct, m.UCI(), standing.UCI(), completed, newScore, newDone, oldScore, oldDone)
 				}
+				if newScore-oldScore < 0.01 {
+					t.Errorf("switch allowed with noisy margin < 0.01: %v vs %v", newScore, oldScore)
+				}
+				t.Logf("switch at %d%%: %v (score %v) over %v (score %v)", pct, m.UCI(), newScore, standing.UCI(), oldScore)
 				improved++
 			}
 			checked++
@@ -71,5 +75,49 @@ func TestAbortedIterationKeepsACompletedBetterMove(t *testing.T) {
 	t.Logf("%d abort points, %d kept the deeper iteration's move", checked, improved)
 	if improved == 0 {
 		t.Error("no abort point ever kept a deeper move: the aborted iteration's work is still thrown away")
+	}
+}
+
+func TestAbortedIterationRejectsFailLowStanding(t *testing.T) {
+	defer func() { testAbortAtNodes, testRootScores, testForceStandingFailLow = 0, nil, false }()
+	fen := correctnessPositions[0]
+	g, err := game.ParseFEN(fen)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := Strong(5)
+	p.MainSEE = true
+
+	// Find the baseline standing move at completed depth 4
+	p4 := p
+	p4.Depth = 4
+	SeedRandom(1)
+	standing, ok := PlayerPick(p4, g)
+	if !ok {
+		t.Fatal("failed to get baseline move")
+	}
+
+	SeedRandom(1)
+	PlayerPick(p, g)
+	total := LastSearchNodesValue()
+
+	// At 90%, it normally switches to d2d4 because d2d4 beats e2e4.
+	testAbortAtNodes = int64(total*90/100) + 1
+	testForceStandingFailLow = false
+	SeedRandom(1)
+	switchedMove, ok := PlayerPick(p, g)
+	if !ok || switchedMove == standing {
+		t.Fatalf("expected switch at 90%% nodes without fail-low force, got %v vs standing %v", switchedMove, standing)
+	}
+
+	// Now force standing fail-low: the aborted iteration must NOT switch!
+	testForceStandingFailLow = true
+	SeedRandom(1)
+	keptMove, ok := PlayerPick(p, g)
+	if !ok {
+		t.Fatal("failed to get move with fail-low forced")
+	}
+	if keptMove != standing {
+		t.Errorf("aborted iteration switched to %v despite standing failing low; must keep %v", keptMove, standing)
 	}
 }

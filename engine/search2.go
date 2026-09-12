@@ -949,6 +949,8 @@ func searchIterative(g *game.Game, color board.Color, maxDepth int, ev *Eval, us
 		bestScore := negInf
 		var iterBest game.Move
 		var tied []game.Move
+		standingScore := negInf
+		standingExact := false
 
 		ordered := make([]game.Move, len(legal))
 		copy(ordered, legal)
@@ -959,7 +961,7 @@ func searchIterative(g *game.Game, color board.Color, maxDepth int, ev *Eval, us
 			rng.Shuffle(len(rest), func(a, b int) { rest[a], rest[b] = rest[b], rest[a] })
 		}
 
-		for _, m := range ordered {
+		for i, m := range ordered {
 			undo, _ := makeSearchMove(g, m)
 			// Every move after the first is searched against the best score so
 			// far, as the tree below does at every node; the root used the same
@@ -975,6 +977,12 @@ func searchIterative(g *game.Game, color board.Color, maxDepth int, ev *Eval, us
 			if ctx.aborted {
 				// A child cut off mid-search returned nothing usable.
 				break
+			}
+			if i == 0 {
+				standingScore = score
+				if score > alpha && score < beta && !testForceStandingFailLow {
+					standingExact = true
+				}
 			}
 			if main && testRootScores != nil {
 				testRootScores[m] = score
@@ -994,7 +1002,7 @@ func searchIterative(g *game.Game, color board.Color, maxDepth int, ev *Eval, us
 			// is the better move by the deeper search. The standing choice is
 			// ordered first, so a different iterBest means exactly that; the
 			// moves that were never reached are no worse off than before.
-			if iterBest != (game.Move{}) && iterBest != ordered[0] && bestScore > alpha && bestScore < beta {
+			if iterBest != (game.Move{}) && iterBest != ordered[0] && standingExact && bestScore > standingScore+0.01 && bestScore < beta {
 				best = iterBest
 			}
 			break
@@ -1284,6 +1292,10 @@ func ResetOrderingStats() {
 // testAbortAtNodes, when set by a test, aborts every search once that many
 // nodes have been visited. Zero in production.
 var testAbortAtNodes int64
+
+// testForceStandingFailLow, when set by a test, forces standingExact to false
+// to test that an aborted iteration rejects switching when standing move failed low.
+var testForceStandingFailLow bool
 
 // testRootScores, when a test sets it to a map, receives the score of every
 // root move that completed in the most recent iteration, so a test can
