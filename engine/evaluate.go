@@ -175,6 +175,8 @@ type Eval struct {
 	LMRTwoStep bool
 	// HistoryAging decays history table between iterative deepening iterations.
 	HistoryAging bool
+	// HistoryMalus penalizes quiet moves that failed to cause a beta cutoff.
+	HistoryMalus bool
 	// NoCastle is a measurement instrument, never a playing mode. Castling
 	// is a rule of chess and is implemented; this flag exists only so one
 	// side of an A/B can decline it, which is the only way to price the

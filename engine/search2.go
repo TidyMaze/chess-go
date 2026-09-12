@@ -263,6 +263,19 @@ func (c *searchCtx) recordHistory(color board.Color, m game.Move, depth int) {
 	c.history[color][sqIndex(m.From)][sqIndex(m.To)] += int32(depth * depth)
 }
 
+func (c *searchCtx) penalizeHistory(color board.Color, g *game.Game, failed []game.Move, depth int) {
+	malus := int32(depth * depth)
+	for _, m := range failed {
+		if !isCaptureMove(g, m) {
+			idxFrom, idxTo := sqIndex(m.From), sqIndex(m.To)
+			c.history[color][idxFrom][idxTo] -= malus
+			if c.history[color][idxFrom][idxTo] < -1<<16 {
+				c.history[color][idxFrom][idxTo] = -1 << 16
+			}
+		}
+	}
+}
+
 func (c *searchCtx) ageHistory() {
 	for co := 0; co < 2; co++ {
 		for f := 0; f < 64; f++ {
@@ -710,6 +723,9 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 			if !isCapture {
 				c.recordKiller(ply, m)
 				c.recordHistory(color, m, depth)
+				if c.ev != nil && c.ev.HistoryMalus && i > 0 {
+					c.penalizeHistory(color, g, legal[:i], depth)
+				}
 				if ply > 0 {
 					c.recordCounter(color, c.moveStack[ply-1], m)
 				}

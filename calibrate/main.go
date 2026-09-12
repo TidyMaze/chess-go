@@ -92,6 +92,8 @@ func main() {
 			me.IIR = true
 		case "see":
 			me.MainSEE = true
+		case "historymalus":
+			me.HistoryMalus = true
 		default:
 			fmt.Printf("unknown feature %q\n", f)
 			return
