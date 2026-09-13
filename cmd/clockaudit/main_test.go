@@ -149,3 +149,24 @@ func TestAuditGameSkipsAnUnclockedTimeControl(t *testing.T) {
 		t.Error("a game with no time control was audited")
 	}
 }
+
+// The median gap between what a move really cost and what the rule allowed
+// is the number that matters for fast games: it is the part of a move that
+// no budget can shrink. The mean hides it, since one long think that
+// returned early offsets many moves that each paid a fixed cost too much.
+func TestAuditGameReportsTheMedianOverheadNotJustTheMean(t *testing.T) {
+	games := parsePGN(strings.NewReader(twoGames), "tidymazebot")
+	a, ok := auditGame(games[0])
+	if !ok {
+		t.Fatal("game was not auditable")
+	}
+	// Two moves, each costing 13s. The rule's own budget at those clocks
+	// decides the gap, so assert it is consistent with the reported means
+	// rather than restating the formula here, which is the copy this tool
+	// exists to avoid.
+	if a.medianOverMS < a.meanSpentMS-a.meanBudgetMS-1000 ||
+		a.medianOverMS > a.meanSpentMS-a.meanBudgetMS+1000 {
+		t.Errorf("median overhead %dms is nowhere near mean spent minus mean allowed (%dms)",
+			a.medianOverMS, a.meanSpentMS-a.meanBudgetMS)
+	}
+}

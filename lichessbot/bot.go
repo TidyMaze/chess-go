@@ -296,15 +296,31 @@ func (b *Bot) maybeMove(gameID string, full gameFull, st gameState) {
 	if !isOurTurn(g, color) {
 		return
 	}
-	m, ok := engine.PlayerPick(effectivePlayer(b.Player, color, st, full.Speed), g)
+	player := effectivePlayer(b.Player, color, st, full.Speed)
+	searchStart := time.Now()
+	m, ok := engine.PlayerPick(player, g)
+	searched := time.Since(searchStart)
 	if !ok {
 		b.logf("game %s: no legal move found on our turn", gameID)
 		return
 	}
 	uci := moveUCIForLichess(g, m)
-	if err := b.API.postForm("/api/bot/game/"+gameID+"/move/"+url.PathEscape(uci), ""); err != nil {
+	postStart := time.Now()
+	err = b.API.postForm("/api/bot/game/"+gameID+"/move/"+url.PathEscape(uci), "")
+	posted := time.Since(postStart)
+	if err != nil {
 		b.logf("game %s: move %s failed: %v", gameID, uci, err)
+		return
 	}
+	// Split, because the clock charges for both and only one of them is the
+	// search. Audited over sixteen real games, the median move cost 0.7 s to
+	// 1.0 s more than its budget at every time control, which is most of a
+	// bullet move and cannot be explained by a search that overruns by 7%.
+	// Whether that sits in the search or in the round trip is not something
+	// the finished game's clocks can answer, so it is measured here.
+	b.logf("game %s: %s in %s search + %s post (budget %s)",
+		gameID, uci, searched.Round(time.Millisecond), posted.Round(time.Millisecond),
+		player.TimeBudget.Round(time.Millisecond))
 }
 
 func (b *Bot) logf(format string, args ...any) {

@@ -301,3 +301,22 @@ func TestPlayingAGameIsLogged(t *testing.T) {
 		return strings.Contains(buf.String(), "g99") && strings.Contains(buf.String(), "finished")
 	})
 }
+
+// Every move logs how long the search took and how long the post took,
+// separately. The clock charges for both, and a finished game's clocks
+// cannot say which of the two is costing the bot its bullet games.
+func TestEachMoveLogsItsSearchAndPostTime(t *testing.T) {
+	f := newFakeAPI()
+	f.streams["/api/stream/event"] = `{"type":"gameStart","game":{"id":"g77"}}` + "\n"
+	f.streams["/api/bot/game/stream/g77"] = `{"type":"gameFull","id":"g77","white":{"id":"tidymazebot"},"black":{"id":"opponent"},"initialFen":"startpos","state":{"type":"gameState","moves":"","status":"started"}}` + "\n"
+
+	var buf syncBuf
+	b := &Bot{API: f, Player: engine.Strong(1), Username: "tidymazebot", Log: newBufLogger(&buf)}
+	if err := b.runOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, 2*time.Second, "the move timing to reach the log", func() bool {
+		s := buf.String()
+		return strings.Contains(s, "search +") && strings.Contains(s, "post (budget")
+	})
+}

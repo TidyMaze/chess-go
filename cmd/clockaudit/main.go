@@ -23,6 +23,7 @@ import (
 	"io"
 	"os"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -118,9 +119,15 @@ func parsePGN(r io.Reader, user string) []game {
 // audit is what one game's clock says about the rule.
 type audit struct {
 	game
-	moves                       int
-	lowestMS                    int64
-	meanBudgetMS, meanSpentMS   int64
+	moves                     int
+	lowestMS                  int64
+	meanBudgetMS, meanSpentMS int64
+	// medianOverMS is the middle value of spent minus allowed across the
+	// game, which estimates what a move costs beyond its search: network,
+	// event handling, and whatever else the budget cannot control. The mean
+	// hides it, because one 15 s think that finished early cancels out ten
+	// moves that each paid half a second too much.
+	medianOverMS                int64
 	worstOverspendMS            int64
 	worstOverspendAtRemainingMS int64
 	flagged                     bool
@@ -148,6 +155,7 @@ func auditGame(g game) (audit, bool) {
 	}
 	a := audit{game: g, lowestMS: ours[0]}
 	var sumBudget, sumSpent int64
+	var overs []int64
 	for i := 1; i < len(ours); i++ {
 		remaining := ours[i-1]
 		spent := remaining - ours[i] + incMS
@@ -156,6 +164,7 @@ func auditGame(g game) (audit, bool) {
 			a.worstOverspendMS = over
 			a.worstOverspendAtRemainingMS = remaining
 		}
+		overs = append(overs, spent-budget)
 		sumBudget += budget
 		sumSpent += spent
 		a.moves++
@@ -166,6 +175,8 @@ func auditGame(g game) (audit, bool) {
 	if a.moves > 0 {
 		a.meanBudgetMS = sumBudget / int64(a.moves)
 		a.meanSpentMS = sumSpent / int64(a.moves)
+		sort.Slice(overs, func(i, j int) bool { return overs[i] < overs[j] })
+		a.medianOverMS = overs[len(overs)/2]
 	}
 	a.flagged = strings.Contains(strings.ToLower(g.termination), "time forfeit")
 	return a, true
@@ -196,8 +207,8 @@ func main() {
 	}
 
 	audited, low, flagged := 0, 0, 0
-	fmt.Printf("%-10s %-9s %5s %9s %9s %9s %12s\n",
-		"game", "control", "moves", "lowest", "budget", "spent", "worst over")
+	fmt.Printf("%-10s %-9s %5s %9s %9s %9s %10s %12s\n",
+		"game", "control", "moves", "lowest", "budget", "spent", "overhead", "worst over")
 	for _, g := range games {
 		a, ok := auditGame(g)
 		if !ok {
@@ -213,9 +224,9 @@ func main() {
 			note += "  FLAGGED"
 			flagged++
 		}
-		fmt.Printf("%-10s %-9s %5d %9s %9s %9s %12s%s\n",
+		fmt.Printf("%-10s %-9s %5d %9s %9s %9s %10s %12s%s\n",
 			a.id, a.timeControl, a.moves, secs(a.lowestMS), secs(a.meanBudgetMS),
-			secs(a.meanSpentMS), secs(a.worstOverspendMS), note)
+			secs(a.meanSpentMS), secs(a.medianOverMS), secs(a.worstOverspendMS), note)
 	}
 	if audited == 0 {
 		fmt.Fprintln(os.Stderr, "clockaudit: no game carried clocks; export with clocks=true")

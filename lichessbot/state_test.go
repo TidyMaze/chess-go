@@ -405,3 +405,17 @@ func TestCorrespondenceChallengesAreDeclined(t *testing.T) {
 		}
 	}
 }
+
+// The exported wrapper has to stay the same rule as the one the bot plays
+// by. It exists so clockaudit measures real games against this function
+// rather than a copy, and a wrapper that drifted would quietly defeat that.
+func TestExportedMoveTimeBudgetMatchesTheRuleTheBotPlaysBy(t *testing.T) {
+	for _, c := range []struct{ remain, inc int64 }{
+		{300000, 3000}, {120000, 1000}, {60000, 0}, {15000, 3000}, {500, 1000},
+	} {
+		want := moveTimeBudget("white", gameState{WhiteTimeMS: c.remain, WhiteIncMS: c.inc})
+		if got := MoveTimeBudget(c.remain, c.inc); got != want {
+			t.Errorf("MoveTimeBudget(%d, %d) = %v, want %v", c.remain, c.inc, got, want)
+		}
+	}
+}
