@@ -64,10 +64,18 @@ type gameFull struct {
 	State      gameState
 }
 
+// WhiteTimeMS, BlackTimeMS, WhiteIncMS and BlackIncMS are the live clock
+// lichess sends with every gameState (and inside gameFull.state): time
+// left and increment, in milliseconds, for each side. A correspondence
+// game, which has no clock, sends none of these, so they read zero.
 type gameState struct {
-	Type   string `json:"type"`
-	Moves  string `json:"moves"`
-	Status string `json:"status"`
+	Type        string `json:"type"`
+	Moves       string `json:"moves"`
+	Status      string `json:"status"`
+	WhiteTimeMS int64  `json:"wtime"`
+	BlackTimeMS int64  `json:"btime"`
+	WhiteIncMS  int64  `json:"winc"`
+	BlackIncMS  int64  `json:"binc"`
 }
 
 // ourColor decides which side we are in a game, by comparing our own

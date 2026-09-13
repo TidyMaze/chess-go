@@ -7,6 +7,7 @@ package lichessbot
 
 import (
 	"strings"
+	"time"
 
 	"chess/board"
 	"chess/game"
@@ -101,4 +102,54 @@ func moveUCIForLichess(g *game.Game, m game.Move) string {
 		return uci
 	}
 	return uci + "q"
+}
+
+// moveTimeBudget turns the live clock lichess sends into a per-move
+// thinking budget, so the engine spends more time in a long game and less
+// in a short one instead of always thinking for whatever champion.json
+// says. Both remaining time and increment matter: a move played on
+// increment alone should not eat into the clock, and a move played with
+// little time left must not overrun it.
+//
+// The formula: a fixed fraction of what is left, plus most of the
+// increment, so the clock is spent roughly evenly across the rest of the
+// game rather than greedily up front. The result never exceeds what is
+// actually left, minus a safety margin so a slow move never times out the
+// game, and it is capped above so a very long time control does not make
+// one move think forever for no measured gain (10.6 plies in 1s already
+// only gains about a ply per second beyond that, see LEARNINGS.md).
+func moveTimeBudget(ourColor string, st gameState) time.Duration {
+	remainMs, incMs := st.WhiteTimeMS, st.WhiteIncMS
+	if ourColor == "black" {
+		remainMs, incMs = st.BlackTimeMS, st.BlackIncMS
+	}
+	if remainMs <= 0 {
+		// No clock at all (correspondence) or a clock that has not been
+		// reported yet: let the caller fall back to a fixed budget.
+		return 0
+	}
+	const (
+		fractionOfRemaining = 1.0 / 30.0
+		fractionOfIncrement = 0.8
+		safetyMarginMs      = 200
+		minBudgetMs         = 50
+		maxBudgetMs         = 15000
+	)
+	budgetMs := float64(remainMs)*fractionOfRemaining + float64(incMs)*fractionOfIncrement
+	if budgetMs > maxBudgetMs {
+		budgetMs = maxBudgetMs
+	}
+	if budgetMs < minBudgetMs {
+		budgetMs = minBudgetMs
+	}
+	ceiling := float64(remainMs) - safetyMarginMs
+	if ceiling < minBudgetMs {
+		// Almost out of time: think as little as the floor allows rather
+		// than refuse to move.
+		ceiling = minBudgetMs
+	}
+	if budgetMs > ceiling {
+		budgetMs = ceiling
+	}
+	return time.Duration(budgetMs) * time.Millisecond
 }

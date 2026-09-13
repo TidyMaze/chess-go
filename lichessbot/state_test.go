@@ -3,6 +3,7 @@ package lichessbot
 import (
 	"chess/game"
 	"testing"
+	"time"
 )
 
 // The accept policy must never say yes to a variant: this engine has
@@ -155,5 +156,89 @@ func TestMoveUCIForLichessLeavesANonPawnMoveAlone(t *testing.T) {
 	}
 	if got := moveUCIForLichess(g, m); got != "g1f3" {
 		t.Errorf("got %q, want g1f3", got)
+	}
+}
+
+// A move budget must scale with the clock: more time left means more
+// thinking time, so the same engine plays deeper in a slow game and
+// shallower in a fast one, instead of the fixed budget champion.json
+// carries for every measurement race.
+func TestMoveTimeBudgetScalesWithRemainingTime(t *testing.T) {
+	rapid := moveTimeBudget("white", gameState{WhiteTimeMS: 600000, WhiteIncMS: 5000})
+	bullet := moveTimeBudget("white", gameState{WhiteTimeMS: 60000, WhiteIncMS: 1000})
+	if rapid <= bullet {
+		t.Errorf("a 10 minute clock (%v) did not think longer than a 1 minute clock (%v)", rapid, bullet)
+	}
+}
+
+// The increment must count too: a move played purely on increment (no
+// time pressure at all) should still get some budget from it, not zero.
+func TestMoveTimeBudgetCountsTheIncrement(t *testing.T) {
+	noInc := moveTimeBudget("white", gameState{WhiteTimeMS: 60000, WhiteIncMS: 0})
+	withInc := moveTimeBudget("white", gameState{WhiteTimeMS: 60000, WhiteIncMS: 10000})
+	if withInc <= noInc {
+		t.Errorf("a 10s increment (%v) did not add thinking time over no increment (%v)", withInc, noInc)
+	}
+}
+
+// The budget must read the color it is asked for, not always white's
+// clock: playing black in a game where white has plenty of time and
+// black is nearly flagging must use black's own numbers.
+func TestMoveTimeBudgetReadsOurOwnColor(t *testing.T) {
+	st := gameState{WhiteTimeMS: 600000, WhiteIncMS: 5000, BlackTimeMS: 3000, BlackIncMS: 0}
+	white := moveTimeBudget("white", st)
+	black := moveTimeBudget("black", st)
+	if white <= black {
+		t.Errorf("white with plenty of time (%v) was not given more than black near flagging (%v)", white, black)
+	}
+}
+
+// A budget must never exceed what is actually left on the clock: a move
+// that takes longer than the remaining time loses the game on time,
+// which is a worse outcome than any depth the extra thinking could buy.
+func TestMoveTimeBudgetNeverExceedsWhatIsLeft(t *testing.T) {
+	// A large increment pushes the raw formula (remaining/30 + 80% of
+	// increment) well past the 1 second actually left, so this only
+	// stays safe if the ceiling clamp is doing its job.
+	st := gameState{WhiteTimeMS: 1000, WhiteIncMS: 20000}
+	got := moveTimeBudget("white", st)
+	if got >= time.Duration(st.WhiteTimeMS)*time.Millisecond {
+		t.Errorf("budget %v does not leave any safety margin on a %dms clock", got, st.WhiteTimeMS)
+	}
+	if got <= 0 {
+		t.Error("a nearly flagging clock still needs a move to play, budget must stay positive")
+	}
+}
+
+// A very slow time control must not make the engine think forever for a
+// gain nothing here has ever measured: mean depth only grows from 10.6 to
+// 11.8 plies going from one to four threads at 1s, so there is no reason
+// to trust minutes of thinking on one move.
+func TestMoveTimeBudgetIsCappedOnASlowClock(t *testing.T) {
+	got := moveTimeBudget("white", gameState{WhiteTimeMS: 3600000, WhiteIncMS: 60000})
+	if got > 15*time.Second {
+		t.Errorf("budget %v was not capped on a one hour clock", got)
+	}
+}
+
+// No clock at all (correspondence games send no wtime/btime) must signal
+// the caller to fall back to a fixed budget, not silently think for 0ms
+// and play whatever move happens to be ready first.
+func TestMoveTimeBudgetIsZeroWithNoClock(t *testing.T) {
+	if got := moveTimeBudget("white", gameState{}); got != 0 {
+		t.Errorf("got %v with no clock data at all, want 0 so the caller falls back", got)
+	}
+}
+
+// With almost no time left the ceiling itself would go negative; the
+// budget must still be a positive floor so the engine plays something
+// rather than nothing.
+func TestMoveTimeBudgetFloorsWhenAlmostOutOfTime(t *testing.T) {
+	got := moveTimeBudget("white", gameState{WhiteTimeMS: 100, WhiteIncMS: 0})
+	if got <= 0 {
+		t.Errorf("got %v, want a positive floor even at 100ms remaining", got)
+	}
+	if got > 100*time.Millisecond {
+		t.Errorf("got %v, more than what is actually left (100ms)", got)
 	}
 }

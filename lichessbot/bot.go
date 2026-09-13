@@ -126,6 +126,18 @@ func (b *Bot) playGame(gameID string) {
 	}
 }
 
+// effectivePlayer applies this move's own clock to the champion, when
+// lichess sent one: the live wtime/btime/winc/binc on the game state,
+// not the fixed budget champion.json carries for a measurement race.
+// Depth, threads and the network are untouched; only how long the search
+// is allowed to run changes, per move, every move.
+func effectivePlayer(base engine.Player, ourColor string, st gameState) engine.Player {
+	if budget := moveTimeBudget(ourColor, st); budget > 0 {
+		base.TimeBudget = budget
+	}
+	return base
+}
+
 func (b *Bot) maybeMove(gameID string, full gameFull, st gameState) {
 	if gameOver(st.Status) {
 		return
@@ -147,7 +159,7 @@ func (b *Bot) maybeMove(gameID string, full gameFull, st gameState) {
 	if !isOurTurn(g, color) {
 		return
 	}
-	m, ok := engine.PlayerPick(b.Player, g)
+	m, ok := engine.PlayerPick(effectivePlayer(b.Player, color, st), g)
 	if !ok {
 		b.logf("game %s: no legal move found on our turn", gameID)
 		return

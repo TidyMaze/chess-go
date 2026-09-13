@@ -533,3 +533,31 @@ func TestBotIgnoresItsOwnOutgoingChallenge(t *testing.T) {
 		t.Errorf("posts: %v, want none for our own outgoing challenge", posts)
 	}
 }
+
+// The champion's own clock in champion.json is a fixed budget for
+// measurement races; a real game must use the clock lichess actually
+// sends for that move instead.
+func TestEffectivePlayerUsesTheLiveClockOverTheChampionsFixedBudget(t *testing.T) {
+	base := engine.Player{TimeBudget: 999 * time.Hour, Depth: 3}
+	st := gameState{WhiteTimeMS: 30000, WhiteIncMS: 0}
+	got := effectivePlayer(base, "white", st)
+	if got.TimeBudget == base.TimeBudget {
+		t.Error("the live clock did not override the champion's fixed time budget")
+	}
+	if got.TimeBudget <= 0 || got.TimeBudget > 30*time.Second {
+		t.Errorf("effective budget %v is not derived from a 30s clock", got.TimeBudget)
+	}
+	if got.Depth != base.Depth {
+		t.Error("depth changed; only the time budget should be overridden")
+	}
+}
+
+// A game with no clock at all (correspondence) must keep the champion's
+// own configured budget rather than being handed zero thinking time.
+func TestEffectivePlayerKeepsTheChampionsBudgetWithNoClock(t *testing.T) {
+	base := engine.Player{TimeBudget: 5 * time.Second}
+	got := effectivePlayer(base, "white", gameState{})
+	if got.TimeBudget != base.TimeBudget {
+		t.Errorf("got %v, want the champion's own %v kept with no clock data", got.TimeBudget, base.TimeBudget)
+	}
+}
