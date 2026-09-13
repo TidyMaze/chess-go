@@ -523,3 +523,37 @@ concurrent games, gave mean depth 9.0 at both four and eight threads, so
 the eight-thread setting buys nothing measurable there while carrying
 whatever this is. The next step is a proper head-to-head at equal cores,
 not a config change on six positions.
+
+## The parallel blunder is variance, not a defect, 2026-09-13
+
+Chasing the eight-thread blunder above to a cause, four hypotheses were
+tested and all four came back negative:
+
+- **Aborted searches poisoning the table.** Already guarded: the search
+  returns before storing when it was cut off, with a comment saying that
+  a timed search used to leave zeros in the table for the next move to
+  believe.
+- **A helper's table move displacing the main thread's own principal
+  variation at the root.** `orderMoves` takes the preferred move as a
+  parameter, which each thread passes its own `best`, and does not probe
+  the table itself.
+- **Shared evaluation accumulators.** `hev := *ev` does copy a pointer to
+  the accumulator stack, but each thread's `searchIterative` re-points its
+  own Eval copy at its own context array, so nothing is shared.
+- **A data race.** The reproduction, with the real network and eight
+  threads, is clean under `-race`.
+
+So it is ordinary Lazy SMP non-determinism: the helpers fill the shared
+table, the main thread's search takes a different path each run, and
+under a tight clock it occasionally lands on the worse move. That is the
+design, not a fault in it.
+
+**And the feature pays for itself.** Eight threads against one, 200 ms a
+move, paired openings: **+182 +/- 117 over the first 50 games**
+(31-12-7). Which corrects something recorded earlier the same day: the
+measurement that four and eight threads both reach mean depth 9.0 under
+the bot's two-game load was read as the extra threads buying nothing.
+Depth parity is not strength parity. Helpers improve the table and the
+move ordering the main thread searches with, so the same nominal depth is
+searched better, and a depth count cannot see that. Measure Elo, not
+plies, when judging SMP.
