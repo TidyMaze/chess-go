@@ -16,6 +16,12 @@ func convertsToMate(t *testing.T, fen string, budget time.Duration, maxPlies int
 	if err != nil {
 		t.Fatalf("%s: %v", fen, err)
 	}
+	// ParseFEN leaves repetition tracking off, which is right for the
+	// search's own throwaway positions and wrong for a game being played:
+	// the move picker's only anti-shuffle rule is to prefer a move that
+	// does not repeat a position it has already stood in, and that rule
+	// is dead without this.
+	g.EnableRepetitionTracking()
 	p := Strong(1)
 	p.TimeBudget = budget
 	tt := NewTranspositionTable(20)

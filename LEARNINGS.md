@@ -343,8 +343,16 @@ champion against itself from textbook positions, at 50 ms a move:
 | ending | result |
 |---|---|
 | king and queen against king | mates |
-| king and rook against king | erratic: mates at 50 ms and 200 ms, not at 500 ms |
+| king and rook against king | mates |
 | king and two bishops against king | never mates, 120 plies |
+
+A first version of this table reported the rook mate as erratic. That was
+the harness, not the engine: it built the position with `game.ParseFEN`,
+which deliberately leaves repetition tracking off, and the move picker's
+only anti-shuffle rule (prefer a move that does not return to a position
+already stood in) is dead without it. With tracking on, queen and rook
+both mate cleanly and only the two bishops fail. The same gap was real in
+the bot bridge and is fixed there.
 
 `engine/endgame_mate_test.go` is that check, gated behind `ENDGAME=1`
 because it currently fails. It is a documenting test, not a passing one.
@@ -364,14 +372,14 @@ game had no king-approach signal whatsoever.
 
 **What was tried and deliberately not kept.** Replacing the Chebyshev
 term with a Manhattan centre distance (which keeps rising toward a
-corner) made the two-bishop mate work and broke the rook mate. Keeping
-both, with the corner term as a small tie-breaker, made the rook mate
-work at 50 ms and 200 ms but not 500 ms. The results moved around between
-runs at different budgets with the same code, so the term is a weak and
-noisy gradient rather than reliable technique, and none of it was
-measured head-to-head. Per this file's own rules that is not something to
-adopt, so the evaluation is unchanged and only the failing test and this
-note were committed.
+corner) made the two-bishop mate work. Judging whether it hurt anything
+else was impossible at the time because the harness had repetition
+tracking off, so every measurement it produced moved around between time
+budgets. None of it was measured head-to-head, and per this file's own
+rules that is not something to adopt, so the evaluation is unchanged and
+only the failing test and this note were committed. With a correct
+harness the experiment is worth redoing, gated on `gamePhase` so it
+cannot touch the middlegame.
 
 **Why it is hard here specifically.** The deployed champion blends
 `0.45 * hand + 0.55 * net`, and the network was trained on positions that

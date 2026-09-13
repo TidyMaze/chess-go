@@ -242,3 +242,29 @@ func TestMoveTimeBudgetFloorsWhenAlmostOutOfTime(t *testing.T) {
 		t.Errorf("got %v, more than what is actually left (100ms)", got)
 	}
 }
+
+// A game rebuilt from an explicit FEN must track repetition, exactly as
+// one rebuilt from the start position does. ParseFEN deliberately leaves
+// tracking off, because the search builds hundreds of thousands of
+// throwaway positions per move and none of them should pay for a map,
+// but a game actually being played is not one of those. The move
+// picker's only anti-shuffle rule is to prefer a move that does not
+// return to a position it has already stood in, and that rule is dead
+// without tracking: the bot would happily repeat its way into a draw
+// from a winning position.
+func TestApplyMovesStringTracksRepetitionFromAnyStart(t *testing.T) {
+	fromStart, err := applyMovesString("startpos", "e2e4 e7e5")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !fromStart.TrackRepetition {
+		t.Error("a game from the start position does not track repetition")
+	}
+	fromFEN, err := applyMovesString("r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 2 2", "f8c5")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !fromFEN.TrackRepetition {
+		t.Error("a game rebuilt from a FEN does not track repetition, so the anti-shuffle rule is dead in it")
+	}
+}

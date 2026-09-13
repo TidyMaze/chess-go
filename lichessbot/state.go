@@ -58,6 +58,13 @@ func applyMovesString(fen, moves string) (*game.Game, error) {
 		if err != nil {
 			return nil, err
 		}
+		// ParseFEN leaves repetition tracking off, which is right for the
+		// search's own throwaway positions and wrong for a game being
+		// played: the move picker's only anti-shuffle rule is to prefer a
+		// move that does not return to a position it has already stood in,
+		// and that rule is dead without tracking. game.New already turns it
+		// on, so only this branch was missing it.
+		g.EnableRepetitionTracking()
 	}
 	if strings.TrimSpace(moves) == "" {
 		return g, nil
