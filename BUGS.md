@@ -54,6 +54,31 @@ wait.
 
 ## Fixed
 
+- **The bot went deaf and said nothing, for as long as it was left.**
+  Its process was alive at 0% CPU with an empty log while its only
+  connection to lichess sat in CLOSED, and a monitor saw no games in flight
+  for six checks running. Three separate faults, found in that order. Run
+  made a single pass by design, so the first time lichess closed the stream
+  the bot stopped playing. There was no way to notice a connection that
+  died in the network, since a dead TCP connection never reports anything
+  to the reader. And a clean stream end logged nothing at all, which is why
+  none of it was visible.
+
+  The first fix was wrong in a way only production showed. It closed the
+  response body on a watchdog, and the bot's own goroutine dump had it
+  still parked in http2.(*pipe).Read a full minute later: lichess serves
+  these streams over HTTP/2, where closing the body does not unblock a read
+  already waiting on the stream's pipe. Cancelling the request's context
+  does.
+
+  The second fix was wrong in the opposite direction, and measurement
+  caught it before it did damage. Treating silence as death assumed
+  keepalives that are not there: curl held an idle event stream open for 75
+  seconds and received zero bytes, with the connection healthy throughout,
+  so the bot had begun reconnecting once a minute for nothing. Judging a
+  connection is the transport's job, and it can ask rather than guess: an
+  HTTP/2 ping health check, 30s to ping and 15s to answer. Commits 61c32c2,
+  6c1855c and 948f7c3.
 - **The search ignored the fifty-move clock and drew won games.**
   `IsFiftyMoveDraw` existed and only the training loop called it, so a
   dead drawn position evaluated as won, +2.04 in the position from the
