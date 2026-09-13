@@ -63,7 +63,7 @@ func (b *Bot) handleChallenge(line []byte) {
 		b.logf("unreadable challenge: %v", err)
 		return
 	}
-	c := e.Challenge.toChallenge()
+	c := e.Challenge.toChallenge(b.Username)
 	if c.Outgoing {
 		// Lichess echoes our own outgoing challenges on this stream too;
 		// there is no accept or decline action for one we sent ourselves.

@@ -18,26 +18,35 @@ type accountEvent struct {
 }
 
 type challengeWire struct {
-	ID        string `json:"id"`
-	Rated     bool   `json:"rated"`
-	Speed     string `json:"speed"`
-	Direction string `json:"direction"` // "in" or "out"; lichess echoes our own outgoing challenges here too
-	Variant   struct {
+	ID      string `json:"id"`
+	Rated   bool   `json:"rated"`
+	Speed   string `json:"speed"`
+	Variant struct {
 		Key string `json:"key"`
 	} `json:"variant"`
 	Challenger struct {
+		ID    string `json:"id"`
 		Title string `json:"title"`
 	} `json:"challenger"`
 }
 
-func (c challengeWire) toChallenge() Challenge {
+// isOutgoing decides whether this is a challenge we sent ourselves, echoed
+// back on the same account stream that carries incoming ones, by matching
+// the challenger's id against our own username. Lichess's stream event
+// carries no "direction" field, unlike the POST response that creates a
+// challenge; matching ids is the only signal available here.
+func (c challengeWire) isOutgoing(ourUsername string) bool {
+	return c.Challenger.ID == ourUsername
+}
+
+func (c challengeWire) toChallenge(ourUsername string) Challenge {
 	return Challenge{
 		ID:       c.ID,
 		Variant:  c.Variant.Key,
 		Rated:    c.Rated,
 		SpeedTC:  c.Speed,
 		FromBot:  c.Challenger.Title == "BOT",
-		Outgoing: c.Direction == "out",
+		Outgoing: c.isOutgoing(ourUsername),
 	}
 }
 

@@ -524,7 +524,7 @@ func TestBotTreatsAnEmptyInitialFenAsStartpos(t *testing.T) {
 // just sent to maia5 itself.
 func TestBotIgnoresItsOwnOutgoingChallenge(t *testing.T) {
 	f := newFakeAPI()
-	f.streams["/api/stream/event"] = `{"type":"challenge","challenge":{"id":"c19","rated":false,"speed":"rapid","direction":"out","variant":{"key":"standard"},"challenger":{"title":"BOT"}}}` + "\n"
+	f.streams["/api/stream/event"] = `{"type":"challenge","challenge":{"id":"c19","rated":false,"speed":"rapid","variant":{"key":"standard"},"challenger":{"id":"tidymazebot","title":"BOT"}}}` + "\n"
 	b := &Bot{API: f, Player: engine.Strong(1), Username: "tidymazebot", Log: silentLogger()}
 	if err := b.Run(); err != nil {
 		t.Fatal(err)
