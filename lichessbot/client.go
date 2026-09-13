@@ -3,9 +3,11 @@ package lichessbot
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -21,7 +23,7 @@ var baseURL = "https://lichess.org"
 // of a newline-delimited-JSON GET; postForm posts an application/x-www
 // -form-urlencoded body and returns an error unless lichess answers 2xx.
 type api interface {
-	streamNDJSON(path string) (io.ReadCloser, error)
+	streamNDJSON(ctx context.Context, path string) (io.ReadCloser, error)
 	postForm(path string, form string) error
 }
 
@@ -37,15 +39,26 @@ type httpAPI struct {
 }
 
 func newHTTPAPI(token string) *httpAPI {
-	return &httpAPI{token: token, http: &http.Client{}}
+	// No Client.Timeout: it caps the whole exchange, body included, which
+	// would cut every stream off at the deadline. The timeouts that matter
+	// for a stream live on the transport and only cover getting connected
+	// and answered, never how long the stream then runs.
+	return &httpAPI{token: token, http: &http.Client{
+		Transport: &http.Transport{
+			DialContext:           (&net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
+			TLSHandshakeTimeout:   10 * time.Second,
+			ResponseHeaderTimeout: 20 * time.Second,
+			ForceAttemptHTTP2:     true,
+		},
+	}}
 }
 
 // NewAPI builds the real lichess client for a Bot, carrying the given
 // personal API token on every request.
 func NewAPI(token string) api { return newHTTPAPI(token) }
 
-func (a *httpAPI) do(method, url string, body io.Reader, contentType string) (*http.Response, error) {
-	req, err := http.NewRequest(method, url, body)
+func (a *httpAPI) do(ctx context.Context, method, url string, body io.Reader, contentType string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, method, url, body)
 	if err != nil {
 		return nil, err
 	}
@@ -65,8 +78,8 @@ func (a *httpAPI) do(method, url string, body io.Reader, contentType string) (*h
 	return resp, nil
 }
 
-func (a *httpAPI) streamAt(url string) (io.ReadCloser, error) {
-	resp, err := a.do(http.MethodGet, url, nil, "")
+func (a *httpAPI) streamAt(ctx context.Context, url string) (io.ReadCloser, error) {
+	resp, err := a.do(ctx, http.MethodGet, url, nil, "")
 	if err != nil {
 		return nil, err
 	}
@@ -74,14 +87,21 @@ func (a *httpAPI) streamAt(url string) (io.ReadCloser, error) {
 }
 
 func (a *httpAPI) postFormAt(url string, form string) error {
-	resp, err := a.do(http.MethodPost, url, strings.NewReader(form), "application/x-www-form-urlencoded")
+	// A move post that never returns would block its game for good, so it
+	// gets a deadline of its own. Generous: losing a move to a slow network
+	// is worse than waiting for it.
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	resp, err := a.do(ctx, http.MethodPost, url, strings.NewReader(form), "application/x-www-form-urlencoded")
 	if err != nil {
 		return err
 	}
 	return resp.Body.Close()
 }
 
-func (a *httpAPI) streamNDJSON(path string) (io.ReadCloser, error) { return a.streamAt(baseURL + path) }
+func (a *httpAPI) streamNDJSON(ctx context.Context, path string) (io.ReadCloser, error) {
+	return a.streamAt(ctx, baseURL+path)
+}
 
 func (a *httpAPI) postForm(path string, form string) error { return a.postFormAt(baseURL+path, form) }
 
@@ -93,17 +113,25 @@ func (a *httpAPI) postForm(path string, form string) error { return a.postFormAt
 // and no log. That is what stopped the live bot on 2026-09-13, twelve
 // minutes at 0% CPU with its event stream's socket already CLOSED.
 //
-// Closing the underlying stream is what unblocks the Read; there is no
-// deadline to set through the io.ReadCloser the api interface hands back.
+// Cancelling the request's context is what ends the read. Closing the body
+// is not enough and looked like it was: lichess serves these streams over
+// HTTP/2, where a Read already parked on the stream's pipe stays parked
+// after a Close from another goroutine. The live bot's own goroutine dump
+// showed exactly that, still in http2.(*pipe).Read -> sync.(*Cond).Wait a
+// full minute after the watchdog had fired and closed the body. The body is
+// closed too, to release the connection once the read is unblocked.
 type idleReader struct {
 	rc      io.ReadCloser
 	timeout time.Duration
 	timer   *time.Timer
 }
 
-func newIdleReader(rc io.ReadCloser, timeout time.Duration) *idleReader {
+func newIdleReader(rc io.ReadCloser, timeout time.Duration, abort func()) *idleReader {
 	r := &idleReader{rc: rc, timeout: timeout}
-	r.timer = time.AfterFunc(timeout, func() { rc.Close() })
+	r.timer = time.AfterFunc(timeout, func() {
+		abort()
+		rc.Close()
+	})
 	return r
 }
 

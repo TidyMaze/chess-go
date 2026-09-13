@@ -91,8 +91,15 @@ func (b *Bot) Run(ctx context.Context) error {
 		start := time.Now()
 		err := b.runOnce(ctx)
 		lasted := time.Since(start)
-		if err != nil && ctx.Err() == nil {
-			b.logf("event stream ended: %v", err)
+		// Logged even when the stream ended cleanly. Saying nothing on a
+		// clean end is how this went unnoticed: the bot sat with an empty
+		// log for twelve minutes and nothing said it had stopped.
+		if ctx.Err() == nil {
+			if err != nil {
+				b.logf("event stream ended after %s: %v; reconnecting in %s", lasted.Round(time.Millisecond), err, delay)
+			} else {
+				b.logf("event stream ended after %s; reconnecting in %s", lasted.Round(time.Millisecond), delay)
+			}
 		}
 		select {
 		case <-ctx.Done():
@@ -122,25 +129,19 @@ func (b *Bot) nextReconnectDelay(current, lasted time.Duration) time.Duration {
 // lasts. Each accepted challenge's game is played in its own goroutine so a
 // slow or long game never blocks the bot from accepting the next challenge.
 func (b *Bot) runOnce(ctx context.Context) error {
-	stream, err := b.API.streamNDJSON("/api/stream/event")
+	// The connection gets a context of its own so the watchdog can abort
+	// this stream without touching games already in flight, and so
+	// cancelling the bot aborts a request that has not answered yet.
+	connCtx, dropConn := context.WithCancel(ctx)
+	defer dropConn()
+	stream, err := b.API.streamNDJSON(connCtx, "/api/stream/event")
 	if err != nil {
 		return err
 	}
 	defer stream.Close()
 
-	// Cancelling must break the read, and closing the stream is the only
-	// thing that does: the read is blocked inside the connection.
-	watch := newIdleReader(stream, b.idleTimeout())
+	watch := newIdleReader(stream, b.idleTimeout(), dropConn)
 	defer watch.Close()
-	stopped := make(chan struct{})
-	defer close(stopped)
-	go func() {
-		select {
-		case <-ctx.Done():
-			watch.Close()
-		case <-stopped:
-		}
-	}()
 
 	return eachLine(watch, func(line []byte) error {
 		kind, err := parseKind(line)
@@ -157,7 +158,10 @@ func (b *Bot) runOnce(ctx context.Context) error {
 				b.logf("unreadable gameStart: %v", err)
 				return nil
 			}
-			go b.playGame(e.Game.ID)
+			// Games run off the bot's own context, not this
+			// connection's, so reconnecting the event stream never
+			// abandons a game in progress.
+			go b.playGame(ctx, e.Game.ID)
 		}
 		return nil
 	})
@@ -201,10 +205,12 @@ func (b *Bot) handleChallenge(line []byte) {
 // move list to date, so the position is rebuilt from scratch each time
 // rather than incrementally tracked; a dropped or reordered event then
 // costs one extra replay instead of a desynced board.
-func (b *Bot) playGame(gameID string) {
+func (b *Bot) playGame(ctx context.Context, gameID string) {
 	b.gamesInPlay.Add(1)
 	defer b.gamesInPlay.Add(-1)
-	stream, err := b.API.streamNDJSON("/api/bot/game/stream/" + gameID)
+	gameCtx, dropGame := context.WithCancel(ctx)
+	defer dropGame()
+	stream, err := b.API.streamNDJSON(gameCtx, "/api/bot/game/stream/"+gameID)
 	if err != nil {
 		b.logf("game %s: stream failed: %v", gameID, err)
 		return
@@ -215,7 +221,7 @@ func (b *Bot) playGame(gameID string) {
 	// this goroutine holds one of MaxGames slots for as long as it blocks,
 	// so enough leaked games would have the bot decline every challenge
 	// while looking busy. Same watchdog, same reason.
-	watch := newIdleReader(stream, b.idleTimeout())
+	watch := newIdleReader(stream, b.idleTimeout(), dropGame)
 	defer watch.Close()
 
 	var full gameFull

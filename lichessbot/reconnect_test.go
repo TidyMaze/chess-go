@@ -3,6 +3,7 @@ package lichessbot
 import (
 	"context"
 	"io"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -44,25 +45,59 @@ func (s *blockingStream) isClosed() bool {
 	}
 }
 
+// stubbornStream is a stream whose Close does NOT unblock a Read already in
+// flight. That is how lichess's streams really behave: they are served over
+// HTTP/2, where the read parks on the http2 pipe's condition variable and a
+// Close from another goroutine leaves it parked there. Only cancelling the
+// request's context ends it.
+//
+// Taken from the live bot's own goroutine dump on 2026-09-13, which showed
+// the read sitting in http2.(*pipe).Read -> sync.(*Cond).Wait long after
+// the idle watchdog had fired and closed the body.
+type stubbornStream struct {
+	ctx    context.Context
+	closed chan struct{}
+	once   sync.Once
+}
+
+func (s *stubbornStream) Read(p []byte) (int, error) {
+	<-s.ctx.Done()
+	return 0, s.ctx.Err()
+}
+
+func (s *stubbornStream) Close() error {
+	s.once.Do(func() { close(s.closed) })
+	return nil
+}
+
+func (s *stubbornStream) isClosed() bool {
+	select {
+	case <-s.closed:
+		return true
+	default:
+		return false
+	}
+}
+
 // countingAPI hands out a fresh stream on every connection and counts them,
 // so a test can prove the bot reconnects instead of giving up.
 type countingAPI struct {
 	mu      sync.Mutex
 	opens   int
-	streams []*blockingStream
-	// newStream builds the body for each open. Nil means a stream that
-	// blocks forever.
+	streams []*stubbornStream
+	// newStream builds the body for each open. Nil means a stream that only
+	// its context can end.
 	newStream func(n int) io.ReadCloser
 }
 
-func (c *countingAPI) streamNDJSON(path string) (io.ReadCloser, error) {
+func (c *countingAPI) streamNDJSON(ctx context.Context, path string) (io.ReadCloser, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.opens++
 	if c.newStream != nil {
 		return c.newStream(c.opens), nil
 	}
-	s := newBlockingStream()
+	s := &stubbornStream{ctx: ctx, closed: make(chan struct{})}
 	c.streams = append(c.streams, s)
 	return s, nil
 }
@@ -135,6 +170,27 @@ func TestASilentConnectionIsDroppedAndRetried(t *testing.T) {
 	if !first.isClosed() {
 		t.Error("the silent stream was left open; a dropped connection must be closed, not leaked")
 	}
+}
+
+// Silence is what hid this bug for twelve minutes, so a dropped connection
+// has to leave a trace even when nothing errored.
+func TestADroppedConnectionIsLogged(t *testing.T) {
+	c := &countingAPI{}
+	var buf syncBuf
+	b := &Bot{
+		API:            c,
+		Player:         engine.Strong(1),
+		Username:       "tidymazebot",
+		Log:            newBufLogger(&buf),
+		IdleTimeout:    50 * time.Millisecond,
+		ReconnectDelay: time.Millisecond,
+	}
+	stop := runInBackground(t, b)
+	defer stop()
+
+	waitFor(t, 2*time.Second, "the drop to reach the log", func() bool {
+		return strings.Contains(buf.String(), "reconnecting")
+	})
 }
 
 // A stream that ends cleanly, which lichess does on its own schedule, must
@@ -245,7 +301,7 @@ type failOpenAPI struct {
 	inner *countingAPI
 }
 
-func (f *failOpenAPI) streamNDJSON(path string) (io.ReadCloser, error) {
+func (f *failOpenAPI) streamNDJSON(ctx context.Context, path string) (io.ReadCloser, error) {
 	f.mu.Lock()
 	f.tries++
 	f.mu.Unlock()
@@ -264,7 +320,7 @@ func (f *failOpenAPI) attempts() int {
 // one that only sends lichess's blank keepalive lines.
 func TestAStreamThatKeepsTalkingIsNotDropped(t *testing.T) {
 	pr, pw := io.Pipe()
-	r := newIdleReader(pr, 200*time.Millisecond)
+	r := newIdleReader(pr, 200*time.Millisecond, func() { pr.Close() })
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -289,7 +345,7 @@ func TestAStreamThatKeepsTalkingIsNotDropped(t *testing.T) {
 // that never spoke at all.
 func TestAStreamThatGoesQuietMidwayIsDropped(t *testing.T) {
 	s := newBlockingStream()
-	r := newIdleReader(s, 50*time.Millisecond)
+	r := newIdleReader(s, 50*time.Millisecond, func() { s.Close() })
 	start := time.Now()
 	_, err := io.ReadAll(r)
 	if took := time.Since(start); took > time.Second {

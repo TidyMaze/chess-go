@@ -1,6 +1,7 @@
 package lichessbot
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -21,7 +22,7 @@ func TestHTTPAPIStreamNDJSONReachesThePathWithTheToken(t *testing.T) {
 	defer srv.Close()
 
 	a := &httpAPI{token: "tok", http: srv.Client()}
-	body, err := a.streamAt(srv.URL + "/api/stream/event")
+	body, err := a.streamAt(context.Background(), srv.URL+"/api/stream/event")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,7 +44,7 @@ func TestHTTPAPIStreamNDJSONErrorsOnANon2xxResponse(t *testing.T) {
 	defer srv.Close()
 
 	a := &httpAPI{token: "bad", http: srv.Client()}
-	if _, err := a.streamAt(srv.URL + "/anything"); err == nil {
+	if _, err := a.streamAt(context.Background(), srv.URL+"/anything"); err == nil {
 		t.Error("a 401 was not reported as an error")
 	}
 }
@@ -89,7 +90,7 @@ func TestHTTPAPIDoReturnsTheBodyOnSuccess(t *testing.T) {
 	}))
 	defer srv.Close()
 	a := &httpAPI{token: "t", http: srv.Client()}
-	resp, err := a.do(http.MethodGet, srv.URL+"/x", nil, "")
+	resp, err := a.do(context.Background(), http.MethodGet, srv.URL+"/x", nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +104,7 @@ func TestHTTPAPIDoReturnsTheBodyOnSuccess(t *testing.T) {
 
 func TestHTTPAPIDoRejectsAMalformedRequest(t *testing.T) {
 	a := &httpAPI{token: "t", http: http.DefaultClient}
-	if _, err := a.do("BAD METHOD\n", "http://x", nil, ""); err == nil {
+	if _, err := a.do(context.Background(), "BAD METHOD\n", "http://x", nil, ""); err == nil {
 		t.Error("a malformed method was accepted")
 	}
 }
@@ -131,7 +132,7 @@ func TestStreamNDJSONAndPostFormUseTheBaseURL(t *testing.T) {
 	a := newHTTPAPI("tok")
 	a.http = srv.Client()
 
-	body, err := a.streamNDJSON("/api/stream/event")
+	body, err := a.streamNDJSON(context.Background(), "/api/stream/event")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -151,7 +152,7 @@ func TestHTTPAPIDoReturnsATransportError(t *testing.T) {
 	url := srv.URL
 	srv.Close() // nothing is listening here any more
 	a := &httpAPI{token: "t", http: http.DefaultClient}
-	if _, err := a.do(http.MethodGet, url, nil, ""); err == nil {
+	if _, err := a.do(context.Background(), http.MethodGet, url, nil, ""); err == nil {
 		t.Error("a connection to a closed server was not reported as an error")
 	}
 }

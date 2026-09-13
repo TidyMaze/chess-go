@@ -30,7 +30,7 @@ func newFakeAPI() *fakeAPI {
 	return &fakeAPI{streams: map[string]string{}, streamErr: map[string]error{}, postErr: map[string]error{}, postErrPrefix: map[string]error{}}
 }
 
-func (f *fakeAPI) streamNDJSON(path string) (io.ReadCloser, error) {
+func (f *fakeAPI) streamNDJSON(ctx context.Context, path string) (io.ReadCloser, error) {
 	f.mu.Lock()
 	body, ok := f.streams[path]
 	err, hasErr := f.streamErr[path]
@@ -447,11 +447,11 @@ type erroringStreamAPI struct {
 	errorPath string
 }
 
-func (w *erroringStreamAPI) streamNDJSON(path string) (io.ReadCloser, error) {
+func (w *erroringStreamAPI) streamNDJSON(ctx context.Context, path string) (io.ReadCloser, error) {
 	if path == w.errorPath {
 		return io.NopCloser(errReader{}), nil
 	}
-	return w.fakeAPI.streamNDJSON(path)
+	return w.fakeAPI.streamNDJSON(ctx, path)
 }
 
 // A line inside a game stream that is not even valid JSON must be
