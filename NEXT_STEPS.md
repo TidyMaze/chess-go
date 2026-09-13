@@ -991,6 +991,42 @@ distillation ceiling stands: a network trained to predict its own teacher's
 score cannot pass the teacher, and changing how deep the teacher looks does
 not change that.
 
+## History aging measured at last, and it is nothing, 2026-09-14
+
+`HistoryAging` has sat in the Player struct and in the feature parser
+without ever being measured: not in NEXT_STEPS, not in LEARNINGS, and
+absent from the champion's feature list. Item 5 still listed it as work to
+do.
+
+Measured on identical players, both sides built from `engine.Strong` with
+no `-ref-champion` involved, so the only difference between them is the
+feature:
+
+| | games | W-D-L | Elo |
+|---|---|---|---|
+| historyaging | 400 | 162-83-155 | **+6 +/- 34** |
+
+Zero is the true baseline here by construction, not something to subtract:
+the two sides are the same code with one switch flipped. A null control in
+the same mode read +14 +/- 49, which is that noise being visible. So
+history aging is worth nothing measurable, bounded to about +/- 34, and is
+not adopted.
+
+**Why this mode and not the usual one.** The familiar setup, `-halfkp` on
+the challenger against `-ref-champion`, does not put the same player on
+both sides: a null control of it read -10 +/- 48 on one run and -40 +/- 34
+on another, so its baseline is uncertain by more than the effect being
+looked for. Dropping the champion replacement removes the gap entirely at
+the cost of measuring the feature on the hand-written evaluation rather
+than with the network. A feature that did well here would still need
+confirming in the champion's own configuration.
+
+**The harness could fix this properly** with a `-champion` flag for the
+challenger, mirroring `-ref-champion`, so both sides can be the same file
+with one flag differing. It is not a change to make casually: challenger
+switches would have to move after the replacement, and this file's own
+header records that exact reordering mistake costing seven ladder rungs.
+
 ## Pruning re-tune, first knob: null-move reduction, 2026-09-14
 
 Item 4 expects +30 to +80 from re-tuning pruning that was set through a
@@ -1097,8 +1133,10 @@ same clock both sides, or it did not happen.
  4. Re-tune pruning on the corrected search: null-move reduction, LMR
     scaling, futility margins were all tuned through the broken table.
     1500 games each. Expected +30-80.
- 5. Move ordering: countermoves, history aging, SEE-ordered captures.
-    Exit: fewer nodes to the same depth, then Elo. Expected +20-50.
+ 5. Move ordering: countermoves and SEE are **already adopted** (both are
+    in the champion's feature list). History aging is **measured and
+    worthless**, +6 +/- 34 on identical players, 2026-09-14. What is left
+    of this item is SEE-ordered captures only, if that is not `see` too.
  6. Endgames: re-measure the tablebase probe now that it indexes the right
     colour (it read -13 +/- 18 through the bug). Expected +10-20.
  7. Opening book from the PGN database (match history is allowed, scores
