@@ -1,12 +1,14 @@
 package lichessbot
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net/url"
 	"sync/atomic"
+	"time"
 
 	"chess/engine"
 )
@@ -31,21 +33,116 @@ type Bot struct {
 	// a challenge is declined rather than accepted and played badly.
 	MaxGames int
 
+	// IdleTimeout is how long a stream may say nothing at all, keepalive
+	// blank lines included, before the bot treats it as dead and reconnects.
+	// ReconnectDelay is the first wait between attempts, doubling up to
+	// maxReconnectDelay so a lichess outage is not hammered. Both are fields
+	// rather than constants because the tests drive them at millisecond
+	// scale, and because a real network wants a knob.
+	IdleTimeout       time.Duration
+	ReconnectDelay    time.Duration
+	MaxReconnectDelay time.Duration
+
 	gamesInPlay atomic.Int32
 }
 
-// Run reads the account event stream until it ends (the connection drops
-// or the process is asked to stop). Each accepted challenge's game is
-// played in its own goroutine so a slow or long game never blocks the bot
-// from accepting the next challenge.
-func (b *Bot) Run() error {
+// Defaults for the two knobs above. Lichess sends a keepalive every few
+// seconds, so a minute of pure silence is generous and still notices a dead
+// socket long before a human would.
+const (
+	defaultIdleTimeout    = 60 * time.Second
+	defaultReconnectDelay = time.Second
+	maxReconnectDelay     = time.Minute
+)
+
+func (b *Bot) idleTimeout() time.Duration {
+	if b.IdleTimeout > 0 {
+		return b.IdleTimeout
+	}
+	return defaultIdleTimeout
+}
+
+func (b *Bot) reconnectDelay() time.Duration {
+	if b.ReconnectDelay > 0 {
+		return b.ReconnectDelay
+	}
+	return defaultReconnectDelay
+}
+
+func (b *Bot) maxReconnectDelay() time.Duration {
+	if b.MaxReconnectDelay > 0 {
+		return b.MaxReconnectDelay
+	}
+	return maxReconnectDelay
+}
+
+// Run keeps the bot on the account event stream until ctx is cancelled,
+// reconnecting whenever the stream ends. It returns only on cancellation:
+// every other outcome, a clean end, a dropped socket, a refused connection,
+// is temporary and must not take the bot off lichess for the rest of the
+// day. A single pass used to be the whole of Run, which meant the first
+// time lichess closed the stream the bot stopped playing and said nothing.
+func (b *Bot) Run(ctx context.Context) error {
+	delay := b.reconnectDelay()
+	for {
+		if ctx.Err() != nil {
+			return nil
+		}
+		start := time.Now()
+		err := b.runOnce(ctx)
+		lasted := time.Since(start)
+		if err != nil && ctx.Err() == nil {
+			b.logf("event stream ended: %v", err)
+		}
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-time.After(delay):
+		}
+		delay = b.nextReconnectDelay(delay, lasted)
+	}
+}
+
+// nextReconnectDelay doubles the wait up to the cap, and starts the backoff
+// over when the connection that just ended had lasted long enough to count
+// as healthy: an outage that is already finished should not leave the bot
+// reconnecting slowly for the rest of the day. Pure, so the schedule can be
+// tested without waiting on it.
+func (b *Bot) nextReconnectDelay(current, lasted time.Duration) time.Duration {
+	if lasted > 2*b.idleTimeout() {
+		return b.reconnectDelay()
+	}
+	if doubled := current * 2; doubled < b.maxReconnectDelay() {
+		return doubled
+	}
+	return b.maxReconnectDelay()
+}
+
+// runOnce reads the account event stream for as long as one connection
+// lasts. Each accepted challenge's game is played in its own goroutine so a
+// slow or long game never blocks the bot from accepting the next challenge.
+func (b *Bot) runOnce(ctx context.Context) error {
 	stream, err := b.API.streamNDJSON("/api/stream/event")
 	if err != nil {
 		return err
 	}
 	defer stream.Close()
 
-	return eachLine(stream, func(line []byte) error {
+	// Cancelling must break the read, and closing the stream is the only
+	// thing that does: the read is blocked inside the connection.
+	watch := newIdleReader(stream, b.idleTimeout())
+	defer watch.Close()
+	stopped := make(chan struct{})
+	defer close(stopped)
+	go func() {
+		select {
+		case <-ctx.Done():
+			watch.Close()
+		case <-stopped:
+		}
+	}()
+
+	return eachLine(watch, func(line []byte) error {
 		kind, err := parseKind(line)
 		if err != nil {
 			b.logf("unreadable event: %v", err)
@@ -114,10 +211,17 @@ func (b *Bot) playGame(gameID string) {
 	}
 	defer stream.Close()
 
+	// A game stream that dies silently is worse than a dead event stream:
+	// this goroutine holds one of MaxGames slots for as long as it blocks,
+	// so enough leaked games would have the bot decline every challenge
+	// while looking busy. Same watchdog, same reason.
+	watch := newIdleReader(stream, b.idleTimeout())
+	defer watch.Close()
+
 	var full gameFull
 	haveFull := false
 
-	err = eachLine(stream, func(line []byte) error {
+	err = eachLine(watch, func(line []byte) error {
 		kind, err := parseKind(line)
 		if err != nil {
 			return nil

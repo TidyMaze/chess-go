@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // baseURL is a var, not a const, so a test can point streamNDJSON and
@@ -83,6 +84,41 @@ func (a *httpAPI) postFormAt(url string, form string) error {
 func (a *httpAPI) streamNDJSON(path string) (io.ReadCloser, error) { return a.streamAt(baseURL + path) }
 
 func (a *httpAPI) postForm(path string, form string) error { return a.postFormAt(baseURL+path, form) }
+
+// idleReader abandons a connection that has gone silent. Both lichess
+// streams send a blank keepalive line every few seconds, so a stream with
+// nothing at all on it is a dead socket rather than a quiet game. Without
+// this the Read blocks forever: a TCP connection that dies in the network
+// never reports anything to the reader, so the bot sits deaf with no error
+// and no log. That is what stopped the live bot on 2026-09-13, twelve
+// minutes at 0% CPU with its event stream's socket already CLOSED.
+//
+// Closing the underlying stream is what unblocks the Read; there is no
+// deadline to set through the io.ReadCloser the api interface hands back.
+type idleReader struct {
+	rc      io.ReadCloser
+	timeout time.Duration
+	timer   *time.Timer
+}
+
+func newIdleReader(rc io.ReadCloser, timeout time.Duration) *idleReader {
+	r := &idleReader{rc: rc, timeout: timeout}
+	r.timer = time.AfterFunc(timeout, func() { rc.Close() })
+	return r
+}
+
+func (r *idleReader) Read(p []byte) (int, error) {
+	n, err := r.rc.Read(p)
+	if n > 0 {
+		r.timer.Reset(r.timeout)
+	}
+	return n, err
+}
+
+func (r *idleReader) Close() error {
+	r.timer.Stop()
+	return r.rc.Close()
+}
 
 // eachLine decodes each line of a newline-delimited-JSON stream into dst,
 // skipping blank keep-alive lines lichess sends between events, and calls

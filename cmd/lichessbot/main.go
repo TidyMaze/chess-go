@@ -12,10 +12,13 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"chess/engine"
 	"chess/lichessbot"
@@ -57,7 +60,11 @@ func run(args []string) int {
 		MaxGames: *maxGames,
 		Log:      log.New(os.Stdout, "", log.LstdFlags),
 	}
-	if err := b.Run(); err != nil {
+	// Ctrl-C and SIGTERM stop the bot by cancelling the stream it is
+	// blocked on, so a redeploy does not have to kill it mid-move.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if err := b.Run(ctx); err != nil {
 		fmt.Fprintln(os.Stderr, "lichessbot:", err)
 		return 1
 	}

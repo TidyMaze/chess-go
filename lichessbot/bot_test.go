@@ -2,6 +2,7 @@ package lichessbot
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"log"
@@ -76,7 +77,7 @@ func TestBotAcceptsAChallengeAndPlaysItsMove(t *testing.T) {
 	f.streams["/api/bot/game/stream/g1"] = `{"type":"gameFull","id":"g1","white":{"id":"tidymazebot"},"black":{"id":"opponent"},"initialFen":"startpos","state":{"type":"gameState","moves":"","status":"started"}}` + "\n"
 
 	b := &Bot{API: f, Player: engine.Strong(1), Username: "tidymazebot", Log: silentLogger()}
-	if err := b.Run(); err != nil {
+	if err := b.runOnce(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	waitForPosts(t, f, 2)
@@ -100,7 +101,7 @@ func TestBotDeclinesAVariantChallenge(t *testing.T) {
 	f.streams["/api/stream/event"] = `{"type":"challenge","challenge":{"id":"c2","rated":false,"speed":"blitz","variant":{"key":"chess960"},"challenger":{"title":""}}}` + "\n"
 
 	b := &Bot{API: f, Player: engine.Strong(1), Username: "tidymazebot", Log: silentLogger()}
-	if err := b.Run(); err != nil {
+	if err := b.runOnce(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	posts := f.postedPaths()
@@ -123,7 +124,7 @@ func TestBotWaitsForItsOwnTurn(t *testing.T) {
 	}, "\n") + "\n"
 
 	b := &Bot{API: f, Player: engine.Strong(1), Username: "tidymazebot", Log: silentLogger()}
-	if err := b.Run(); err != nil {
+	if err := b.runOnce(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	waitForPosts(t, f, 1)
@@ -141,7 +142,7 @@ func TestBotDoesNotMoveInAFinishedGame(t *testing.T) {
 	f.streams["/api/bot/game/stream/g4"] = `{"type":"gameFull","id":"g4","white":{"id":"tidymazebot"},"black":{"id":"opponent"},"initialFen":"startpos","state":{"type":"gameState","moves":"","status":"mate"}}` + "\n"
 
 	b := &Bot{API: f, Player: engine.Strong(1), Username: "tidymazebot", Log: silentLogger()}
-	if err := b.Run(); err != nil {
+	if err := b.runOnce(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	time.Sleep(50 * time.Millisecond)
@@ -158,7 +159,7 @@ func TestBotRefusesToPlayWhenUsernameMatchesNeitherSide(t *testing.T) {
 	f.streams["/api/bot/game/stream/g5"] = `{"type":"gameFull","id":"g5","white":{"id":"alice"},"black":{"id":"bob"},"initialFen":"startpos","state":{"type":"gameState","moves":"","status":"started"}}` + "\n"
 
 	b := &Bot{API: f, Player: engine.Strong(1), Username: "tidymazebot", Log: silentLogger()}
-	if err := b.Run(); err != nil {
+	if err := b.runOnce(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	time.Sleep(50 * time.Millisecond)
@@ -175,7 +176,7 @@ func TestBotLogsAFailedAccept(t *testing.T) {
 
 	var buf syncBuf
 	b := &Bot{API: f, Player: engine.Strong(1), Username: "tidymazebot", Log: newBufLogger(&buf)}
-	if err := b.Run(); err != nil {
+	if err := b.runOnce(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(buf.String(), "simulated failure") {
@@ -230,7 +231,7 @@ func TestBotSkipsAnUnreadableAccountEvent(t *testing.T) {
 
 	var buf syncBuf
 	b := &Bot{API: f, Player: engine.Strong(1), Username: "tidymazebot", Log: newBufLogger(&buf)}
-	if err := b.Run(); err != nil {
+	if err := b.runOnce(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	waitForPosts(t, f, 1)
@@ -246,7 +247,7 @@ func TestBotSkipsAnUnreadableChallenge(t *testing.T) {
 	f.streams["/api/stream/event"] = `{"type":"challenge","challenge":123}` + "\n"
 	var buf syncBuf
 	b := &Bot{API: f, Player: engine.Strong(1), Username: "tidymazebot", Log: newBufLogger(&buf)}
-	if err := b.Run(); err != nil {
+	if err := b.runOnce(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	if len(f.postedPaths()) != 0 {
@@ -264,7 +265,7 @@ func TestBotLogsAFailedDecline(t *testing.T) {
 	f.streams["/api/stream/event"] = `{"type":"challenge","challenge":{"id":"c8","rated":false,"speed":"blitz","variant":{"key":"atomic"},"challenger":{"title":""}}}` + "\n"
 	var buf syncBuf
 	b := &Bot{API: f, Player: engine.Strong(1), Username: "tidymazebot", Log: newBufLogger(&buf)}
-	if err := b.Run(); err != nil {
+	if err := b.runOnce(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(buf.String(), "decline boom") {
@@ -279,7 +280,7 @@ func TestBotIgnoresAGameStateBeforeGameFull(t *testing.T) {
 	f.streams["/api/stream/event"] = `{"type":"gameStart","game":{"id":"g9"}}` + "\n"
 	f.streams["/api/bot/game/stream/g9"] = `{"type":"gameState","moves":"e2e4","status":"started"}` + "\n"
 	b := &Bot{API: f, Player: engine.Strong(1), Username: "tidymazebot", Log: silentLogger()}
-	if err := b.Run(); err != nil {
+	if err := b.runOnce(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	time.Sleep(50 * time.Millisecond)
@@ -296,7 +297,7 @@ func TestBotLogsWhenAGameStreamFailsToOpen(t *testing.T) {
 	// No stream registered for gmissing: streamNDJSON returns an empty
 	// body, which ends the game loop with nothing played, not an error.
 	b := &Bot{API: f, Player: engine.Strong(1), Username: "tidymazebot", Log: silentLogger()}
-	if err := b.Run(); err != nil {
+	if err := b.runOnce(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	time.Sleep(50 * time.Millisecond)
@@ -314,7 +315,7 @@ func TestBotLogsAFailedMovePost(t *testing.T) {
 	f.streams["/api/bot/game/stream/g10"] = `{"type":"gameFull","id":"g10","white":{"id":"tidymazebot"},"black":{"id":"opponent"},"initialFen":"startpos","state":{"type":"gameState","moves":"","status":"started"}}` + "\n"
 	var buf syncBuf
 	b := &Bot{API: f, Player: engine.Strong(1), Username: "tidymazebot", Log: newBufLogger(&buf)}
-	if err := b.Run(); err != nil {
+	if err := b.runOnce(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	waitForPosts(t, f, 1)
@@ -333,7 +334,7 @@ func TestBotLogsWhenThereIsNoLegalMove(t *testing.T) {
 	f.streams["/api/bot/game/stream/g11"] = `{"type":"gameFull","id":"g11","white":{"id":"opponent"},"black":{"id":"tidymazebot"},"initialFen":"7k/5Q2/6K1/8/8/8/8/8 b - - 0 1","state":{"type":"gameState","moves":"","status":"started"}}` + "\n"
 	var buf syncBuf
 	b := &Bot{API: f, Player: engine.Strong(1), Username: "tidymazebot", Log: newBufLogger(&buf)}
-	if err := b.Run(); err != nil {
+	if err := b.runOnce(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	time.Sleep(50 * time.Millisecond)
@@ -356,7 +357,7 @@ func TestRunReturnsAnErrorWhenTheAccountStreamFailsToOpen(t *testing.T) {
 	f := newFakeAPI()
 	f.streamErr["/api/stream/event"] = fmt.Errorf("connection refused")
 	b := &Bot{API: f, Player: engine.Strong(1), Username: "tidymazebot", Log: silentLogger()}
-	if err := b.Run(); err == nil {
+	if err := b.runOnce(context.Background()); err == nil {
 		t.Error("expected an error when the account stream fails to open")
 	}
 }
@@ -368,7 +369,7 @@ func TestBotSkipsAnUnreadableGameStart(t *testing.T) {
 	f.streams["/api/stream/event"] = `{"type":"gameStart","game":123}` + "\n"
 	var buf syncBuf
 	b := &Bot{API: f, Player: engine.Strong(1), Username: "tidymazebot", Log: newBufLogger(&buf)}
-	if err := b.Run(); err != nil {
+	if err := b.runOnce(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(buf.String(), "unreadable gameStart") {
@@ -383,7 +384,7 @@ func TestBotLogsWhenAGameStreamErrors(t *testing.T) {
 	f.streams["/api/stream/event"] = `{"type":"gameStart","game":{"id":"g12"}}` + "\n"
 	var buf syncBuf
 	b := &Bot{API: f, Player: engine.Strong(1), Username: "tidymazebot", Log: newBufLogger(&buf)}
-	if err := b.Run(); err != nil {
+	if err := b.runOnce(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	deadline := time.Now().Add(time.Second)
@@ -403,7 +404,7 @@ func TestBotLogsAMalformedInitialFEN(t *testing.T) {
 	f.streams["/api/bot/game/stream/g13"] = `{"type":"gameFull","id":"g13","white":{"id":"tidymazebot"},"black":{"id":"opponent"},"initialFen":"not a fen","state":{"type":"gameState","moves":"","status":"started"}}` + "\n"
 	var buf syncBuf
 	b := &Bot{API: f, Player: engine.Strong(1), Username: "tidymazebot", Log: newBufLogger(&buf)}
-	if err := b.Run(); err != nil {
+	if err := b.runOnce(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	deadline := time.Now().Add(time.Second)
@@ -429,7 +430,7 @@ func TestBotLogsWhenTheGameStreamDropsMidRead(t *testing.T) {
 	w := &erroringStreamAPI{fakeAPI: f, errorPath: "/api/bot/game/stream/g14"}
 	var buf syncBuf
 	b := &Bot{API: w, Player: engine.Strong(1), Username: "tidymazebot", Log: newBufLogger(&buf)}
-	if err := b.Run(); err != nil {
+	if err := b.runOnce(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	deadline := time.Now().Add(time.Second)
@@ -461,7 +462,7 @@ func TestBotSkipsAnUnreadableLineInAGameStream(t *testing.T) {
 	f.streams["/api/bot/game/stream/g15"] = "garbage\n" +
 		`{"type":"gameFull","id":"g15","white":{"id":"tidymazebot"},"black":{"id":"opponent"},"state":{"type":"gameState","moves":"","status":"started"}}` + "\n"
 	b := &Bot{API: f, Player: engine.Strong(1), Username: "tidymazebot", Log: silentLogger()}
-	if err := b.Run(); err != nil {
+	if err := b.runOnce(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	waitForPosts(t, f, 1)
@@ -474,7 +475,7 @@ func TestBotSkipsAMalformedGameFull(t *testing.T) {
 	f.streams["/api/stream/event"] = `{"type":"gameStart","game":{"id":"g16"}}` + "\n"
 	f.streams["/api/bot/game/stream/g16"] = `{"type":"gameFull","id":123}` + "\n"
 	b := &Bot{API: f, Player: engine.Strong(1), Username: "tidymazebot", Log: silentLogger()}
-	if err := b.Run(); err != nil {
+	if err := b.runOnce(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	time.Sleep(50 * time.Millisecond)
@@ -493,7 +494,7 @@ func TestBotSkipsAMalformedGameState(t *testing.T) {
 		`{"type":"gameState","status":123}`,
 	}, "\n") + "\n"
 	b := &Bot{API: f, Player: engine.Strong(1), Username: "tidymazebot", Log: silentLogger()}
-	if err := b.Run(); err != nil {
+	if err := b.runOnce(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	time.Sleep(50 * time.Millisecond)
@@ -510,7 +511,7 @@ func TestBotTreatsAnEmptyInitialFenAsStartpos(t *testing.T) {
 	f.streams["/api/stream/event"] = `{"type":"gameStart","game":{"id":"g18"}}` + "\n"
 	f.streams["/api/bot/game/stream/g18"] = `{"type":"gameFull","id":"g18","white":{"id":"tidymazebot"},"black":{"id":"opponent"},"state":{"type":"gameState","moves":"","status":"started"}}` + "\n"
 	b := &Bot{API: f, Player: engine.Strong(1), Username: "tidymazebot", Log: silentLogger()}
-	if err := b.Run(); err != nil {
+	if err := b.runOnce(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	waitForPosts(t, f, 1)
@@ -526,7 +527,7 @@ func TestBotIgnoresItsOwnOutgoingChallenge(t *testing.T) {
 	f := newFakeAPI()
 	f.streams["/api/stream/event"] = `{"type":"challenge","challenge":{"id":"c19","rated":false,"speed":"rapid","variant":{"key":"standard"},"challenger":{"id":"tidymazebot","title":"BOT"}}}` + "\n"
 	b := &Bot{API: f, Player: engine.Strong(1), Username: "tidymazebot", Log: silentLogger()}
-	if err := b.Run(); err != nil {
+	if err := b.runOnce(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	if posts := f.postedPaths(); len(posts) != 0 {
@@ -580,7 +581,7 @@ func TestBotDeclinesChallengesWhenAtItsGameLimit(t *testing.T) {
 
 	b := &Bot{API: f, Player: engine.Strong(1), Username: "tidymazebot", Log: silentLogger(), MaxGames: 1}
 	b.gamesInPlay.Store(1) // a game already occupying the only slot
-	if err := b.Run(); err != nil {
+	if err := b.runOnce(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	posts := f.postedPaths()
@@ -605,7 +606,7 @@ func TestBotAcceptsWhenBelowItsGameLimit(t *testing.T) {
 	f := newFakeAPI()
 	f.streams["/api/stream/event"] = `{"type":"challenge","challenge":{"id":"cfree","rated":true,"speed":"rapid","variant":{"key":"standard"},"challenger":{"id":"someoneelse"}}}` + "\n"
 	b := &Bot{API: f, Player: engine.Strong(1), Username: "tidymazebot", Log: silentLogger(), MaxGames: 4}
-	if err := b.Run(); err != nil {
+	if err := b.runOnce(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	posts := f.postedPaths()
@@ -621,7 +622,7 @@ func TestBotWithNoGameLimitAcceptsAsBefore(t *testing.T) {
 	f.streams["/api/stream/event"] = `{"type":"challenge","challenge":{"id":"cnl","rated":true,"speed":"rapid","variant":{"key":"standard"},"challenger":{"id":"someoneelse"}}}` + "\n"
 	b := &Bot{API: f, Player: engine.Strong(1), Username: "tidymazebot", Log: silentLogger()}
 	b.gamesInPlay.Store(99)
-	if err := b.Run(); err != nil {
+	if err := b.runOnce(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	posts := f.postedPaths()
@@ -639,7 +640,7 @@ func TestBotLogsAFailedDeclineAtTheGameLimit(t *testing.T) {
 	var buf syncBuf
 	b := &Bot{API: f, Player: engine.Strong(1), Username: "tidymazebot", Log: newBufLogger(&buf), MaxGames: 1}
 	b.gamesInPlay.Store(1)
-	if err := b.Run(); err != nil {
+	if err := b.runOnce(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(buf.String(), "limit decline boom") {
@@ -657,7 +658,7 @@ func TestBotIgnoresItsOwnOutgoingChallengeEvenAtTheGameLimit(t *testing.T) {
 	f.streams["/api/stream/event"] = `{"type":"challenge","challenge":{"id":"cmine","rated":true,"speed":"rapid","variant":{"key":"standard"},"challenger":{"id":"tidymazebot"}}}` + "\n"
 	b := &Bot{API: f, Player: engine.Strong(1), Username: "tidymazebot", Log: silentLogger(), MaxGames: 1}
 	b.gamesInPlay.Store(5)
-	if err := b.Run(); err != nil {
+	if err := b.runOnce(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	if posts := f.postedPaths(); len(posts) != 0 {
