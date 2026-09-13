@@ -415,3 +415,35 @@ mop-up evaluation that overrides the blend once material is nearly gone,
 or extending the tablebases past their current `TablebaseMaxPieces = 4`
 so these endings are exact rather than estimated. The champion does not
 even load tablebases today: `champion.json` has no `syzygy` field.
+
+## An opening book from games, 2026-09-13
+
+The bot's record splits by time control: classical 2W 0L, rapid 7W 1D 7L,
+blitz 1W 1D 5L, bullet 2W 0D 4L. Every loss is by checkmate and none on
+time, so the cause is search depth, not clock mismanagement. Less time
+means shallower search means worse play, and the first move alone was
+costing about four percent of a bullet clock.
+
+The deployed bot now plays `champion_bot.json`, the champion plus a book
+of 9227 positions. Measured from the start position:
+
+| | opening move | first 24 plies |
+|---|---|---|
+| without the book | 2.1 s of search | 24 searched |
+| with the book | 0 s | 16 from book, 8 searched |
+
+At a 500 ms budget that is 8 seconds of clock handed back per game, spent
+in the middlegame instead of on theory thousands of games already agree
+about.
+
+**Where the book may and may not come from.** `-book-from-pgn` takes the
+most played move per position from the PGN game database: match history,
+which the rules allow. `-extract-book` reads the Lichess *evaluation*
+dump and takes each move from the deepest engine principal variation.
+That is externally computed position scores, which the rules forbid, and
+a book built from it would be another engine's opinion wearing this
+one's name. The function now carries a warning saying so.
+
+`champion_bot.json` is kept separate from `champion.json` so the
+calibration that file carries is not disturbed, and the book is generated
+rather than versioned.
