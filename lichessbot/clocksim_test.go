@@ -6,58 +6,118 @@ import (
 	"testing"
 )
 
-// Replays a whole game's clock through the real moveTimeBudget, so the
-// spending rule is checked as shipped rather than against a copy of it.
-// A copy is exactly how the first version of this fix passed: a mock of
-// the rule said a 120 move game at 1+0 ended with 0.3 s in hand, and the
-// real function flagged.
-//
-// CLOCKSIM=1 to print it.
-func TestClockSimulation(t *testing.T) {
-	if os.Getenv("CLOCKSIM") == "" {
-		t.Skip("CLOCKSIM=1 prints whole-game clock usage")
+// A control the bot actually accepts, and the least time it must still have
+// at any point of a long game. The floor is not "more than zero": a clock
+// that sits at two seconds has no room for one slow search, one burst of
+// load, or one slow round trip, and that is how a 5+3 game was lost on time
+// with the opponent still holding 4:58.
+type control struct {
+	name       string
+	start, inc int64
+	moves      int
+	floorMS    int64
+	// ceilingMS is the other half of the requirement: the clock must
+	// actually dip below this at some point. A rule that never spends is
+	// safe and useless, and that was the previous complaint about this bot,
+	// games ending with a quarter of the clock untouched.
+	ceilingMS int64
+}
+
+func controlsWePlay() []control {
+	return []control{
+		{"bullet 1+0", 60000, 0, 120, 2000, 30000},
+		{"bullet 2+1", 120000, 1000, 120, 5000, 48000},
+		{"blitz 3+0", 180000, 0, 120, 3000, 72000},
+		{"blitz 3+2", 180000, 2000, 120, 10000, 72000},
+		{"blitz 5+3", 300000, 3000, 120, 15000, 120000},
+		// A 1+10 clock grows: ten seconds back a move is more than the rule
+		// ever spends, so the most that can be asked is that it not idle
+		// above where it started.
+		{"blitz 1+10", 60000, 10000, 120, 15000, 60000},
+		{"rapid 10+5", 600000, 5000, 120, 20000, 240000},
+		{"classical 20+10", 1200000, 10000, 120, 30000, 480000},
 	}
-	for _, c := range []struct {
-		name       string
-		start, inc int64
-		moves      int
-	}{
-		{"bullet 2+1  40mv", 120000, 1000, 40},
-		{"bullet 2+1  80mv", 120000, 1000, 80},
-		{"bullet 1+0  80mv", 60000, 0, 80},
-		{"bullet 1+0 120mv", 60000, 0, 120},
-		{"blitz 3+2  100mv", 180000, 2000, 100},
-		{"blitz 5+3   40mv", 300000, 3000, 40},
-		{"blitz 5+3   80mv", 300000, 3000, 80},
-		{"blitz 3+0   60mv", 180000, 0, 60},
-		{"blitz 1+10  60mv", 60000, 10000, 60},
-	} {
-		r := c.start
-		var total int64
-		flagged := false
-		for i := 0; i < c.moves; i++ {
-			b := moveTimeBudget("white", gameState{WhiteTimeMS: r, WhiteIncMS: c.inc}).Milliseconds()
-			// The search overruns its budget by about 7%, measured.
-			used := b * 107 / 100
-			if used > r {
-				used = r
-			}
-			r -= used
-			r += c.inc
-			total += used
-			if r <= 0 {
-				flagged = true
-				break
-			}
+}
+
+// simulateClock replays a whole game through the real moveTimeBudget and
+// returns the lowest the clock ever got, plus the mean spend.
+//
+// The overrun is measured, not guessed. Across eight rated games the bot
+// actually finished under its budget every time, by 82 ms to 4.8 s a move,
+// so an overrun of 15% with a round trip on top is already the pessimistic
+// end of what real games show.
+//
+// The game that exposed this rule is the exception and is not modelled
+// here: it ran about a second a move over budget, which is not what the
+// engine costs but what contention costs, since a correspondence game with
+// a fifteen second budget was searching on the same cores. A clock rule
+// cannot absorb that and should not be asked to. The fix for it is to stop
+// creating the contention, which is why correspondence challenges are now
+// declined.
+func simulateClock(c control) (lowestMS, meanMS int64) {
+	const (
+		overrunPercent = 115
+		latencyMS      = 100
+	)
+	remaining := c.start
+	lowest := remaining
+	var total int64
+	for i := 0; i < c.moves; i++ {
+		budget := moveTimeBudget("white", gameState{WhiteTimeMS: remaining, WhiteIncMS: c.inc}).Milliseconds()
+		used := budget*overrunPercent/100 + latencyMS
+		if used > remaining {
+			used = remaining
 		}
-		note := ""
-		if flagged {
-			note = "  <-- FLAGGED"
+		remaining -= used
+		total += used
+		if remaining < lowest {
+			lowest = remaining
 		}
-		fmt.Printf("%-18s mean %5dms/move, %6.1fs left%s\n",
-			c.name, total/int64(c.moves), float64(r)/1000, note)
-		if flagged {
-			t.Errorf("%s flagged: the rule must never spend the whole clock", c.name)
+		if remaining <= 0 {
+			return 0, total / int64(i+1)
+		}
+		remaining += c.inc
+	}
+	return lowest, total / int64(c.moves)
+}
+
+// The rule must leave a usable clock in every control the bot accepts, over
+// a game longer than any it actually plays. Ungated on purpose: a spending
+// rule that can flag has to fail the build, not wait for someone to set an
+// environment variable. Set CLOCKSIM=1 to see the numbers.
+func TestTheClockStaysUsableInEveryControlWePlay(t *testing.T) {
+	for _, c := range controlsWePlay() {
+		lowest, mean := simulateClock(c)
+		if os.Getenv("CLOCKSIM") != "" {
+			fmt.Printf("%-16s mean %5dms/move, lowest %6.1fs (floor %.1fs)\n",
+				c.name, mean, float64(lowest)/1000, float64(c.floorMS)/1000)
+		}
+		if lowest < c.floorMS {
+			t.Errorf("%s: clock fell to %.1fs over %d moves, must stay above %.1fs (mean spend %dms)",
+				c.name, float64(lowest)/1000, c.moves, float64(c.floorMS)/1000, mean)
+		}
+		if lowest > c.ceilingMS {
+			t.Errorf("%s: clock never went below %.1fs over %d moves, so the rule is hoarding it; must dip under %.1fs (mean spend %dms)",
+				c.name, float64(lowest)/1000, c.moves, float64(c.ceilingMS)/1000, mean)
+		}
+	}
+}
+
+// The increment is what makes a long game survivable, so a rule that spends
+// more than it earns can only end one way. Checked directly rather than
+// through a whole game: at any clock worth defending, one move must not
+// cost more than the increment puts back.
+func TestSpendingSettlesAboveAScrambleWhenThereIsAnIncrement(t *testing.T) {
+	for _, c := range controlsWePlay() {
+		if c.inc == 0 {
+			continue
+		}
+		// At the floor we want to hold, the budget must be inside the
+		// increment, otherwise the clock keeps falling through it.
+		budget := moveTimeBudget("white", gameState{WhiteTimeMS: c.floorMS, WhiteIncMS: c.inc}).Milliseconds()
+		if budget > c.inc {
+			t.Errorf("%s: with %.1fs left the rule spends %dms against a %dms increment, so the clock keeps draining",
+				c.name, float64(c.floorMS)/1000, budget, c.inc)
 		}
 	}
 }

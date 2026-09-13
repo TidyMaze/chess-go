@@ -20,7 +20,7 @@ func TestShouldAcceptChallengeRejectsVariants(t *testing.T) {
 }
 
 func TestShouldAcceptChallengeAcceptsStandardAtAnySpeedAboveUltraBullet(t *testing.T) {
-	for _, speed := range []string{"bullet", "blitz", "rapid", "classical", "correspondence"} {
+	for _, speed := range []string{"bullet", "blitz", "rapid", "classical"} {
 		c := Challenge{Variant: "standard", SpeedTC: speed}
 		if !shouldAcceptChallenge(c) {
 			t.Errorf("standard %s was rejected", speed)
@@ -269,19 +269,14 @@ func TestApplyMovesStringTracksRepetitionFromAnyStart(t *testing.T) {
 	}
 }
 
-// With a healthy clock the budget must be more generous than the old
-// remaining/30 rule, which left a sixth to a quarter of the clock unspent
-// at the end of real games: minimum remaining across the thirteen lost
-// bullet and blitz games ran from 10.4 s of a 60 s clock to 84.5 s of a
-// 180 s one. Unspent clock is unsearched depth.
-func TestMoveTimeBudgetSpendsMoreWhenTheClockIsHealthy(t *testing.T) {
-	st := gameState{WhiteTimeMS: 120000, WhiteIncMS: 1000}
-	got := moveTimeBudget("white", st)
-	old := time.Duration(float64(st.WhiteTimeMS)/30.0+0.8*float64(st.WhiteIncMS)) * time.Millisecond
-	if got <= old {
-		t.Errorf("budget %v is not more than the old rule's %v on a healthy clock", got, old)
-	}
-}
+// The clock has to be spent, not hoarded: real games used to end with a
+// sixth to a quarter of it untouched, from 10.4 s of a 60 s clock to 84.5 s
+// of a 180 s one, and unspent clock is unsearched depth. That is a property
+// of a whole game rather than of one move, so it is checked over 120 moves
+// against the ceilings in clocksim_test.go, next to the floors that stop
+// the rule spending too much. Pinning a single move against the previous
+// rule's arithmetic, which is what this test used to do, only measured how
+// front loaded the rule was.
 
 // It must not spend into the reserve while the reserve is intact: that is
 // what keeps a long game from flagging. Simulated over 120 moves of
@@ -320,10 +315,12 @@ func TestMoveTimeBudgetIsMoreCautiousWithoutAnIncrement(t *testing.T) {
 	if without >= withInc {
 		t.Errorf("no increment gave %v and an increment gave %v; the no-increment case must be the cautious one", without, withInc)
 	}
-	// And it must match the old, safe rule on a healthy no-increment clock.
-	wantOld := time.Duration(60000/30) * time.Millisecond
-	if without != wantOld {
-		t.Errorf("got %v, want the old %v rule without an increment", without, wantOld)
+	// It must also be at least as careful as the rule this replaced, which
+	// spent a thirtieth of the clock. Pinning the exact constant is what
+	// this test used to do, and that turned a safer rule into a failure.
+	atMost := time.Duration(60000/30) * time.Millisecond
+	if without > atMost {
+		t.Errorf("got %v with no increment, want no more than the %v the old rule spent", without, atMost)
 	}
 }
 
@@ -390,5 +387,21 @@ func TestMoveTimeBudgetCeilingClampsABigIncrementOnATinyClock(t *testing.T) {
 func TestNoClockDefersToTheCaller(t *testing.T) {
 	if got := moveTimeBudget("white", gameState{}); got != 0 {
 		t.Errorf("got %v with no clock, want 0 so the caller decides on the game's speed", got)
+	}
+}
+
+// Correspondence is declined: it moves none of the four ratings being
+// chased, holds a game slot for days, and its fifteen second searches run
+// on the same cores as every real time game. One of those searches is what
+// pushed blitz game hTmspQs0 a second a move over its budget until it
+// flagged.
+func TestCorrespondenceChallengesAreDeclined(t *testing.T) {
+	if shouldAcceptChallenge(Challenge{Variant: "standard", SpeedTC: "correspondence"}) {
+		t.Error("a correspondence challenge was accepted; its search starves the real time games")
+	}
+	for _, speed := range []string{"bullet", "blitz", "rapid", "classical"} {
+		if !shouldAcceptChallenge(Challenge{Variant: "standard", SpeedTC: speed}) {
+			t.Errorf("%s was declined; it is one of the modes being chased", speed)
+		}
 	}
 }

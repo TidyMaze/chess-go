@@ -40,6 +40,17 @@ func shouldAcceptChallenge(c Challenge) bool {
 	if c.SpeedTC == "ultraBullet" {
 		return false
 	}
+	// Correspondence is declined, and the reason is the clock rather than
+	// the chess. It moves none of the four ratings that are being chased,
+	// it holds one of the MaxGames slots for days, and a move in it is
+	// searched for fifteen seconds on the same cores as every real time
+	// game. That last part is not theoretical: blitz game hTmspQs0 was lost
+	// on time while a correspondence game searched beside it, spending
+	// about a second a move more than its budget, which is contention, not
+	// engine cost. Every other measured game finished under budget.
+	if c.SpeedTC == "correspondence" {
+		return false
+	}
 	return true
 }
 
@@ -119,17 +130,19 @@ const unlimitedBudget = 15 * time.Second
 // moveTimeBudget turns the live clock lichess sends into a per-move
 // thinking budget, so the engine spends more time in a long game and less
 // in a short one instead of always thinking for whatever champion.json
-// says. Both remaining time and increment matter: a move played on
-// increment alone should not eat into the clock, and a move played with
-// little time left must not overrun it.
+// says.
 //
-// The formula: a fixed fraction of what is left, plus most of the
-// increment, so the clock is spent roughly evenly across the rest of the
-// game rather than greedily up front. The result never exceeds what is
-// actually left, minus a safety margin so a slow move never times out the
-// game, and it is capped above so a very long time control does not make
-// one move think forever for no measured gain (10.6 plies in 1s already
-// only gains about a ply per second beyond that, see LEARNINGS.md).
+// The shape that matters is what the rule settles at, not what it spends on
+// move one. Spending a share of the clock plus a share of the increment
+// converges on a fixed point, and that fixed point is the whole game: put
+// it too low and every long game is played in a scramble. This one keeps a
+// reserve it never touches, spreads what is above it over the moves still
+// to come, and takes only half the increment, which settles around 45 s in
+// a 5+3 game instead of around 2.
+//
+// Whole games at every control the bot accepts are simulated against this
+// function in clocksim_test.go, with the overrun and round trip a real game
+// pays, and the clock has to stay above a floor in all of them.
 func moveTimeBudget(ourColor string, st gameState) time.Duration {
 	remainMs, incMs := st.WhiteTimeMS, st.WhiteIncMS
 	if ourColor == "black" {
@@ -141,55 +154,50 @@ func moveTimeBudget(ourColor string, st gameState) time.Duration {
 		return 0
 	}
 	const (
-		fractionOfRemaining      = 1.0 / 20.0
-		fractionWithoutIncrement = 1.0 / 30.0
-		fractionOfIncrement      = 0.9
-		safetyMarginMs           = 200
-		minBudgetMs              = 50
-		maxBudgetMs              = 15000
-		// The reserve is what a long game runs on. Spending is generous
-		// above it and throttles hard below, so a game that goes long
-		// slows down by itself instead of flagging.
-		baseReserveMs     = 8000
-		reserveIncrements = 10
-		maxReserveShare   = 0.25
+		// Only half the increment is spent, not most of it. The rule this
+		// replaced spent 0.9 of it plus a twentieth of the clock, which
+		// solves to an equilibrium near 0.7 of the increment: every game
+		// long enough drifted into a permanent two second scramble and
+		// stayed there. Game hTmspQs0 was lost exactly that way, flagging a
+		// 5+3 blitz game while the opponent still held 4:58. Half leaves
+		// enough margin that the clock settles well above the reserve
+		// instead of falling through it.
+		incrementShare = 0.5
+		// What is left above the reserve is spread over this many moves, so
+		// spending tracks the clock rather than a fixed guess at the move.
+		movesToGo = 30
+		// Without an increment there is no equilibrium to settle at: the
+		// clock only goes down, and every move also costs a round trip
+		// whatever the search does. So the same clock is spread much
+		// thinner, which is the one thing the rule this replaced got right.
+		movesToGoWithoutIncrement = 80
+		// The reserve is never spent. It grows with the increment, because
+		// a bigger increment means bigger thinks and more to lose to one
+		// slow search, and is capped as a share of the clock so a 1+10 game
+		// does not reserve most of what it has.
+		baseReserveMs     = 2000
+		reserveIncrements = 5
+		maxReserveShare   = 0.5
+
+		safetyMarginMs = 200
+		minBudgetMs    = 50
+		// Past this a longer think buys about a ply per second, measured,
+		// which is not worth the clock. See LEARNINGS.md.
+		maxBudgetMs = 15000
 	)
-	// A sixth to a quarter of the clock was going unspent in real games:
-	// the thirteen lost bullet and blitz games ended with between 10.4 s
-	// of a 60 s clock and 84.5 s of a 180 s one still on it, and none was
-	// ever close to flagging. Unspent clock is unsearched depth, and
-	// depth is what those losses were short of. Simulated over a whole
-	// game, a flat smaller divisor buys that back but reaches zero in a
-	// 120 move game without increment; holding a reserve buys most of it
-	// and does not.
-	// Increment is what makes generous spending safe: every move hands
-	// some of it back, so a long game cannot drain the clock the way it
-	// can without one. Simulated over 120 moves of 1+0, spending a
-	// twentieth of what is left exhausts the clock exactly and flags,
-	// while a thirtieth ends with half a second in hand. So the share
-	// depends on whether there is an increment to lean on.
-	share := fractionOfRemaining
-	if incMs <= 0 {
-		share = fractionWithoutIncrement
-	}
-	budgetMs := float64(remainMs)*share + float64(incMs)*fractionOfIncrement
-	if budgetMs > maxBudgetMs {
-		budgetMs = maxBudgetMs
-	}
-	// The reserve is capped as a share of the clock: ten increments is
-	// the right idea on a 2+1 bullet clock and absurd on a 1+10 one,
-	// where it would swallow the whole clock and make the engine think
-	// less with an increment than without one.
 	reserveMs := float64(baseReserveMs + reserveIncrements*incMs)
 	if maxReserve := float64(remainMs) * maxReserveShare; reserveMs > maxReserve {
 		reserveMs = maxReserve
 	}
-	// Capping the reserve at a quarter keeps this at three quarters of the
-	// clock or more, so it never goes negative and the scramble is handled
-	// by the floor below rather than by a separate branch.
-	usable := float64(remainMs) - reserveMs
-	if budgetMs > usable {
-		budgetMs = usable
+	// Never negative: the reserve is capped at half the clock just above.
+	spendable := float64(remainMs) - reserveMs
+	spread := float64(movesToGo)
+	if incMs <= 0 {
+		spread = movesToGoWithoutIncrement
+	}
+	budgetMs := float64(incMs)*incrementShare + spendable/spread
+	if budgetMs > maxBudgetMs {
+		budgetMs = maxBudgetMs
 	}
 	if budgetMs < minBudgetMs {
 		budgetMs = minBudgetMs
