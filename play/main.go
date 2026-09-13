@@ -75,6 +75,10 @@ type moveResponse struct {
 	Status     string   `json:"status"`
 	Legal      []string `json:"legal"`
 	ThinkMS    int64    `json:"think_ms,omitempty"`
+	Score      float64  `json:"score"`
+	Depth      int      `json:"depth"`
+	Nodes      int      `json:"nodes"`
+	KNPS       float64  `json:"knps"`
 }
 
 // legalUCI lists every legal move for the side to move, so the browser
@@ -95,7 +99,11 @@ func writeJSON(w http.ResponseWriter, v any) {
 
 func handleNew(w http.ResponseWriter, r *http.Request) {
 	g := game.New()
-	writeJSON(w, moveResponse{OK: true, FEN: g.FEN(), Legal: legalUCI(g)})
+	score := engine.PlayerStaticEval(best(), &g.Board)
+	writeJSON(w, moveResponse{
+		OK: true, FEN: g.FEN(), Legal: legalUCI(g),
+		Score: score,
+	})
 }
 
 func handleMove(w http.ResponseWriter, r *http.Request) {
@@ -136,18 +144,31 @@ func handleMove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	engine.ResetNodes()
 	t0 := time.Now()
-	reply, ok := engine.PlayerPick(best(), g)
+	reply, score, ok := engine.PlayerPickScored(best(), g)
+	elapsed := time.Since(t0)
 	if !ok {
 		writeJSON(w, moveResponse{OK: true, FEN: g.FEN(), Status: status(g), Legal: legalUCI(g)})
 		return
 	}
 	g.ApplyMove(reply.From, reply.To)
 
+	nodes := engine.TotalNodes()
+	depth := engine.LastSearchDepth()
+	var knps float64
+	if elapsed.Seconds() > 0 {
+		knps = float64(nodes) / elapsed.Seconds() / 1000
+	}
+
 	writeJSON(w, moveResponse{
 		OK: true, FEN: g.FEN(), EngineMove: reply.UCI(),
 		Status: status(g), Legal: legalUCI(g),
-		ThinkMS: time.Since(t0).Milliseconds(),
+		ThinkMS: elapsed.Milliseconds(),
+		Score:   score,
+		Depth:   depth,
+		Nodes:   nodes,
+		KNPS:    knps,
 	})
 }
 
@@ -164,12 +185,65 @@ func handleHint(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, moveResponse{Error: "bad position"})
 		return
 	}
-	m, ok := engine.PlayerPick(best(), g)
+	engine.ResetNodes()
+	t0 := time.Now()
+	m, score, ok := engine.PlayerPickScored(best(), g)
+	elapsed := time.Since(t0)
 	if !ok {
 		writeJSON(w, moveResponse{Error: "no move"})
 		return
 	}
-	writeJSON(w, moveResponse{OK: true, FEN: req.FEN, EngineMove: m.UCI(), Legal: legalUCI(g)})
+	nodes := engine.TotalNodes()
+	depth := engine.LastSearchDepth()
+	var knps float64
+	if elapsed.Seconds() > 0 {
+		knps = float64(nodes) / elapsed.Seconds() / 1000
+	}
+	writeJSON(w, moveResponse{
+		OK: true, FEN: req.FEN, EngineMove: m.UCI(), Legal: legalUCI(g),
+		ThinkMS: elapsed.Milliseconds(),
+		Score:   score,
+		Depth:   depth,
+		Nodes:   nodes,
+		KNPS:    knps,
+	})
+}
+
+func handleEval(w http.ResponseWriter, r *http.Request) {
+	var req moveRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, moveResponse{Error: "bad request"})
+		return
+	}
+	g, err := game.ParseFEN(req.FEN)
+	if err != nil {
+		writeJSON(w, moveResponse{Error: "bad position"})
+		return
+	}
+	engine.ResetNodes()
+	t0 := time.Now()
+	p := best()
+	p.Depth = 5
+	p.TimeBudget = 100 * time.Millisecond
+	_, score, ok := engine.PlayerPickScored(p, g)
+	elapsed := time.Since(t0)
+	if !ok {
+		score = engine.PlayerStaticEval(best(), &g.Board)
+	}
+	nodes := engine.TotalNodes()
+	depth := engine.LastSearchDepth()
+	var knps float64
+	if elapsed.Seconds() > 0 {
+		knps = float64(nodes) / elapsed.Seconds() / 1000
+	}
+	writeJSON(w, moveResponse{
+		OK: true, FEN: req.FEN, Legal: legalUCI(g),
+		ThinkMS: elapsed.Milliseconds(),
+		Score:   score,
+		Depth:   depth,
+		Nodes:   nodes,
+		KNPS:    knps,
+	})
 }
 
 func main() {
@@ -183,6 +257,7 @@ func main() {
 	http.HandleFunc("/api/new", handleNew)
 	http.HandleFunc("/api/move", handleMove)
 	http.HandleFunc("/api/hint", handleHint)
+	http.HandleFunc("/api/eval", handleEval)
 	http.HandleFunc("/api/engine", func(w http.ResponseWriter, r *http.Request) {
 		c, p := champions.Current()
 		eval := "hand-written evaluation"

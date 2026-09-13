@@ -270,6 +270,39 @@ func (b *Board) HitsSlider(from Sq, df, dr int, enemy Color, t1, t2 PieceType) b
 	return b.hitsSliderDelta(index(from), dr*width+df, enemy, t1, t2)
 }
 
+// FindPinnedPiece scans ray (df, dr) from king. If exactly one piece of ownColor is on the ray
+// and the first piece behind it is an enemy slider of type s1 or s2, it returns the pinned square and true.
+func (b *Board) FindPinnedPiece(king Sq, df, dr int, ownColor Color, s1, s2 PieceType) (Sq, bool) {
+	idx := index(king)
+	step := dr*width + df
+	foundOwn := false
+	var ownIdx int
+	for {
+		idx += step
+		c := b.cells[idx]
+		if c == codeOffBoard {
+			return Sq{}, false
+		}
+		if c == codeEmpty {
+			continue
+		}
+		p := decoded[c]
+		if p.Color == ownColor {
+			if foundOwn {
+				return Sq{}, false
+			}
+			foundOwn = true
+			ownIdx = idx
+		} else {
+			if foundOwn && (p.Type == s1 || p.Type == s2) {
+				return Sq{File: (ownIdx % width) - pad, Rank: (ownIdx / width) - pad}, true
+			}
+			return Sq{}, false
+		}
+	}
+}
+
+
 // IsAttackedBy reports whether sq is attacked by side by.
 func (b *Board) IsAttackedBy(sq Sq, by Color) bool {
 	baseIdx := index(sq)

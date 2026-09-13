@@ -124,7 +124,22 @@
   <summary>Play the engine <span id="playSummary" style="opacity:.75;font-weight:400"></span></summary>
   <div>
     <div class="note" id="playMeta"></div>
-    <div class="board" id="playBoard"></div>
+    <div style="display:flex;gap:1.5rem;align-items:flex-start;flex-wrap:wrap;margin-top:0.6rem">
+      <div class="board" id="playBoard"></div>
+      <div style="flex:1 1 240px;min-width:220px">
+        <div class="card" style="margin-bottom:0.7rem">
+          <div class="k">Live Board Evaluation</div>
+          <div class="v" id="liveEval">0.00</div>
+          <div class="n" id="liveEvalText">Equal position</div>
+          <div class="bar" style="height:0.6rem;margin:0.5rem 0 0.2rem;background:#2a2d34"><div class="fill" id="evalBar" style="width:50%;background:#4ade80"></div></div>
+        </div>
+        <div class="card" style="margin-bottom:0.7rem">
+          <div class="k">Live Search Depth & Speed</div>
+          <div class="v" id="liveSpeed">- kn/s</div>
+          <div class="n" id="liveDepth">depth 0 (0 nodes)</div>
+        </div>
+      </div>
+    </div>
     <div class="controls">
       <button id="playNew">New game</button>
       <button id="playHint">Hint</button>
@@ -238,6 +253,36 @@ function setStatus(text, kind) {
   el.className = kind || "";
 }
 
+function updateLiveMetrics(score, depth, nodes, knps) {
+  if (typeof score === "number" && !isNaN(score)) {
+    const sStr = (score >= 0 ? "+" : "") + score.toFixed(2);
+    const evalEl = document.getElementById("liveEval");
+    if (evalEl) {
+      evalEl.textContent = sStr;
+      evalEl.className = "v " + (score > 0.3 ? "pass" : (score < -0.3 ? "fail" : "neutral"));
+    }
+    const textEl = document.getElementById("liveEvalText");
+    if (textEl) {
+      if (Math.abs(score) < 0.2) textEl.textContent = "Equal position";
+      else if (score > 0) textEl.textContent = "White ahead +" + score.toFixed(2);
+      else textEl.textContent = "Black ahead " + score.toFixed(2);
+    }
+    const barEl = document.getElementById("evalBar");
+    if (barEl) {
+      const pct = Math.max(5, Math.min(95, 50 + score * 10));
+      barEl.style.width = pct + "%";
+    }
+  }
+  if (typeof depth === "number" && depth > 0) {
+    const depthEl = document.getElementById("liveDepth");
+    if (depthEl) depthEl.textContent = `depth ${depth} (${(nodes || 0).toLocaleString()} nodes)`;
+  }
+  if (typeof knps === "number" && knps > 0) {
+    const speedEl = document.getElementById("liveSpeed");
+    if (speedEl) speedEl.textContent = `${Math.round(knps).toLocaleString()} kn/s`;
+  }
+}
+
 async function post(path, body) {
   const r = await fetch(path, {method: "POST", body: JSON.stringify(body || {})});
   return r.json();
@@ -258,7 +303,8 @@ async function onPlayClick(square) {
     playLegal = res.legal || [];
     const em = res.engine_move;
     renderPlay(em ? em.slice(0,2) : from, em ? em.slice(2,4) : square);
-    let msg = em ? `engine played ${em} in ${res.think_ms} ms` : "";
+    updateLiveMetrics(res.score, res.depth, res.nodes, res.knps);
+    let msg = em ? `engine played ${em} in ${res.think_ms} ms (depth ${res.depth}, ${Math.round(res.knps || 0)} kn/s)` : "";
     if (res.status) msg = res.status + (msg ? " . " + msg : "");
     setStatus(msg, res.status && res.status !== "check" ? "good" : "");
     return;
@@ -277,6 +323,7 @@ async function newGame() {
   playSel = null;
   buildPlayBoard();
   renderPlay();
+  updateLiveMetrics(res.score || 0.0, 0, 0, 0);
   setStatus("");
   // Playing Black means the engine opens, so ask it for the first move by
   // letting it reply to no move at all.
@@ -285,8 +332,14 @@ async function newGame() {
     setStatus("thinking...");
     const r = await post("/api/hint", {fen: playFEN});
     if (r.ok && r.engine_move) {
+      updateLiveMetrics(r.score, r.depth, r.nodes, r.knps);
       const mv = await post("/api/move", {fen: playFEN, from: r.engine_move.slice(0,2), to: r.engine_move.slice(2,4)});
-      if (mv.ok) { playFEN = mv.fen; playLegal = mv.legal || []; renderPlay(); }
+      if (mv.ok) {
+        playFEN = mv.fen;
+        playLegal = mv.legal || [];
+        renderPlay();
+        updateLiveMetrics(mv.score, mv.depth, mv.nodes, mv.knps);
+      }
     }
     playBusy = false;
     setStatus("");
@@ -308,7 +361,8 @@ document.getElementById("playHint").addEventListener("click", async () => {
   if (r.ok && r.engine_move) {
     playSel = r.engine_move.slice(0, 2);
     renderPlay(r.engine_move.slice(0,2), r.engine_move.slice(2,4));
-    setStatus("engine suggests " + r.engine_move);
+    updateLiveMetrics(r.score, r.depth, r.nodes, r.knps);
+    setStatus(`engine suggests ${r.engine_move} (depth ${r.depth}, score ${(r.score >= 0 ? "+" : "") + (r.score || 0).toFixed(2)})`);
   } else setStatus("no suggestion", "bad");
 });
 

@@ -202,3 +202,23 @@ func TestBoardFastIsAttackedBy(t *testing.T) {
 		t.Errorf("e5 should not be attacked by White")
 	}
 }
+
+func TestBoardFindPinnedPiece(t *testing.T) {
+	b := NewEmpty()
+	// White King on e1, White Pawn on e2, Black Rook on e8 -> e2 pawn is pinned
+	b.Place(Sq{4, 0}, Piece{White, King})
+	b.Place(Sq{4, 1}, Piece{White, Pawn})
+	b.Place(Sq{4, 7}, Piece{Black, Rook})
+
+	pinned, ok := b.FindPinnedPiece(Sq{4, 0}, 0, 1, White, Rook, Queen)
+	if !ok || pinned != (Sq{4, 1}) {
+		t.Fatalf("expected e2 to be pinned, got pinned=%v ok=%v", pinned, ok)
+	}
+
+	// Not pinned by Bishop
+	_, okBishop := b.FindPinnedPiece(Sq{4, 0}, 0, 1, White, Bishop, Queen)
+	if okBishop {
+		t.Fatalf("expected rook not to pin when checking for bishop")
+	}
+}
+

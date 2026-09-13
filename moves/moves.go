@@ -168,32 +168,9 @@ func (p *PinnedSet) add(s board.Sq) {
 func PinnedSquares(b *board.Board, color board.Color) PinnedSet {
 	king := b.KingSquare(color)
 	var pinned PinnedSet
-
 	for _, ry := range pinRays {
-		f, r := king.File+ry.d[0], king.Rank+ry.d[1]
-		var ownSq board.Sq
-		foundOwn := false
-		for {
-			target := board.Sq{File: f, Rank: r}
-			if b.CellOffBoard(target) {
-				break
-			}
-			p, occupied := b.CellPiece(target)
-			if occupied {
-				if p.Color == color {
-					if foundOwn {
-						break
-					}
-					foundOwn = true
-					ownSq = target
-				} else {
-					if foundOwn && (p.Type == ry.slider || p.Type == ry.slider2) {
-						pinned.add(ownSq)
-					}
-					break
-				}
-			}
-			f, r = f+ry.d[0], r+ry.d[1]
+		if ownSq, ok := b.FindPinnedPiece(king, ry.d[0], ry.d[1], color, ry.slider, ry.slider2); ok {
+			pinned.add(ownSq)
 		}
 	}
 	return pinned

@@ -536,6 +536,11 @@ func playFrom(g *game.Game, white, black Player, maxMoves int, live LiveHook) (b
 // PlayerPick exposes a Player's move choice for benchmarking harnesses.
 func PlayerPick(p Player, g *game.Game) (game.Move, bool) { return p.pick(g) }
 
+// PlayerPickScored exposes a Player's move choice and evaluation score.
+func PlayerPickScored(p Player, g *game.Game) (game.Move, float64, bool) {
+	return p.pickScored(g, nil)
+}
+
 // PlayerPickWith is PlayerPick with a caller-supplied transposition
 // table.
 //
