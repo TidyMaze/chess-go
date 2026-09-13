@@ -991,6 +991,31 @@ distillation ceiling stands: a network trained to predict its own teacher's
 score cannot pass the teacher, and changing how deep the teacher looks does
 not change that.
 
+## Deep labels at 400k: the caveat is closed, 2026-09-13
+
+The depth-8 result at 60000 positions left one thing open in its own
+words: at that size every network is data-starved, so it could not rule
+out that depth-8 labels pay off at a volume where the network is not
+starved. This session paid for that volume, 400153 positions at depth 8,
+about two hours of labelling at 32 positions a second.
+
+A HalfKP network of the champion's own shape, 64 hidden and 8 buckets,
+trained on it explains 80.7% of held-out variance. Raced against the
+champion at 200 ms a move, single threaded:
+
+| | games | W-D-L | Elo |
+|---|---|---|---|
+| depth-8 labels, 400k | 100 | 17-13-70 | **-205 +/- 83** |
+
+SPRT stopped it after one chunk, llr -4.04 against a -2.94 bound. The
+caveat is not supported at 400k, and the volume that would settle it for
+good was already costed at about 21 days of labelling.
+
+The cost ratio is the other half of the argument, and it was measured
+again here rather than recalled: depth 3 labels the same corpus at 1876
+positions a second against 32, roughly sixty times faster for the same
+400k.
+
 ## Plan toward Deep Blue 1997 (~2700), set 2026-09-08
 
 Standing at 2465 on the Stockfish ladder at fixed depth 6. Ordered by
