@@ -561,3 +561,88 @@ func TestEffectivePlayerKeepsTheChampionsBudgetWithNoClock(t *testing.T) {
 		t.Errorf("got %v, want the champion's own %v kept with no clock data", got.TimeBudget, base.TimeBudget)
 	}
 }
+
+// Every game runs its own search, and champion.json asks for 8 threads.
+// With seven games in flight that is 56 search threads on a machine with
+// 4 performance cores, so every game searches far shallower than the
+// champion was ever calibrated at. Observed live: seven concurrent games.
+// Past the cap a challenge must be declined rather than accepted and
+// played badly.
+func TestBotDeclinesChallengesWhenAtItsGameLimit(t *testing.T) {
+	f := newFakeAPI()
+	// One game starts and stays open (its stream never closes), then a
+	// challenge arrives while it is still running.
+	f.streams["/api/stream/event"] = strings.Join([]string{
+		`{"type":"gameStart","game":{"id":"gbusy"}}`,
+		`{"type":"challenge","challenge":{"id":"clate","rated":true,"speed":"rapid","variant":{"key":"standard"},"challenger":{"id":"someoneelse"}}}`,
+	}, "\n") + "\n"
+	f.streams["/api/bot/game/stream/gbusy"] = `{"type":"gameFull","id":"gbusy","white":{"id":"opponent"},"black":{"id":"tidymazebot"},"initialFen":"startpos","state":{"type":"gameState","moves":"","status":"started"}}` + "\n"
+
+	b := &Bot{API: f, Player: engine.Strong(1), Username: "tidymazebot", Log: silentLogger(), MaxGames: 1}
+	b.gamesInPlay.Store(1) // a game already occupying the only slot
+	if err := b.Run(); err != nil {
+		t.Fatal(err)
+	}
+	posts := f.postedPaths()
+	for _, p := range posts {
+		if strings.Contains(p, "/accept") {
+			t.Errorf("accepted a challenge while at the game limit: %v", posts)
+		}
+	}
+	found := false
+	for _, p := range posts {
+		if p == "/api/challenge/clate/decline" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("posts: %v, want a decline for the challenge that arrived at the limit", posts)
+	}
+}
+
+// With room to spare, a challenge is accepted exactly as before.
+func TestBotAcceptsWhenBelowItsGameLimit(t *testing.T) {
+	f := newFakeAPI()
+	f.streams["/api/stream/event"] = `{"type":"challenge","challenge":{"id":"cfree","rated":true,"speed":"rapid","variant":{"key":"standard"},"challenger":{"id":"someoneelse"}}}` + "\n"
+	b := &Bot{API: f, Player: engine.Strong(1), Username: "tidymazebot", Log: silentLogger(), MaxGames: 4}
+	if err := b.Run(); err != nil {
+		t.Fatal(err)
+	}
+	posts := f.postedPaths()
+	if len(posts) != 1 || posts[0] != "/api/challenge/cfree/accept" {
+		t.Errorf("posts: %v, want a single accept", posts)
+	}
+}
+
+// MaxGames zero means no limit, the behaviour everything else in this
+// package was written against.
+func TestBotWithNoGameLimitAcceptsAsBefore(t *testing.T) {
+	f := newFakeAPI()
+	f.streams["/api/stream/event"] = `{"type":"challenge","challenge":{"id":"cnl","rated":true,"speed":"rapid","variant":{"key":"standard"},"challenger":{"id":"someoneelse"}}}` + "\n"
+	b := &Bot{API: f, Player: engine.Strong(1), Username: "tidymazebot", Log: silentLogger()}
+	b.gamesInPlay.Store(99)
+	if err := b.Run(); err != nil {
+		t.Fatal(err)
+	}
+	posts := f.postedPaths()
+	if len(posts) != 1 || posts[0] != "/api/challenge/cnl/accept" {
+		t.Errorf("posts: %v, want a single accept with no limit set", posts)
+	}
+}
+
+// A decline that fails while at the game limit must be logged, the same
+// as any other failed decline.
+func TestBotLogsAFailedDeclineAtTheGameLimit(t *testing.T) {
+	f := newFakeAPI()
+	f.postErr["/api/challenge/cbusy/decline"] = fmt.Errorf("limit decline boom")
+	f.streams["/api/stream/event"] = `{"type":"challenge","challenge":{"id":"cbusy","rated":true,"speed":"rapid","variant":{"key":"standard"},"challenger":{"id":"someoneelse"}}}` + "\n"
+	var buf syncBuf
+	b := &Bot{API: f, Player: engine.Strong(1), Username: "tidymazebot", Log: newBufLogger(&buf), MaxGames: 1}
+	b.gamesInPlay.Store(1)
+	if err := b.Run(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(buf.String(), "limit decline boom") {
+		t.Errorf("log did not mention the failed decline: %q", buf.String())
+	}
+}

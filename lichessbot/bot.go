@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"net/url"
+	"sync/atomic"
 
 	"chess/engine"
 )
@@ -21,6 +22,16 @@ type Bot struct {
 	Player   engine.Player
 	Username string // lowercase, as lichess reports it in game.white.id
 	Log      *log.Logger
+	// MaxGames caps how many games are played at once. Zero means no cap.
+	//
+	// Each game runs its own search, and the champion asks for 8 threads,
+	// so games in flight multiply: seven at once is 56 search threads on a
+	// machine with 4 performance cores, and every one of them then searches
+	// far shallower than the champion was ever calibrated at. Past the cap
+	// a challenge is declined rather than accepted and played badly.
+	MaxGames int
+
+	gamesInPlay atomic.Int32
 }
 
 // Run reads the account event stream until it ends (the connection drops
@@ -64,6 +75,13 @@ func (b *Bot) handleChallenge(line []byte) {
 		return
 	}
 	c := e.Challenge.toChallenge(b.Username)
+	if b.MaxGames > 0 && int(b.gamesInPlay.Load()) >= b.MaxGames {
+		b.logf("declining challenge %s: already playing %d games", c.ID, b.gamesInPlay.Load())
+		if err := b.API.postForm("/api/challenge/"+c.ID+"/decline", ""); err != nil {
+			b.logf("decline %s failed: %v", c.ID, err)
+		}
+		return
+	}
 	if c.Outgoing {
 		// Lichess echoes our own outgoing challenges on this stream too;
 		// there is no accept or decline action for one we sent ourselves.
@@ -87,6 +105,8 @@ func (b *Bot) handleChallenge(line []byte) {
 // rather than incrementally tracked; a dropped or reordered event then
 // costs one extra replay instead of a desynced board.
 func (b *Bot) playGame(gameID string) {
+	b.gamesInPlay.Add(1)
+	defer b.gamesInPlay.Add(-1)
 	stream, err := b.API.streamNDJSON("/api/bot/game/stream/" + gameID)
 	if err != nil {
 		b.logf("game %s: stream failed: %v", gameID, err)

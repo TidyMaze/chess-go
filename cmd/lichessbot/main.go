@@ -27,6 +27,7 @@ func run(args []string) int {
 	fs := flag.NewFlagSet("lichessbot", flag.ContinueOnError)
 	champion := fs.String("champion", "champion.json", "champion file to play")
 	username := fs.String("username", "", "the bot account's own lichess username, lowercase")
+	maxGames := fs.Int("max-games", 2, "how many games to play at once (0 for no limit); each game runs its own multi-threaded search, so too many starve each other of cores")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -53,6 +54,7 @@ func run(args []string) int {
 		API:      lichessbot.NewAPI(token),
 		Player:   p,
 		Username: *username,
+		MaxGames: *maxGames,
 		Log:      log.New(os.Stdout, "", log.LstdFlags),
 	}
 	if err := b.Run(); err != nil {
