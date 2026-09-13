@@ -206,6 +206,16 @@ func (e evalLine) bestLine() (string, bool) {
 // positions to start self-play from. Here the move is the point: the
 // engine plays it instead of searching, which buys forty plies of depth
 // in the opening for the cost of a map lookup.
+// WARNING: this reads the Lichess *evaluation* database (fen, evals with
+// cp/mate/depth, and principal variations) and takes its moves from the
+// deepest engine line via bestPV. Those are externally computed position
+// scores, which this project does not allow: a game database is fine, a
+// database of engine evaluations is not, and a book built from one is
+// another engine's opinion wearing this one's name.
+//
+// Do not run this to build a book the engine plays. A book from real game
+// results (the most played move per position, from the PGN database) is
+// allowed and would need a different reader; this is not it.
 func ExtractBook(r io.Reader, path string, max, minPieces int) error {
 	f, err := os.Create(path)
 	if err != nil {
