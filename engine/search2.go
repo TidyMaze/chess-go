@@ -429,16 +429,17 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 	// a node actually worth -6.333333, and the root played a move 3.6
 	// pawns worse than the best one while reporting the correct score for
 	// the move it did not play.
-	key := zobristBoard(&g.Board, color)
-	if ply > 0 && depth > 0 && !(c.ev != nil && c.ev.NoRepetition) && c.isRepetition(key, ply) {
-		// A draw, scored 0 regardless of whose turn it is. This is
-		// deliberately checked before the transposition table: the table
-		// keys on the position, not on how the game reached it, so it
-		// cannot distinguish a first visit from a repetition.
-		return 0
+	var key uint64
+	if ply < maxSearchPly && c.path[ply] != 0 {
+		key = c.path[ply]
+	} else {
+		key = zobristBoard(&g.Board, color)
+		if ply < maxSearchPly {
+			c.path[ply] = key
+		}
 	}
-	if ply < maxSearchPly {
-		c.path[ply] = key
+	if ply > 0 && depth > 0 && !(c.ev != nil && c.ev.NoRepetition) && c.isRepetition(key, ply) {
+		return 0
 	}
 	if deadPosition(&g.Board) {
 		return 0
@@ -464,7 +465,7 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 	// on the heap. The allocation profile put 48% of all bytes there.
 	if depth <= 0 {
 		if c.quiescence {
-			return quiesce(g, color, maximizingFor, alpha, beta, c.ev, 0, ply)
+			return quiesceWithKey(g, key, color, maximizingFor, alpha, beta, c.ev, 0, ply)
 		}
 		var moveBuf [96]game.Move
 		legal, _ := g.AppendLegalMovesInCheck(moveBuf[:0], color)
@@ -573,7 +574,17 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 		if ply < maxSearchPly {
 			c.moveStack[ply] = game.Move{}
 		}
+		if ply+1 < maxSearchPly {
+			nullKey := key ^ zobristBlackToMove
+			if hadEP && !c.ev.KeepNullMoveEP {
+				nullKey ^= zobristEP[ep.File]
+			}
+			c.path[ply+1] = nullKey
+		}
 		score := c.searchNull(g, color.Other(), maximizingFor, depth-r, ply+1, alpha, beta, true)
+		if ply+1 < maxSearchPly {
+			c.path[ply+1] = 0
+		}
 		g.Board.SetEPSquare(ep, hadEP)
 		if c.aborted {
 			return 0
@@ -700,6 +711,10 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 			reduction = 0
 		}
 
+		if ply+1 < maxSearchPly {
+			c.path[ply+1] = zobristUpdate(key, &g.Board, m, undo, promoted)
+		}
+
 		var value float64
 		if i == 0 {
 			value = c.search(g, color.Other(), maximizingFor, depth-1+extension, ply+1, alpha, beta)
@@ -727,6 +742,9 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 		}
 
 		g.Board.UnmakeMove(undo)
+		if ply+1 < maxSearchPly {
+			c.path[ply+1] = 0
+		}
 		// An aborted child returned 0, not a score. Unwind without
 		// storing: the table is reused for the rest of the game, and a
 		// timed search that ran out of clock was leaving zeros in it for
@@ -1012,7 +1030,8 @@ func searchIterative(g *game.Game, color board.Color, maxDepth int, ev *Eval, us
 		}
 
 		for i, m := range ordered {
-			undo, _ := makeSearchMove(g, m)
+			undo, promoted := makeSearchMove(g, m)
+			ctx.path[1] = zobristUpdate(ctx.path[0], &g.Board, m, undo, promoted)
 			// Every move after the first is searched against the best score so
 			// far, as the tree below does at every node; the root used the same
 			// window for all of them. A hair below the best, not at it, so a
@@ -1023,6 +1042,7 @@ func searchIterative(g *game.Game, color board.Color, maxDepth int, ev *Eval, us
 				moveAlpha = bestScore - 1e-6
 			}
 			score := ctx.search(g, color.Other(), color, depth-1, 1, moveAlpha, beta)
+			ctx.path[1] = 0
 			g.Board.UnmakeMove(undo)
 			if ctx.aborted {
 				// A child cut off mid-search returned nothing usable.

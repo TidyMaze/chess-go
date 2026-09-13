@@ -216,12 +216,15 @@ const maxQuiescePly = 4
 // basePly is the search ply of the node quiescence started from, so the
 // accumulator stack keeps counting below it.
 func quiesce(g *game.Game, color, maximizingFor board.Color, alpha, beta float64, ev *Eval, ply, basePly int) float64 {
+	return quiesceWithKey(g, zobristBoard(&g.Board, color), color, maximizingFor, alpha, beta, ev, ply, basePly)
+}
+
+func quiesceWithKey(g *game.Game, key uint64, color, maximizingFor board.Color, alpha, beta float64, ev *Eval, ply, basePly int) float64 {
 	atomic.AddInt64(&quiesceNodes, 1)
 	if deadPosition(&g.Board) {
 		return 0
 	}
 	tt := ev.table()
-	key := zobristBoard(&g.Board, color)
 	if tt != nil {
 		if score, ok := tt.probe(key, 0, maximizingFor, alpha, beta); ok {
 			return score
@@ -306,12 +309,13 @@ func quiesce(g *game.Game, color, maximizingFor board.Color, alpha, beta float64
 			}
 		}
 
-		undo, _ := makeSearchMove(g, m)
+		undo, promoted := makeSearchMove(g, m)
 		if losesOnItsFace && !moves.IsInCheck(&g.Board, color.Other()) {
 			g.Board.UnmakeMove(undo)
 			continue
 		}
-		value := quiesce(g, color.Other(), maximizingFor, alpha, beta, ev, ply+1, basePly)
+		childKey := zobristUpdate(key, &g.Board, m, undo, promoted)
+		value := quiesceWithKey(g, childKey, color.Other(), maximizingFor, alpha, beta, ev, ply+1, basePly)
 		g.Board.UnmakeMove(undo)
 		if maximizing {
 			if value > best {

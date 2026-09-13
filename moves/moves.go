@@ -2,7 +2,11 @@
 // and pin detection for the chess engine.
 package moves
 
-import "chess/board"
+import (
+	"math/bits"
+
+	"chess/board"
+)
 
 // Indexed by Color, not keyed by it: read in every move-generation call.
 var startRank = [2]int{board.White: 1, board.Black: 6}
@@ -140,29 +144,20 @@ var pinRays = func() [8]pinRay {
 	return out
 }()
 
-// PinnedSet is a fixed-size set of pinned squares: at most one piece can
-// be pinned along each of the 8 rays from the king, so this never needs a
-// map (which was the single biggest allocator in the search -- one map
-// per node, almost always ending up empty).
-type PinnedSet struct {
-	squares [8]board.Sq
-	count   int
+// PinnedSet is a 64-bit bitset of pinned squares: checking membership
+// is a single shift and bitwise AND instruction, and Len is popcount.
+type PinnedSet uint64
+
+func (p PinnedSet) Has(s board.Sq) bool {
+	return (p & (1 << (s.Rank*8 + s.File))) != 0
 }
 
-func (p *PinnedSet) Has(s board.Sq) bool {
-	for i := 0; i < p.count; i++ {
-		if p.squares[i] == s {
-			return true
-		}
-	}
-	return false
+func (p PinnedSet) Len() int {
+	return bits.OnesCount64(uint64(p))
 }
-
-func (p *PinnedSet) Len() int { return p.count }
 
 func (p *PinnedSet) add(s board.Sq) {
-	p.squares[p.count] = s
-	p.count++
+	*p |= 1 << (s.Rank*8 + s.File)
 }
 
 func PinnedSquares(b *board.Board, color board.Color) PinnedSet {

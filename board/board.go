@@ -511,6 +511,21 @@ type Undo struct {
 	wasEPCapture bool
 }
 
+func (u Undo) MovedCode() uint8     { return uint8(u.movedCode) }
+func (u Undo) CapturedRaw() uint8   { return uint8(u.capturedRaw) }
+func (u Undo) Castle() uint8        { return u.castle }
+func (u Undo) OldEPSquare() (Sq, bool) {
+	if u.epSquare == noEP {
+		return Sq{}, false
+	}
+	return squareFromIndex(u.epSquare), true
+}
+func (u Undo) RookFrom() Sq         { return u.rookFrom }
+func (u Undo) RookTo() Sq           { return u.rookTo }
+func (u Undo) WasCastling() bool    { return u.wasCastling }
+func (u Undo) EPCaptured() Sq       { return u.epCaptured }
+func (u Undo) WasEPCapture() bool   { return u.wasEPCapture }
+
 // MakeMove applies a move and returns what is needed to undo it.
 func (b *Board) MakeMove(from, to Sq) Undo {
 	u := Undo{

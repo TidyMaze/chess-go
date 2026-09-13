@@ -69,6 +69,64 @@ func zobristBoard(b *board.Board, turn board.Color) uint64 {
 	return h
 }
 
+// zobristUpdate updates key incrementally across a move.
+func zobristUpdate(key uint64, b *board.Board, m game.Move, undo board.Undo, promoted bool) uint64 {
+	key ^= zobristBlackToMove
+
+	oldCastle := undo.Castle() & 0x0f
+	newCastle := b.Castle() & 0x0f
+	if oldCastle != newCastle {
+		key ^= zobristCastle[oldCastle] ^ zobristCastle[newCastle]
+	}
+
+	if oldEP, ok := undo.OldEPSquare(); ok {
+		key ^= zobristEP[oldEP.File]
+	}
+	if newEP, ok := b.EPSquare(); ok {
+		key ^= zobristEP[newEP.File]
+	}
+
+	movedCode := undo.MovedCode()
+	movedIdx := int(movedCode - 2)
+	fromSq := m.From.Rank*8 + m.From.File
+	toSq := m.To.Rank*8 + m.To.File
+	key ^= zobristPiece[movedIdx][fromSq]
+
+	if promoted {
+		queenIdx := movedIdx + 4
+		key ^= zobristPiece[queenIdx][toSq]
+	} else {
+		key ^= zobristPiece[movedIdx][toSq]
+	}
+
+	if capCode := undo.CapturedRaw(); capCode >= 2 {
+		capIdx := int(capCode - 2)
+		key ^= zobristPiece[capIdx][toSq]
+	}
+
+	if undo.WasEPCapture() {
+		epSq := undo.EPCaptured()
+		pawnIdx := int(board.Pawn)
+		if movedIdx < 6 {
+			pawnIdx += 6
+		}
+		key ^= zobristPiece[pawnIdx][epSq.Rank*8+epSq.File]
+	}
+
+	if undo.WasCastling() {
+		rFrom := undo.RookFrom()
+		rTo := undo.RookTo()
+		rookIdx := int(board.Rook)
+		if movedIdx >= 6 {
+			rookIdx += 6
+		}
+		key ^= zobristPiece[rookIdx][rFrom.Rank*8+rFrom.File] ^ zobristPiece[rookIdx][rTo.Rank*8+rTo.File]
+	}
+
+	return key
+}
+
+
 type ttFlag uint8
 
 const (
