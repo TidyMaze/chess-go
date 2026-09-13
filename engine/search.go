@@ -220,6 +220,14 @@ func quiesce(g *game.Game, color, maximizingFor board.Color, alpha, beta float64
 	if deadPosition(&g.Board) {
 		return 0
 	}
+	tt := ev.table()
+	key := zobristBoard(&g.Board, color)
+	if tt != nil {
+		if score, ok := tt.probe(key, 0, maximizingFor, alpha, beta); ok {
+			return score
+		}
+	}
+	origAlpha, origBeta := alpha, beta
 	ev.setAccPly(&g.Board, basePly+ply+1)
 	// Terminal first. Quiescence used to stand pat in any position at all,
 	// so a capture that delivered mate was scored as the material it took
@@ -323,6 +331,15 @@ func quiesce(g *game.Game, color, maximizingFor board.Color, alpha, beta float64
 		if beta <= alpha {
 			break
 		}
+	}
+	if tt != nil {
+		flag := ttExact
+		if best <= origAlpha {
+			flag = ttUpperBound
+		} else if best >= origBeta {
+			flag = ttLowerBound
+		}
+		tt.store(key, best, 0, flag, maximizingFor)
 	}
 	return best
 }
