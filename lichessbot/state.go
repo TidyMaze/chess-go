@@ -51,6 +51,12 @@ func shouldAcceptChallenge(c Challenge) bool {
 	if c.SpeedTC == "correspondence" {
 		return false
 	}
+	// Rated only, testing included. An unrated game costs the same cores
+	// and the same wall clock as a rated one and moves none of the four
+	// ratings, so it is a game slot spent on nothing measurable.
+	if !c.Rated {
+		return false
+	}
 	return true
 }
 
@@ -179,6 +185,22 @@ func moveTimeBudget(ourColor string, st gameState) time.Duration {
 		reserveIncrements = 5
 		maxReserveShare   = 0.5
 
+		// What a move costs the clock beyond its search, almost all of it
+		// sending the move to lichess. Instrumented in play at 530 ms to
+		// 680 ms a move, steady across time controls, while the search
+		// itself stayed within 7% of its budget. Everything else was ruled
+		// out by measurement: a full cold request to lichess including DNS,
+		// TCP and TLS takes 17 ms, the same client does 17 ms with a stream
+		// open on it, draining the body or not makes no difference, GC runs
+		// 0.5 ms a cycle, and pausing every other process on the machine
+		// changed nothing.
+		//
+		// The clock is charged for it whether or not the rule admits it, so
+		// the budget is what the whole move may cost, and the search gets
+		// what is left. In bullet that is the difference between a move
+		// costing 1.1 s and costing 0.6 s.
+		moveOverheadMs = 550
+
 		safetyMarginMs = 200
 		minBudgetMs    = 50
 		// Past this a longer think buys about a ply per second, measured,
@@ -195,7 +217,7 @@ func moveTimeBudget(ourColor string, st gameState) time.Duration {
 	if incMs <= 0 {
 		spread = movesToGoWithoutIncrement
 	}
-	budgetMs := float64(incMs)*incrementShare + spendable/spread
+	budgetMs := float64(incMs)*incrementShare + spendable/spread - moveOverheadMs
 	if budgetMs > maxBudgetMs {
 		budgetMs = maxBudgetMs
 	}

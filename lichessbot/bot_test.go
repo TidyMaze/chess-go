@@ -71,7 +71,7 @@ func (f *fakeAPI) postedPaths() []string {
 func TestBotAcceptsAChallengeAndPlaysItsMove(t *testing.T) {
 	f := newFakeAPI()
 	f.streams["/api/stream/event"] = strings.Join([]string{
-		`{"type":"challenge","challenge":{"id":"c1","rated":false,"speed":"blitz","variant":{"key":"standard"},"challenger":{"title":""}}}`,
+		`{"type":"challenge","challenge":{"id":"c1","rated":true,"speed":"blitz","variant":{"key":"standard"},"challenger":{"title":""}}}`,
 		`{"type":"gameStart","game":{"id":"g1"}}`,
 	}, "\n") + "\n"
 	f.streams["/api/bot/game/stream/g1"] = `{"type":"gameFull","id":"g1","white":{"id":"tidymazebot"},"black":{"id":"opponent"},"initialFen":"startpos","state":{"type":"gameState","moves":"","status":"started"}}` + "\n"
@@ -98,7 +98,7 @@ func TestBotAcceptsAChallengeAndPlaysItsMove(t *testing.T) {
 // declined, not accepted, and the game must never be joined.
 func TestBotDeclinesAVariantChallenge(t *testing.T) {
 	f := newFakeAPI()
-	f.streams["/api/stream/event"] = `{"type":"challenge","challenge":{"id":"c2","rated":false,"speed":"blitz","variant":{"key":"chess960"},"challenger":{"title":""}}}` + "\n"
+	f.streams["/api/stream/event"] = `{"type":"challenge","challenge":{"id":"c2","rated":true,"speed":"blitz","variant":{"key":"chess960"},"challenger":{"title":""}}}` + "\n"
 
 	b := &Bot{API: f, Player: engine.Strong(1), Username: "tidymazebot", Log: silentLogger()}
 	if err := b.runOnce(context.Background()); err != nil {
@@ -172,7 +172,7 @@ func TestBotRefusesToPlayWhenUsernameMatchesNeitherSide(t *testing.T) {
 func TestBotLogsAFailedAccept(t *testing.T) {
 	f := newFakeAPI()
 	f.postErr["/api/challenge/c6/accept"] = fmt.Errorf("simulated failure")
-	f.streams["/api/stream/event"] = `{"type":"challenge","challenge":{"id":"c6","rated":false,"speed":"blitz","variant":{"key":"standard"},"challenger":{"title":""}}}` + "\n"
+	f.streams["/api/stream/event"] = `{"type":"challenge","challenge":{"id":"c6","rated":true,"speed":"blitz","variant":{"key":"standard"},"challenger":{"title":""}}}` + "\n"
 
 	var buf syncBuf
 	b := &Bot{API: f, Player: engine.Strong(1), Username: "tidymazebot", Log: newBufLogger(&buf)}
@@ -262,7 +262,7 @@ func TestBotSkipsAnUnreadableChallenge(t *testing.T) {
 func TestBotLogsAFailedDecline(t *testing.T) {
 	f := newFakeAPI()
 	f.postErr["/api/challenge/c8/decline"] = fmt.Errorf("decline boom")
-	f.streams["/api/stream/event"] = `{"type":"challenge","challenge":{"id":"c8","rated":false,"speed":"blitz","variant":{"key":"atomic"},"challenger":{"title":""}}}` + "\n"
+	f.streams["/api/stream/event"] = `{"type":"challenge","challenge":{"id":"c8","rated":true,"speed":"blitz","variant":{"key":"atomic"},"challenger":{"title":""}}}` + "\n"
 	var buf syncBuf
 	b := &Bot{API: f, Player: engine.Strong(1), Username: "tidymazebot", Log: newBufLogger(&buf)}
 	if err := b.runOnce(context.Background()); err != nil {
@@ -525,7 +525,7 @@ func TestBotTreatsAnEmptyInitialFenAsStartpos(t *testing.T) {
 // just sent to maia5 itself.
 func TestBotIgnoresItsOwnOutgoingChallenge(t *testing.T) {
 	f := newFakeAPI()
-	f.streams["/api/stream/event"] = `{"type":"challenge","challenge":{"id":"c19","rated":false,"speed":"rapid","variant":{"key":"standard"},"challenger":{"id":"tidymazebot","title":"BOT"}}}` + "\n"
+	f.streams["/api/stream/event"] = `{"type":"challenge","challenge":{"id":"c19","rated":true,"speed":"rapid","variant":{"key":"standard"},"challenger":{"id":"tidymazebot","title":"BOT"}}}` + "\n"
 	b := &Bot{API: f, Player: engine.Strong(1), Username: "tidymazebot", Log: silentLogger()}
 	if err := b.runOnce(context.Background()); err != nil {
 		t.Fatal(err)

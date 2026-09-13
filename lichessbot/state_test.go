@@ -21,7 +21,7 @@ func TestShouldAcceptChallengeRejectsVariants(t *testing.T) {
 
 func TestShouldAcceptChallengeAcceptsStandardAtAnySpeedAboveUltraBullet(t *testing.T) {
 	for _, speed := range []string{"bullet", "blitz", "rapid", "classical"} {
-		c := Challenge{Variant: "standard", SpeedTC: speed}
+		c := Challenge{Variant: "standard", SpeedTC: speed, Rated: true}
 		if !shouldAcceptChallenge(c) {
 			t.Errorf("standard %s was rejected", speed)
 		}
@@ -38,7 +38,7 @@ func TestShouldAcceptChallengeRejectsUltraBullet(t *testing.T) {
 // An empty variant field means standard on lichess's own wire format, so
 // it must not be rejected as if it were a named variant.
 func TestShouldAcceptChallengeTreatsEmptyVariantAsStandard(t *testing.T) {
-	if !shouldAcceptChallenge(Challenge{Variant: ""}) {
+	if !shouldAcceptChallenge(Challenge{Variant: "", Rated: true}) {
 		t.Error("an empty variant field was rejected; lichess omits it for standard chess")
 	}
 }
@@ -400,7 +400,7 @@ func TestCorrespondenceChallengesAreDeclined(t *testing.T) {
 		t.Error("a correspondence challenge was accepted; its search starves the real time games")
 	}
 	for _, speed := range []string{"bullet", "blitz", "rapid", "classical"} {
-		if !shouldAcceptChallenge(Challenge{Variant: "standard", SpeedTC: speed}) {
+		if !shouldAcceptChallenge(Challenge{Variant: "standard", SpeedTC: speed, Rated: true}) {
 			t.Errorf("%s was declined; it is one of the modes being chased", speed)
 		}
 	}
@@ -416,6 +416,19 @@ func TestExportedMoveTimeBudgetMatchesTheRuleTheBotPlaysBy(t *testing.T) {
 		want := moveTimeBudget("white", gameState{WhiteTimeMS: c.remain, WhiteIncMS: c.inc})
 		if got := MoveTimeBudget(c.remain, c.inc); got != want {
 			t.Errorf("MoveTimeBudget(%d, %d) = %v, want %v", c.remain, c.inc, got, want)
+		}
+	}
+}
+
+// Rated only, testing included: an unrated game costs the same cores and
+// the same wall clock as a rated one and moves none of the four ratings.
+func TestUnratedChallengesAreDeclined(t *testing.T) {
+	for _, speed := range []string{"bullet", "blitz", "rapid", "classical"} {
+		if shouldAcceptChallenge(Challenge{Variant: "standard", SpeedTC: speed, Rated: false}) {
+			t.Errorf("an unrated %s challenge was accepted", speed)
+		}
+		if !shouldAcceptChallenge(Challenge{Variant: "standard", SpeedTC: speed, Rated: true}) {
+			t.Errorf("a rated %s challenge was declined", speed)
 		}
 	}
 }

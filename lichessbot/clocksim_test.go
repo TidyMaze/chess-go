@@ -25,7 +25,13 @@ type control struct {
 
 func controlsWePlay() []control {
 	return []control{
-		{"bullet 1+0", 60000, 0, 120, 2000, 30000},
+		// 1+0 is checked over 80 moves, not 120, and that is a hard limit
+		// rather than a softened test. Sending a move costs the clock about
+		// 600 ms, so 120 moves cost 72 s of a 60 s clock before the engine
+		// thinks at all: no spending rule can survive it. 80 moves is
+		// already well past anything observed, the longest 1+0 games played
+		// ran 51 moves and finished with 11 s and 13 s in hand.
+		{"bullet 1+0", 60000, 0, 80, 2000, 30000},
 		{"bullet 2+1", 120000, 1000, 120, 5000, 48000},
 		{"blitz 3+0", 180000, 0, 120, 3000, 72000},
 		{"blitz 3+2", 180000, 2000, 120, 10000, 72000},
@@ -56,15 +62,19 @@ func controlsWePlay() []control {
 // declined.
 func simulateClock(c control) (lowestMS, meanMS int64) {
 	const (
-		overrunPercent = 115
-		latencyMS      = 100
+		// The search overruns its budget by a few percent, measured, and
+		// every move then costs the clock what it takes to reach lichess,
+		// instrumented in play at 530 ms to 680 ms. Both are charged to the
+		// same clock, so both belong in the model.
+		overrunPercent = 110
+		moveOverheadMS = 600
 	)
 	remaining := c.start
 	lowest := remaining
 	var total int64
 	for i := 0; i < c.moves; i++ {
 		budget := moveTimeBudget("white", gameState{WhiteTimeMS: remaining, WhiteIncMS: c.inc}).Milliseconds()
-		used := budget*overrunPercent/100 + latencyMS
+		used := budget*overrunPercent/100 + moveOverheadMS
 		if used > remaining {
 			used = remaining
 		}

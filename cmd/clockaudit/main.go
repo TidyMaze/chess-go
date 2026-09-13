@@ -184,6 +184,34 @@ func auditGame(g game) (audit, bool) {
 
 func secs(ms int64) string { return fmt.Sprintf("%.1fs", float64(ms)/1000) }
 
+// report writes the audit table and returns what it found, separated from
+// main so the counting and the wording are testable rather than only
+// reachable by running the binary.
+func report(w io.Writer, games []game, floorMS int64) (audited, low, flagged int) {
+	fmt.Fprintf(w, "%-10s %-9s %5s %9s %9s %9s %10s %12s\n",
+		"game", "control", "moves", "lowest", "budget", "spent", "overhead", "worst over")
+	for _, g := range games {
+		a, ok := auditGame(g)
+		if !ok {
+			continue
+		}
+		audited++
+		note := ""
+		if a.lowestMS < floorMS {
+			note += "  LOW"
+			low++
+		}
+		if a.flagged {
+			note += "  FLAGGED"
+			flagged++
+		}
+		fmt.Fprintf(w, "%-10s %-9s %5d %9s %9s %9s %10s %12s%s\n",
+			a.id, a.timeControl, a.moves, secs(a.lowestMS), secs(a.meanBudgetMS),
+			secs(a.meanSpentMS), secs(a.medianOverMS), secs(a.worstOverspendMS), note)
+	}
+	return audited, low, flagged
+}
+
 func main() {
 	user := flag.String("user", "tidymazebot", "whose clock to audit, as lichess spells it")
 	floorMS := flag.Int64("floor-ms", 5000, "report a game whose clock ever fell below this")
@@ -206,28 +234,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	audited, low, flagged := 0, 0, 0
-	fmt.Printf("%-10s %-9s %5s %9s %9s %9s %10s %12s\n",
-		"game", "control", "moves", "lowest", "budget", "spent", "overhead", "worst over")
-	for _, g := range games {
-		a, ok := auditGame(g)
-		if !ok {
-			continue
-		}
-		audited++
-		note := ""
-		if a.lowestMS < *floorMS {
-			note += "  LOW"
-			low++
-		}
-		if a.flagged {
-			note += "  FLAGGED"
-			flagged++
-		}
-		fmt.Printf("%-10s %-9s %5d %9s %9s %9s %10s %12s%s\n",
-			a.id, a.timeControl, a.moves, secs(a.lowestMS), secs(a.meanBudgetMS),
-			secs(a.meanSpentMS), secs(a.medianOverMS), secs(a.worstOverspendMS), note)
-	}
+	audited, low, flagged := report(os.Stdout, games, *floorMS)
 	if audited == 0 {
 		fmt.Fprintln(os.Stderr, "clockaudit: no game carried clocks; export with clocks=true")
 		os.Exit(1)

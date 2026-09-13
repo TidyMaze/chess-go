@@ -170,3 +170,47 @@ func TestAuditGameReportsTheMedianOverheadNotJustTheMean(t *testing.T) {
 			a.medianOverMS, a.meanSpentMS-a.meanBudgetMS)
 	}
 }
+
+func TestSecsFormatsMilliseconds(t *testing.T) {
+	for _, c := range []struct {
+		ms   int64
+		want string
+	}{{0, "0.0s"}, {1500, "1.5s"}, {60000, "60.0s"}, {-500, "-0.5s"}} {
+		if got := secs(c.ms); got != c.want {
+			t.Errorf("secs(%d) = %q, want %q", c.ms, got, c.want)
+		}
+	}
+}
+
+func TestHeaderValueHandlesAMalformedHeader(t *testing.T) {
+	if got := headerValue(`[Site "https://lichess.org/abcd1234"]`); got != "https://lichess.org/abcd1234" {
+		t.Errorf("got %q", got)
+	}
+	if got := headerValue("[Site no quotes]"); got != "" {
+		t.Errorf("a header with no quotes gave %q, want empty", got)
+	}
+}
+
+func TestReportCountsLowAndFlaggedGames(t *testing.T) {
+	games := parsePGN(strings.NewReader(twoGames), "tidymazebot")
+	var buf strings.Builder
+	// A floor above the blitz game's lowest clock so both games count as
+	// low, and the bullet game is the one lost on time.
+	audited, low, flagged := report(&buf, games, 300000)
+	if audited != 2 {
+		t.Errorf("audited %d games, want 2", audited)
+	}
+	if low != 2 {
+		t.Errorf("counted %d low games, want 2", low)
+	}
+	if flagged != 1 {
+		t.Errorf("counted %d time forfeits, want 1", flagged)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "FLAGGED") || !strings.Contains(out, "LOW") {
+		t.Errorf("table did not mark the games:\n%s", out)
+	}
+	if !strings.Contains(out, "abcd1234") || !strings.Contains(out, "wxyz5678") {
+		t.Errorf("table is missing a game:\n%s", out)
+	}
+}
