@@ -490,3 +490,36 @@ not an evaluation-weights question. The proxy here is material one ply
 after the move, which is crude and misses deeper tactics, so treat the
 2% as indicative rather than exact; the shape of the answer, rare and
 large rather than frequent and small, is the part worth acting on.
+
+## A lead: the parallel search sometimes plays the blunder, 2026-09-13
+
+Taking the first of the two blunders found above, from a real bullet loss,
+position `r4rk1/1pp2ppp/1nqB4/p7/P2QN3/1B4Pb/1PP2P2/R3R1K1 b - -`, where
+the game move Rad8 drops about three pawns and c7d6 does not:
+
+| search | result |
+|---|---|
+| fixed depth 2, 4, 6, 8, 10 | c7d6 every time |
+| timed, one thread, 80 ms and 150 ms, three runs each | c7d6 every time |
+| timed, eight threads, same budgets, three runs each | Rad8 in 2 of 6 |
+
+So the move is not beyond the engine's depth: a two-ply fixed search
+already finds it. A single-threaded timed search finds it too, and
+repeats. Only the eight-thread search plays the blunder, and it does so
+non-deterministically, which is what helper threads sharing a
+transposition table would look like.
+
+Over six positions sampled from the plies-30-to-60 window of five lost
+games, at 120 ms: the eight-thread search gave up material against the
+single-thread one once and kept more never. Six positions is far too few
+to call, and this is recorded as a lead, not a conclusion. What makes it
+worth chasing is that it matches the shape of the losses exactly: rare,
+large, and in the complex middlegame.
+
+Two things to weigh against each other before acting. LEARNINGS records
+Lazy SMP as +70 +/- 39 and then +147 +/- 69 at 10 ms, which is real. But
+today's measurement under the load the bot actually runs at, two
+concurrent games, gave mean depth 9.0 at both four and eight threads, so
+the eight-thread setting buys nothing measurable there while carrying
+whatever this is. The next step is a proper head-to-head at equal cores,
+not a config change on six positions.
