@@ -7,7 +7,7 @@
 
 <p align="center">
   <img alt="Go 1.27" src="https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white">
-  <img alt="Elo 2347" src="https://img.shields.io/badge/Elo-2347%20vs%20Stockfish%20%401s%2Fmove-2b6cb0">
+  <img alt="Elo 2680" src="https://img.shields.io/badge/Elo-2680%20vs%20Stockfish%20%401s%2Fmove-2b6cb0">
   <img alt="MIT" src="https://img.shields.io/badge/licence-MIT-3fa34d">
   <img alt="no deps" src="https://img.shields.io/badge/engine%20deps-none-6b46c1">
 </p>
