@@ -104,3 +104,44 @@ func boardFrom(pieces map[board.Sq]board.Piece) board.Board {
 	}
 	return b
 }
+
+func TestAttackerOfType(t *testing.T) {
+	squares := map[board.Sq]board.Piece{
+		{4, 0}: {board.White, board.King},
+		{2, 1}: {board.White, board.Knight},
+		{3, 2}: {board.White, board.Pawn},
+		{3, 3}: {board.Black, board.Pawn},
+	}
+	b := boardFrom(squares)
+
+	// Square {3, 3}: attacked by White pawn at {2, 2}? No. White pawn is at {3, 2}, which does not attack {3, 3} diagonally.
+	// Wait, white pawn at {3, 2} attacks {2, 3} and {4, 3}!
+	// Knight at {2, 1} attacks {3, 3} (file +1, rank +2).
+	sq, ok := AttackerOfType(&b, board.Sq{3, 3}, board.White, board.Knight)
+	if !ok || sq != (board.Sq{2, 1}) {
+		t.Errorf("expected knight at {2,1}, got %v ok=%v", sq, ok)
+	}
+
+	// Square {4, 3}: attacked by White pawn at {3, 2}.
+	sq, ok = AttackerOfType(&b, board.Sq{4, 3}, board.White, board.Pawn)
+	if !ok || sq != (board.Sq{3, 2}) {
+		t.Errorf("expected pawn at {3,2}, got %v ok=%v", sq, ok)
+	}
+
+	// Square {5, 0}: attacked by White King at {4, 0}.
+	sq, ok = AttackerOfType(&b, board.Sq{5, 0}, board.White, board.King)
+	if !ok || sq != (board.Sq{4, 0}) {
+		t.Errorf("expected king at {4,0}, got %v ok=%v", sq, ok)
+	}
+}
+
+func BenchmarkAttackerOfType(b *testing.B) {
+	bd := board.Initial()
+	e4 := board.Sq{4, 3}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		AttackerOfType(&bd, e4, board.White, board.Knight)
+		AttackerOfType(&bd, e4, board.White, board.Pawn)
+	}
+}
+

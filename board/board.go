@@ -103,7 +103,21 @@ type Board struct {
 	// castling rights are: it is created and destroyed by moves, so
 	// make/unmake has to save and restore it.
 	epSquare uint8
+
+	pieces  [2][6]uint64
+	colorBB [2]uint64
 }
+
+// PieceBitboard returns the 64-bit bitboard for color c and piece type pt.
+func (b *Board) PieceBitboard(c Color, pt PieceType) uint64 {
+	return b.pieces[c][pt]
+}
+
+// ColorBitboard returns the 64-bit bitboard of all pieces of color c.
+func (b *Board) ColorBitboard(c Color) uint64 {
+	return b.colorBB[c]
+}
+
 
 // noEP marks "no en passant capture is available".
 const noEP uint8 = 64
@@ -198,7 +212,15 @@ func (b *Board) Place(s Sq, p Piece) {
 
 func (b *Board) setPiece(s Sq, p Piece) {
 	wasEmpty := b.cells[index(s)] < codePieceMin
+	sqBit := uint64(1) << squareIndex(s)
+	if !wasEmpty {
+		old := decodePiece(b.cells[index(s)])
+		b.pieces[old.Color][old.Type] &^= sqBit
+		b.colorBB[old.Color] &^= sqBit
+	}
 	b.cells[index(s)] = encodePiece(p)
+	b.pieces[p.Color][p.Type] |= sqBit
+	b.colorBB[p.Color] |= sqBit
 	if p.Type == King {
 		b.kings[p.Color] = s
 	}
@@ -207,6 +229,7 @@ func (b *Board) setPiece(s Sq, p Piece) {
 		b.occupiedCount++
 	}
 }
+
 
 // PieceAt is the safe, bounds-checked accessor for external callers.
 func (b *Board) PieceAt(s Sq) (Piece, bool) {
@@ -305,27 +328,24 @@ func (b *Board) FindPinnedPiece(king Sq, df, dr int, ownColor Color, s1, s2 Piec
 
 // IsAttackedBy reports whether sq is attacked by side by.
 func (b *Board) IsAttackedBy(sq Sq, by Color) bool {
-	baseIdx := index(sq)
+	sqIdx := squareIndex(sq)
 
 	// Pawn attacks
-	enemyPawn := encodePiece(Piece{Color: by, Type: Pawn})
-	if by == Black {
-		if b.cells[baseIdx+width-1] == enemyPawn || b.cells[baseIdx+width+1] == enemyPawn {
-			return true
-		}
-	} else {
-		if b.cells[baseIdx-width-1] == enemyPawn || b.cells[baseIdx-width+1] == enemyPawn {
-			return true
-		}
+	if PawnAttacksTo[by][sqIdx]&b.pieces[by][Pawn] != 0 {
+		return true
 	}
 
 	// Knight attacks
-	enemyKnight := encodePiece(Piece{Color: by, Type: Knight})
-	for _, d := range knightDeltas {
-		if b.cells[baseIdx+d] == enemyKnight {
-			return true
-		}
+	if KnightAttacks[sqIdx]&b.pieces[by][Knight] != 0 {
+		return true
 	}
+
+	// King attacks
+	if KingAttacks[sqIdx]&(1<<squareIndex(b.kings[by])) != 0 {
+		return true
+	}
+
+	baseIdx := index(sq)
 
 	// Sliders: Rook / Queen
 	for _, d := range rookDeltas {
@@ -341,16 +361,9 @@ func (b *Board) IsAttackedBy(sq Sq, by Color) bool {
 		}
 	}
 
-	// King attacks
-	enemyKing := encodePiece(Piece{Color: by, Type: King})
-	for _, d := range kingDeltas {
-		if b.cells[baseIdx+d] == enemyKing {
-			return true
-		}
-	}
-
 	return false
 }
+
 
 // IsInCheck reports whether the king of color is in check.
 func (b *Board) IsInCheck(color Color) bool {
@@ -418,12 +431,23 @@ func (b *Board) Move(from, to Sq) {
 	fromIdx, toIdx := index(from), index(to)
 	moved := b.cells[fromIdx]
 	captured := b.cells[toIdx] >= codePieceMin
+	if captured {
+		cap := decodePiece(b.cells[toIdx])
+		capBit := uint64(1) << squareIndex(to)
+		b.pieces[cap.Color][cap.Type] &^= capBit
+		b.colorBB[cap.Color] &^= capBit
+	}
 	b.cells[fromIdx] = codeEmpty
 	b.cells[toIdx] = moved
 	if moved >= codePieceMin {
-		if p := decodePiece(moved); p.Type == King {
+		p := decodePiece(moved)
+		if p.Type == King {
 			b.kings[p.Color] = to
 		}
+		fromBit := uint64(1) << squareIndex(from)
+		toBit := uint64(1) << squareIndex(to)
+		b.pieces[p.Color][p.Type] = (b.pieces[p.Color][p.Type] &^ fromBit) | toBit
+		b.colorBB[p.Color] = (b.colorBB[p.Color] &^ fromBit) | toBit
 	}
 
 	// Keep the occupied list in step. Order matters: drop the captured
@@ -447,6 +471,7 @@ func (b *Board) Move(from, to Sq) {
 		}
 	}
 }
+
 
 // Clone is a plain struct copy (Board holds only arrays), not a
 // map/dict copy: this is the single biggest win of the flat-array
@@ -509,6 +534,8 @@ type Undo struct {
 	epSquare     uint8
 	epCaptured   Sq
 	wasEPCapture bool
+	pieces       [2][6]uint64
+	colorBB      [2]uint64
 }
 
 func (u Undo) MovedCode() uint8     { return uint8(u.movedCode) }
@@ -538,6 +565,8 @@ func (b *Board) MakeMove(from, to Sq) Undo {
 		occCount:    b.occupiedCount,
 		castle:      b.castle,
 		epSquare:    b.epSquare,
+		pieces:      b.pieces,
+		colorBB:     b.colorBB,
 	}
 	// A king stepping two files is a castling move, and the rook has to
 	// travel with it. Detected here rather than encoded in Move so that
@@ -602,7 +631,10 @@ func (b *Board) UnmakeMove(u Undo) {
 	b.occupiedCount = u.occCount
 	b.castle = u.castle
 	b.epSquare = u.epSquare
+	b.pieces = u.pieces
+	b.colorBB = u.colorBB
 	if u.wasEPCapture {
+
 		// The captured pawn stood on neither square the writes above
 		// touched, so its cell has to be restored explicitly. The
 		// occupied list is restored wholesale from the undo record and
@@ -648,9 +680,14 @@ func (b *Board) AppendAllPieces(dst []ColoredPiece) []ColoredPiece {
 // square the capturing pawn left nor the one it lands on, so none of the
 // ordinary move bookkeeping touches it.
 func (b *Board) Remove(s Sq) {
-	if b.cells[index(s)] < codePieceMin {
+	cl := b.cells[index(s)]
+	if cl < codePieceMin {
 		return
 	}
+	p := decodePiece(cl)
+	sqBit := uint64(1) << squareIndex(s)
+	b.pieces[p.Color][p.Type] &^= sqBit
+	b.colorBB[p.Color] &^= sqBit
 	b.cells[index(s)] = codeEmpty
 	idx := squareIndex(s)
 	for i := 0; i < b.occupiedCount; i++ {
@@ -661,3 +698,4 @@ func (b *Board) Remove(s Sq) {
 		}
 	}
 }
+

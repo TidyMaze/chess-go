@@ -1,6 +1,8 @@
 package engine
 
 import (
+	"math/bits"
+
 	"chess/board"
 	"chess/moves"
 )
@@ -59,20 +61,23 @@ func scanPawns(b *board.Board, color board.Color) pawnFiles {
 	for i := range pf.mostAdv {
 		pf.mostAdv[i] = -1
 	}
-	var buf [16]board.PieceAtSquare
-	for _, ps := range b.AppendPiecesOf(buf[:0], color) {
-		if ps.Type != board.Pawn {
-			continue
-		}
-		rank := ps.Sq.Rank
+	pawns := b.PieceBitboard(color, board.Pawn)
+	if pawns == 0 {
+		return pf
+	}
+	pf.anyPawns = true
+	for pawns != 0 {
+		sqIdx := bits.TrailingZeros64(pawns)
+		pawns &= pawns - 1
+		file := sqIdx % 8
+		rank := sqIdx / 8
 		if color == board.Black {
 			rank = 7 - rank
 		}
-		pf.count[ps.Sq.File]++
-		if rank > pf.mostAdv[ps.Sq.File] {
-			pf.mostAdv[ps.Sq.File] = rank
+		pf.count[file]++
+		if rank > pf.mostAdv[file] {
+			pf.mostAdv[file] = rank
 		}
-		pf.anyPawns = true
 	}
 	return pf
 }
@@ -81,59 +86,67 @@ func scanPawns(b *board.Board, color board.Color) pawnFiles {
 // shelter for one side.
 func structureScore(b *board.Board, color board.Color, own, enemy pawnFiles, phase float64, w StructureWeights) float64 {
 	score := 0.0
-	var buf [16]board.PieceAtSquare
 
-	for _, ps := range b.AppendPiecesOf(buf[:0], color) {
-		file := ps.Sq.File
-		switch ps.Type {
-		case board.Pawn:
-			rank := ps.Sq.Rank
-			if color == board.Black {
-				rank = 7 - rank
-			}
-			// Passed: no enemy pawn ahead on this file or either
-			// neighbouring file. Worth more the further it has advanced,
-			// and worth much more once the pieces come off.
-			if isPassed(file, rank, enemy) {
-				score += (w.PassedBase + w.PassedPerRank*float64(rank)) * (2 - phase)
-			}
-			// Isolated: no friendly pawn on either neighbouring file, so
-			// it can never be defended by a pawn.
-			if !hasNeighbourPawn(file, own) {
-				score -= w.Isolated
-			}
-			// Doubled: pawns stacked on one file block each other.
-			if own.count[file] > 1 {
-				score -= w.Doubled / float64(own.count[file])
-			}
-		case board.Rook:
-			// Rooks want files without pawns in the way.
-			if own.count[file] == 0 {
-				if enemy.count[file] == 0 {
-					score += w.RookOpen
-				} else {
-					score += w.RookSemiOpen
-				}
-			}
-		case board.King:
-			// King safety: friendly pawns directly in front of the king
-			// are its shelter. Only matters while there are pieces left to
-			// attack it, so it fades out with the phase.
-			shield := 0
-			for df := -1; df <= 1; df++ {
-				f := file + df
-				if f < 0 || f > 7 {
-					continue
-				}
-				if own.count[f] > 0 {
-					shield++
-				}
-			}
-			score += float64(shield) * w.KingShield * phase
+	// Pawns
+	pawns := b.PieceBitboard(color, board.Pawn)
+	for pawns != 0 {
+		sqIdx := bits.TrailingZeros64(pawns)
+		pawns &= pawns - 1
+		file := sqIdx % 8
+		rank := sqIdx / 8
+		if color == board.Black {
+			rank = 7 - rank
+		}
+		// Passed: no enemy pawn ahead on this file or either
+		// neighbouring file. Worth more the further it has advanced,
+		// and worth much more once the pieces come off.
+		if isPassed(file, rank, enemy) {
+			score += (w.PassedBase + w.PassedPerRank*float64(rank)) * (2 - phase)
+		}
+		// Isolated: no friendly pawn on either neighbouring file, so
+		// it can never be defended by a pawn.
+		if !hasNeighbourPawn(file, own) {
+			score -= w.Isolated
+		}
+		// Doubled: pawns stacked on one file block each other.
+		if own.count[file] > 1 {
+			score -= w.Doubled / float64(own.count[file])
 		}
 	}
+
+	// Rooks
+	rooks := b.PieceBitboard(color, board.Rook)
+	for rooks != 0 {
+		sqIdx := bits.TrailingZeros64(rooks)
+		rooks &= rooks - 1
+		file := sqIdx % 8
+		if own.count[file] == 0 {
+			if enemy.count[file] == 0 {
+				score += w.RookOpen
+			} else {
+				score += w.RookSemiOpen
+			}
+		}
+	}
+
+	// King
+	k := b.KingSquare(color)
+	kFile := k.File
+	shield := 0
+	for df := -1; df <= 1; df++ {
+		f := kFile + df
+		if f < 0 || f > 7 {
+			continue
+		}
+		if own.count[f] > 0 {
+			shield++
+		}
+	}
+	score += float64(shield) * w.KingShield * phase
+
 	return score
 }
+
 
 func isPassed(file, rank int, enemy pawnFiles) bool {
 	for df := -1; df <= 1; df++ {

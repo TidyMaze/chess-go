@@ -3,6 +3,8 @@
 package engine
 
 import (
+	"math/bits"
+
 	"chess/board"
 	"chess/game"
 )
@@ -58,13 +60,11 @@ func materialAndCentralization(b *board.Board, color board.Color, weights Weight
 // gamePhase is 1.0 with all pieces on the board and 0.0 in a bare
 // king-and-pawn ending.
 func gamePhase(b *board.Board) float64 {
-	total := 0.0
-	var buf [16]board.PieceAtSquare
-	for _, color := range [2]board.Color{board.White, board.Black} {
-		for _, ps := range b.AppendPiecesOf(buf[:0], color) {
-			total += phaseWeight[ps.Type]
-		}
-	}
+	knights := bits.OnesCount64(b.PieceBitboard(board.White, board.Knight) | b.PieceBitboard(board.Black, board.Knight))
+	bishops := bits.OnesCount64(b.PieceBitboard(board.White, board.Bishop) | b.PieceBitboard(board.Black, board.Bishop))
+	rooks := bits.OnesCount64(b.PieceBitboard(board.White, board.Rook) | b.PieceBitboard(board.Black, board.Rook))
+	queens := bits.OnesCount64(b.PieceBitboard(board.White, board.Queen) | b.PieceBitboard(board.Black, board.Queen))
+	total := float64(knights + bishops + 2*rooks + 4*queens)
 	if total > maxPhase {
 		total = maxPhase
 	}
@@ -516,10 +516,11 @@ func PositionScoreEval(b *board.Board, color board.Color, ev *Eval) float64 {
 	// the whole board rather than of either side.
 	phase := 1.0
 	if tapered {
-		total := 0.0
-		for _, p := range pieces {
-			total += phaseWeight[p.Type]
-		}
+		knights := bits.OnesCount64(b.PieceBitboard(board.White, board.Knight) | b.PieceBitboard(board.Black, board.Knight))
+		bishops := bits.OnesCount64(b.PieceBitboard(board.White, board.Bishop) | b.PieceBitboard(board.Black, board.Bishop))
+		rooks := bits.OnesCount64(b.PieceBitboard(board.White, board.Rook) | b.PieceBitboard(board.Black, board.Rook))
+		queens := bits.OnesCount64(b.PieceBitboard(board.White, board.Queen) | b.PieceBitboard(board.Black, board.Queen))
+		total := float64(knights + bishops + 2*rooks + 4*queens)
 		if total > maxPhase {
 			total = maxPhase
 		}

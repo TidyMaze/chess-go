@@ -240,25 +240,34 @@ func castlingMoves(dst []board.Sq, b *board.Board, sq board.Sq, color board.Colo
 func AttackerOfType(b *board.Board, sq board.Sq, by board.Color, typ board.PieceType) (board.Sq, bool) {
 	switch typ {
 	case board.Pawn:
-		byDir := direction[by]
-		for _, df := range [2]int{-1, 1} {
-			from := board.Sq{File: sq.File + df, Rank: sq.Rank - byDir}
-			if p, ok := b.CellPiece(from); ok && p.Color == by && p.Type == board.Pawn {
-				return from, true
+		if sq.File >= 0 && sq.File < 8 && sq.Rank >= 0 && sq.Rank < 8 {
+			sqIdx := sq.Rank*8 + sq.File
+			attackers := board.PawnAttacksTo[by][sqIdx] & b.PieceBitboard(by, board.Pawn)
+			if attackers != 0 {
+				idx := bits.TrailingZeros64(attackers)
+				return board.Sq{File: idx % 8, Rank: idx / 8}, true
 			}
 		}
-	case board.Knight, board.King:
-		offsets := knightOffsets
-		if typ == board.King {
-			offsets = kingOffsets
+	case board.Knight:
+		if sq.File >= 0 && sq.File < 8 && sq.Rank >= 0 && sq.Rank < 8 {
+			sqIdx := sq.Rank*8 + sq.File
+			attackers := board.KnightAttacks[sqIdx] & b.PieceBitboard(by, board.Knight)
+			if attackers != 0 {
+				idx := bits.TrailingZeros64(attackers)
+				return board.Sq{File: idx % 8, Rank: idx / 8}, true
+			}
 		}
-		for _, d := range offsets {
-			from := board.Sq{File: sq.File + d[0], Rank: sq.Rank + d[1]}
-			if p, ok := b.CellPiece(from); ok && p.Color == by && p.Type == typ {
-				return from, true
+	case board.King:
+		if sq.File >= 0 && sq.File < 8 && sq.Rank >= 0 && sq.Rank < 8 {
+			sqIdx := sq.Rank*8 + sq.File
+			k := b.KingSquare(by)
+			kIdx := k.Rank*8 + k.File
+			if board.KingAttacks[sqIdx]&(1<<kIdx) != 0 {
+				return k, true
 			}
 		}
 	case board.Bishop, board.Rook, board.Queen:
+
 		dirs := queenDirs[:]
 		if typ == board.Bishop {
 			dirs = bishopDirs[:]
