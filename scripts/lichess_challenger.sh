@@ -26,8 +26,10 @@ SLEEP=${CHALLENGE_INTERVAL:-60}
 CAPPED=/tmp/lichess_capped_$$.txt
 RECENT=/tmp/lichess_recent_$$.txt
 COOLDOWN=${CHALLENGE_COOLDOWN:-900}
-BACKOFF=${CHALLENGE_BACKOFF:-600}
-PERCYCLE=${CHALLENGE_PER_CYCLE:-2}
+BACKOFF_BASE=${CHALLENGE_BACKOFF:-600}
+BACKOFF=$BACKOFF_BASE
+BACKOFF_MAX=${CHALLENGE_BACKOFF_MAX:-3600}
+PERCYCLE=${CHALLENGE_PER_CYCLE:-1}
 RATELIMITED=0
 : > "$CAPPED"
 : > "$RECENT"
@@ -107,14 +109,19 @@ challenge() {
     *'"id"'*)
       echo "$opp $(date +%s)" >> "$RECENT"
       echo "$(date +%H:%M:%S) challenged $opp at ${lim}+${inc}"
+      BACKOFF=$BACKOFF_BASE
       ;;
     *"Too many requests"*)
       # Lichess is rate limiting us. Retrying on the same cadence just
       # keeps the limit alive, which is how the bot ended up with one
-      # game in flight and eight minutes of refusals in the log.
+      # game in flight and eight minutes of refusals in the log. A fixed
+      # ten minute wait was not enough either, so the wait doubles each
+      # time it happens and only resets after a challenge gets through.
       echo "$(date +%H:%M:%S) rate limited, backing off for ${BACKOFF}s"
       RATELIMITED=1
       sleep "$BACKOFF"
+      BACKOFF=$((BACKOFF * 2))
+      [ "$BACKOFF" -gt "$BACKOFF_MAX" ] && BACKOFF=$BACKOFF_MAX
       ;;
     *)
       echo "$opp $(date +%s)" >> "$RECENT"
