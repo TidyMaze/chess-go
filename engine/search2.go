@@ -77,6 +77,7 @@ func (c *searchCtx) reset() {
 	c.killers = [maxSearchPly][2]game.Move{}
 	c.counter = [2][64][64]game.Move{}
 	c.moveStack = [maxSearchPly]game.Move{}
+	c.fifty = [maxSearchPly]int{}
 	c.prevMove = game.Move{}
 	c.history = [2][64][64]int32{}
 	c.path = [maxSearchPly]uint64{}
@@ -211,8 +212,13 @@ type searchCtx struct {
 	// that led to ply+1, so a node's previous move is moveStack[ply-1].
 	counter   [2][64][64]game.Move
 	moveStack [maxSearchPly]game.Move
-	seeVals   [maxSearchPly][128]int16
-	prevMove  game.Move
+	// fifty[ply] is the halfmove clock at that ply. The search makes its
+	// moves straight on the board and never touched Game.HalfmoveClock,
+	// so every node saw the root's value and the fifty move rule was
+	// invisible below the root.
+	fifty    [maxSearchPly]int
+	seeVals  [maxSearchPly][128]int16
+	prevMove game.Move
 }
 
 // recordCounter remembers reply as the refutation of prev by colour.
@@ -391,6 +397,13 @@ func (c *searchCtx) search(g *game.Game, color, maximizingFor board.Color, depth
 // boundary with the same evaluation on both sides, depth 6 lost to depth 5
 // by 125 +/- 36 Elo, when a ply is normally worth 50 to 100 the other way.
 func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, depth, ply int, alpha, beta float64, afterNull bool) float64 {
+	// Publish this node's halfmove clock so the evaluation can fade a
+	// score toward the draw as the fifty move rule closes in. Without it
+	// every node evaluated at the root's clock and a shuffle looked
+	// exactly as good as a pawn push.
+	if c.ev != nil && ply < maxSearchPly {
+		c.ev.FiftyClock = c.fifty[ply]
+	}
 	// The clock is read every 2048 nodes rather than every node: time.Now
 	// is a syscall-ish read and this is the hottest loop in the engine.
 	// 2048 nodes is well under a millisecond, so the overrun it allows is
@@ -638,6 +651,7 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 		// this is the hot path, and the copy was the largest per-node cost
 		// left. Promotion is handled here because the board layer does not
 		// know the rule.
+		childClock := childFiftyClock(g, m, c.fifty[ply])
 		undo, promoted := makeSearchMove(g, m)
 		if ply < maxSearchPly {
 			c.moveStack[ply] = m
@@ -713,6 +727,7 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 
 		if ply+1 < maxSearchPly {
 			c.path[ply+1] = zobristUpdate(key, &g.Board, m, undo, promoted)
+			c.fifty[ply+1] = childClock
 		}
 
 		var value float64
@@ -960,6 +975,7 @@ func searchIterative(g *game.Game, color board.Color, maxDepth int, ev *Eval, us
 	}
 	ctx.played = playedKeys(g)
 	ctx.path[0] = zobristHash(g)
+	ctx.fifty[0] = g.HalfmoveClock
 	completed := 0
 	defer func() {
 		// Every thread adds its nodes; only the main thread's depth counts.
@@ -1030,6 +1046,7 @@ func searchIterative(g *game.Game, color board.Color, maxDepth int, ev *Eval, us
 		}
 
 		for i, m := range ordered {
+			ctx.fifty[1] = childFiftyClock(g, m, ctx.fifty[0])
 			undo, promoted := makeSearchMove(g, m)
 			ctx.path[1] = zobristUpdate(ctx.path[0], &g.Board, m, undo, promoted)
 			// Every move after the first is searched against the best score so
@@ -1193,6 +1210,20 @@ func pawnReachesLastRank(g *game.Game, m game.Move) bool {
 // makeSearchMove plays m on the board and applies promotion, which the
 // board layer does not know. One copy of the rule: the main search, the
 // root and quiescence each had their own, and quiescence's had none.
+// childFiftyClock is the halfmove clock after m, given the clock before
+// it. A capture or a pawn move resets it, which is what "making progress"
+// means under the fifty move rule, and is exactly the distinction the
+// search could not see. Must be called before the move is made.
+func childFiftyClock(g *game.Game, m game.Move, parent int) int {
+	if _, captured := g.Board.PieceAt(m.To); captured {
+		return 0
+	}
+	if p, ok := g.Board.PieceAt(m.From); ok && p.Type == board.Pawn {
+		return 0
+	}
+	return parent + 1
+}
+
 func makeSearchMove(g *game.Game, m game.Move) (board.Undo, bool) {
 	undo := g.Board.MakeMove(m.From, m.To)
 	if p, ok := g.Board.PieceAt(m.To); ok && p.Type == board.Pawn &&
@@ -1257,7 +1288,6 @@ func lateMovePrunedMax(depth, moveIndex int, improving, inCheck, isCapture, prom
 	}
 	return moveIndex >= (3+depth*depth)/div
 }
-
 
 // reverseFutilityMargin is how far a static evaluation must stand beyond
 // the bound, in pawns, for a zero-window node at this depth to return it

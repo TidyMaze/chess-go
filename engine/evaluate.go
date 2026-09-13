@@ -240,6 +240,10 @@ type Eval struct {
 	// threshold misfire. Blending keeps the smooth backbone and scales
 	// the network's noise by (1 - blend).
 	HalfKPBlend float64
+	// FiftyClock is the halfmove clock at the node being evaluated. The
+	// search sets it per ply; outside the search it stays zero and the
+	// game's own clock is used instead.
+	FiftyClock int
 	// acc is the search's per-ply accumulator stack, accCur the slot for
 	// the node being evaluated. Unset outside the search.
 	acc      *[accSlots]halfKPAcc
@@ -650,7 +654,41 @@ func evalPosition(g *game.Game, maximizingFor board.Color, ev *Eval) float64 {
 	if ev != nil {
 		ev.STM = g.Turn
 	}
-	return PositionScoreEval(&g.Board, maximizingFor, ev)
+	return fadeForFiftyMove(PositionScoreEval(&g.Board, maximizingFor, ev), g.HalfmoveClock)
+}
+
+// fadeForFiftyMove pulls a score toward the draw as the fifty move clock
+// runs out, and returns the draw itself once it has.
+//
+// The search had no idea the clock existed: IsFiftyMoveDraw was written
+// and only the training loop ever called it, so a dead drawn position
+// evaluated as won and nothing preferred a move that made progress. Two
+// real games were thrown away that way, one of them rook and three pawns
+// against rook and one with connected passers, where the engine shuffled
+// its rook for fifty moves while the clock ran from 41 to 100.
+//
+// A terminal check alone would not have saved either. At clock 41 the
+// draw is fifty-nine plies off, far past any depth this engine reaches,
+// so the fade is what makes the difference visible at every depth: a line
+// that resets the clock, a pawn move or a capture, keeps its value, and
+// one that shuffles loses a little every ply.
+//
+// Nothing happens until the clock is well under way, so ordinary play is
+// untouched: at the fresh clock of almost every position the engine ever
+// sees, the score is returned exactly as it came in.
+func fadeForFiftyMove(score float64, halfmoveClock int) float64 {
+	const (
+		limit     = 100 // plies, the fifty move rule
+		fadeAfter = 20  // leave early play completely alone
+	)
+	if halfmoveClock >= limit {
+		return 0
+	}
+	if halfmoveClock <= fadeAfter {
+		return score
+	}
+	remaining := float64(limit - halfmoveClock)
+	return score * remaining / float64(limit-fadeAfter)
 }
 
 // evalPositionFor is evalPosition told which side is to move, for the
@@ -659,8 +697,16 @@ func evalPosition(g *game.Game, maximizingFor board.Color, ev *Eval) float64 {
 // g.Turn is the root's side for the whole tree, so anything that reads
 // it (today the tablebase probe) saw the wrong colour on every odd ply.
 func evalPositionFor(g *game.Game, sideToMove, maximizingFor board.Color, ev *Eval) float64 {
+	clock := g.HalfmoveClock
 	if ev != nil {
 		ev.STM = sideToMove
+		// The search tracks the clock per ply, because it makes its moves
+		// on the board and never advances the game's own copy. A caller
+		// outside the search leaves FiftyClock at zero, and its game's own
+		// clock is the right one to use.
+		if ev.FiftyClock > 0 {
+			clock = ev.FiftyClock
+		}
 	}
-	return PositionScoreEval(&g.Board, maximizingFor, ev)
+	return fadeForFiftyMove(PositionScoreEval(&g.Board, maximizingFor, ev), clock)
 }
