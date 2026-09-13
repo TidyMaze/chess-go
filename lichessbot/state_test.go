@@ -420,15 +420,13 @@ func TestExportedMoveTimeBudgetMatchesTheRuleTheBotPlaysBy(t *testing.T) {
 	}
 }
 
-// Rated only, testing included: an unrated game costs the same cores and
-// the same wall clock as a rated one and moves none of the four ratings.
-func TestUnratedChallengesAreDeclined(t *testing.T) {
+// Unrated games are accepted: the bot answers whoever challenges it.
+// Preferring rated ones is a rule for measuring, not for what the bot will
+// play, and declining casual games would only make it idle more.
+func TestUnratedChallengesAreAccepted(t *testing.T) {
 	for _, speed := range []string{"bullet", "blitz", "rapid", "classical"} {
-		if shouldAcceptChallenge(Challenge{Variant: "standard", SpeedTC: speed, Rated: false}) {
-			t.Errorf("an unrated %s challenge was accepted", speed)
-		}
-		if !shouldAcceptChallenge(Challenge{Variant: "standard", SpeedTC: speed, Rated: true}) {
-			t.Errorf("a rated %s challenge was declined", speed)
+		if !shouldAcceptChallenge(Challenge{Variant: "standard", SpeedTC: speed, Rated: false}) {
+			t.Errorf("an unrated %s challenge was declined", speed)
 		}
 	}
 }

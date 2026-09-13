@@ -51,12 +51,6 @@ func shouldAcceptChallenge(c Challenge) bool {
 	if c.SpeedTC == "correspondence" {
 		return false
 	}
-	// Rated only, testing included. An unrated game costs the same cores
-	// and the same wall clock as a rated one and moves none of the four
-	// ratings, so it is a game slot spent on nothing measurable.
-	if !c.Rated {
-		return false
-	}
 	return true
 }
 
@@ -185,20 +179,26 @@ func moveTimeBudget(ourColor string, st gameState) time.Duration {
 		reserveIncrements = 5
 		maxReserveShare   = 0.5
 
-		// What a move costs the clock beyond its search, almost all of it
-		// sending the move to lichess. Instrumented in play at 530 ms to
-		// 680 ms a move, steady across time controls, while the search
-		// itself stayed within 7% of its budget. Everything else was ruled
-		// out by measurement: a full cold request to lichess including DNS,
-		// TCP and TLS takes 17 ms, the same client does 17 ms with a stream
-		// open on it, draining the body or not makes no difference, GC runs
-		// 0.5 ms a cycle, and pausing every other process on the machine
-		// changed nothing.
+		// What a move costs the clock beyond its search. Measured, cause
+		// not established, and the reservation stands on the measurement
+		// rather than on the explanation.
 		//
-		// The clock is charged for it whether or not the rule admits it, so
-		// the budget is what the whole move may cost, and the search gets
-		// what is left. In bullet that is the difference between a move
-		// costing 1.1 s and costing 0.6 s.
+		// What is known: posting a move took 530 ms to 680 ms through the
+		// fast games, and 16 ms to 26 ms in a rapid game whose moves were
+		// twelve seconds apart. Ruled out by experiment, each of which
+		// came back at about 17 ms: the network cold including DNS and TLS,
+		// the same client with a stream open on it, closing the response
+		// body unread, and a local post made immediately after a four
+		// thread search. GC runs half a millisecond a cycle, and pausing
+		// every other process on the machine changed nothing. So it is not
+		// the network, not the client, and not the search starving the
+		// post. What separates the fast games from the slow one is how
+		// quickly moves are submitted, which points at throttling
+		// somewhere, but that is a hypothesis and is not measured.
+		//
+		// The clock is charged for it either way, so the budget is what the
+		// whole move may cost and the search gets what is left. In bullet
+		// that is the difference between a move costing 1.1 s and 0.6 s.
 		moveOverheadMs = 550
 
 		safetyMarginMs = 200
