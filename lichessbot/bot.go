@@ -33,33 +33,33 @@ type Bot struct {
 	// a challenge is declined rather than accepted and played badly.
 	MaxGames int
 
-	// IdleTimeout is how long a stream may say nothing at all, keepalive
-	// blank lines included, before the bot treats it as dead and reconnects.
-	// ReconnectDelay is the first wait between attempts, doubling up to
-	// maxReconnectDelay so a lichess outage is not hammered. Both are fields
+	// ReconnectDelay is the first wait between connection attempts, doubling
+	// up to MaxReconnectDelay so a lichess outage is not hammered. Fields
 	// rather than constants because the tests drive them at millisecond
 	// scale, and because a real network wants a knob.
-	IdleTimeout       time.Duration
+	//
+	// HealthyConnection is how long a connection must last to count as
+	// healthy, which resets the backoff. Noticing a dead connection is the
+	// transport's job, not this struct's: see the ping health check in
+	// client.go for why silence cannot be used to judge a stream.
 	ReconnectDelay    time.Duration
 	MaxReconnectDelay time.Duration
+	HealthyConnection time.Duration
 
 	gamesInPlay atomic.Int32
 }
 
-// Defaults for the two knobs above. Lichess sends a keepalive every few
-// seconds, so a minute of pure silence is generous and still notices a dead
-// socket long before a human would.
 const (
-	defaultIdleTimeout    = 60 * time.Second
-	defaultReconnectDelay = time.Second
-	maxReconnectDelay     = time.Minute
+	defaultReconnectDelay    = time.Second
+	maxReconnectDelay        = time.Minute
+	defaultHealthyConnection = 2 * time.Minute
 )
 
-func (b *Bot) idleTimeout() time.Duration {
-	if b.IdleTimeout > 0 {
-		return b.IdleTimeout
+func (b *Bot) healthyConnection() time.Duration {
+	if b.HealthyConnection > 0 {
+		return b.HealthyConnection
 	}
-	return defaultIdleTimeout
+	return defaultHealthyConnection
 }
 
 func (b *Bot) reconnectDelay() time.Duration {
@@ -116,7 +116,7 @@ func (b *Bot) Run(ctx context.Context) error {
 // reconnecting slowly for the rest of the day. Pure, so the schedule can be
 // tested without waiting on it.
 func (b *Bot) nextReconnectDelay(current, lasted time.Duration) time.Duration {
-	if lasted > 2*b.idleTimeout() {
+	if lasted > b.healthyConnection() {
 		return b.reconnectDelay()
 	}
 	if doubled := current * 2; doubled < b.maxReconnectDelay() {
@@ -129,9 +129,9 @@ func (b *Bot) nextReconnectDelay(current, lasted time.Duration) time.Duration {
 // lasts. Each accepted challenge's game is played in its own goroutine so a
 // slow or long game never blocks the bot from accepting the next challenge.
 func (b *Bot) runOnce(ctx context.Context) error {
-	// The connection gets a context of its own so the watchdog can abort
-	// this stream without touching games already in flight, and so
-	// cancelling the bot aborts a request that has not answered yet.
+	// The connection gets a context of its own so cancelling the bot aborts
+	// a request that has not answered yet, and so ending this stream never
+	// touches games already in flight.
 	connCtx, dropConn := context.WithCancel(ctx)
 	defer dropConn()
 	stream, err := b.API.streamNDJSON(connCtx, "/api/stream/event")
@@ -140,10 +140,7 @@ func (b *Bot) runOnce(ctx context.Context) error {
 	}
 	defer stream.Close()
 
-	watch := newIdleReader(stream, b.idleTimeout(), dropConn)
-	defer watch.Close()
-
-	return eachLine(watch, func(line []byte) error {
+	return eachLine(stream, func(line []byte) error {
 		kind, err := parseKind(line)
 		if err != nil {
 			b.logf("unreadable event: %v", err)
@@ -217,17 +214,10 @@ func (b *Bot) playGame(ctx context.Context, gameID string) {
 	}
 	defer stream.Close()
 
-	// A game stream that dies silently is worse than a dead event stream:
-	// this goroutine holds one of MaxGames slots for as long as it blocks,
-	// so enough leaked games would have the bot decline every challenge
-	// while looking busy. Same watchdog, same reason.
-	watch := newIdleReader(stream, b.idleTimeout(), dropGame)
-	defer watch.Close()
-
 	var full gameFull
 	haveFull := false
 
-	err = eachLine(watch, func(line []byte) error {
+	err = eachLine(stream, func(line []byte) error {
 		kind, err := parseKind(line)
 		if err != nil {
 			return nil

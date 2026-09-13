@@ -49,6 +49,18 @@ func newHTTPAPI(token string) *httpAPI {
 			TLSHandshakeTimeout:   10 * time.Second,
 			ResponseHeaderTimeout: 20 * time.Second,
 			ForceAttemptHTTP2:     true,
+			// This is what notices a dead connection, and it has to be the
+			// transport rather than anything counting silence up here: an
+			// event stream with nothing happening on it sends no keepalives
+			// at all. Measured against lichess on 2026-09-13, an idle event
+			// stream delivered zero bytes in 75 seconds while the HTTP/2
+			// connection stayed open and healthy, so any rule that treats
+			// silence as death would reconnect the bot forever for nothing.
+			// A ping asks the connection instead of guessing from silence.
+			HTTP2: &http.HTTP2Config{
+				SendPingTimeout: 30 * time.Second,
+				PingTimeout:     15 * time.Second,
+			},
 		},
 	}}
 }
@@ -104,49 +116,6 @@ func (a *httpAPI) streamNDJSON(ctx context.Context, path string) (io.ReadCloser,
 }
 
 func (a *httpAPI) postForm(path string, form string) error { return a.postFormAt(baseURL+path, form) }
-
-// idleReader abandons a connection that has gone silent. Both lichess
-// streams send a blank keepalive line every few seconds, so a stream with
-// nothing at all on it is a dead socket rather than a quiet game. Without
-// this the Read blocks forever: a TCP connection that dies in the network
-// never reports anything to the reader, so the bot sits deaf with no error
-// and no log. That is what stopped the live bot on 2026-09-13, twelve
-// minutes at 0% CPU with its event stream's socket already CLOSED.
-//
-// Cancelling the request's context is what ends the read. Closing the body
-// is not enough and looked like it was: lichess serves these streams over
-// HTTP/2, where a Read already parked on the stream's pipe stays parked
-// after a Close from another goroutine. The live bot's own goroutine dump
-// showed exactly that, still in http2.(*pipe).Read -> sync.(*Cond).Wait a
-// full minute after the watchdog had fired and closed the body. The body is
-// closed too, to release the connection once the read is unblocked.
-type idleReader struct {
-	rc      io.ReadCloser
-	timeout time.Duration
-	timer   *time.Timer
-}
-
-func newIdleReader(rc io.ReadCloser, timeout time.Duration, abort func()) *idleReader {
-	r := &idleReader{rc: rc, timeout: timeout}
-	r.timer = time.AfterFunc(timeout, func() {
-		abort()
-		rc.Close()
-	})
-	return r
-}
-
-func (r *idleReader) Read(p []byte) (int, error) {
-	n, err := r.rc.Read(p)
-	if n > 0 {
-		r.timer.Reset(r.timeout)
-	}
-	return n, err
-}
-
-func (r *idleReader) Close() error {
-	r.timer.Stop()
-	return r.rc.Close()
-}
 
 // eachLine decodes each line of a newline-delimited-JSON stream into dst,
 // skipping blank keep-alive lines lichess sends between events, and calls

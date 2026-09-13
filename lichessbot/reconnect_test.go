@@ -3,6 +3,7 @@ package lichessbot
 import (
 	"context"
 	"io"
+	"net/http"
 	"strings"
 	"sync"
 	"testing"
@@ -11,49 +12,12 @@ import (
 	"chess/engine"
 )
 
-// blockingStream never returns data and never ends, which is how a socket
-// that died somewhere in the network behaves: the Read blocks forever and
-// nothing on the connection ever says so. Observed on the live bot on
-// 2026-09-13, where the event stream's socket sat in CLOSED while the
-// process stayed alive at 0% CPU for twelve minutes, accepting nothing and
-// logging nothing.
-type blockingStream struct {
-	closed chan struct{}
-	once   sync.Once
-}
-
-func newBlockingStream() *blockingStream {
-	return &blockingStream{closed: make(chan struct{})}
-}
-
-func (s *blockingStream) Read(p []byte) (int, error) {
-	<-s.closed
-	return 0, io.EOF
-}
-
-func (s *blockingStream) Close() error {
-	s.once.Do(func() { close(s.closed) })
-	return nil
-}
-
-func (s *blockingStream) isClosed() bool {
-	select {
-	case <-s.closed:
-		return true
-	default:
-		return false
-	}
-}
-
-// stubbornStream is a stream whose Close does NOT unblock a Read already in
-// flight. That is how lichess's streams really behave: they are served over
-// HTTP/2, where the read parks on the http2 pipe's condition variable and a
-// Close from another goroutine leaves it parked there. Only cancelling the
-// request's context ends it.
-//
-// Taken from the live bot's own goroutine dump on 2026-09-13, which showed
-// the read sitting in http2.(*pipe).Read -> sync.(*Cond).Wait long after
-// the idle watchdog had fired and closed the body.
+// stubbornStream stays open and says nothing until its context ends. Both
+// halves matter. Lichess really does leave an idle event stream silent:
+// measured on 2026-09-13, zero bytes in 75 seconds on an HTTP/2 connection
+// that was open and healthy the whole time. And a Close from another
+// goroutine does not end a read already parked on an HTTP/2 stream's pipe,
+// which the live bot's goroutine dump showed the hard way.
 type stubbornStream struct {
 	ctx    context.Context
 	closed chan struct{}
@@ -70,17 +34,8 @@ func (s *stubbornStream) Close() error {
 	return nil
 }
 
-func (s *stubbornStream) isClosed() bool {
-	select {
-	case <-s.closed:
-		return true
-	default:
-		return false
-	}
-}
-
 // countingAPI hands out a fresh stream on every connection and counts them,
-// so a test can prove the bot reconnects instead of giving up.
+// so a test can prove the bot reconnects, or prove it does not.
 type countingAPI struct {
 	mu      sync.Mutex
 	opens   int
@@ -144,58 +99,32 @@ func runInBackground(t *testing.T, b *Bot) func() {
 	}
 }
 
-// The bug: a connection that goes silent must be abandoned. Without an idle
-// timeout the bot blocks in Read forever on a dead socket and never opens a
-// second connection, which is exactly what stopped it playing.
-func TestASilentConnectionIsDroppedAndRetried(t *testing.T) {
+// An idle event stream is normal, not broken. Lichess sends nothing at all
+// while no challenge and no game is happening, so a bot that treats silence
+// as death reconnects forever and achieves nothing. Deciding a connection is
+// dead belongs to the transport's ping health check, not to a timer up here.
+func TestASilentButLiveConnectionIsLeftAlone(t *testing.T) {
 	c := &countingAPI{}
 	b := &Bot{
 		API:            c,
 		Player:         engine.Strong(1),
 		Username:       "tidymazebot",
 		Log:            silentLogger(),
-		IdleTimeout:    50 * time.Millisecond,
 		ReconnectDelay: time.Millisecond,
 	}
 	stop := runInBackground(t, b)
 	defer stop()
 
-	waitFor(t, 2*time.Second, "the bot to reconnect past a silent stream", func() bool {
-		return c.count() >= 3
-	})
-
-	c.mu.Lock()
-	first := c.streams[0]
-	c.mu.Unlock()
-	if !first.isClosed() {
-		t.Error("the silent stream was left open; a dropped connection must be closed, not leaked")
+	waitFor(t, time.Second, "the first connection", func() bool { return c.count() >= 1 })
+	time.Sleep(300 * time.Millisecond)
+	if n := c.count(); n != 1 {
+		t.Errorf("opened %d connections to a silent but healthy stream, want 1: silence is not a dropped connection", n)
 	}
 }
 
-// Silence is what hid this bug for twelve minutes, so a dropped connection
-// has to leave a trace even when nothing errored.
-func TestADroppedConnectionIsLogged(t *testing.T) {
-	c := &countingAPI{}
-	var buf syncBuf
-	b := &Bot{
-		API:            c,
-		Player:         engine.Strong(1),
-		Username:       "tidymazebot",
-		Log:            newBufLogger(&buf),
-		IdleTimeout:    50 * time.Millisecond,
-		ReconnectDelay: time.Millisecond,
-	}
-	stop := runInBackground(t, b)
-	defer stop()
-
-	waitFor(t, 2*time.Second, "the drop to reach the log", func() bool {
-		return strings.Contains(buf.String(), "reconnecting")
-	})
-}
-
-// A stream that ends cleanly, which lichess does on its own schedule, must
-// also bring the bot back rather than end its run.
-func TestRunReconnectsWhenTheStreamEndsCleanly(t *testing.T) {
+// A stream that ends, which is what a dead connection looks like once the
+// transport has torn it down, must bring the bot straight back.
+func TestRunReconnectsWhenTheStreamEnds(t *testing.T) {
 	c := &countingAPI{newStream: func(int) io.ReadCloser { return io.NopCloser(emptyReader{}) }}
 	b := &Bot{
 		API:            c,
@@ -207,8 +136,28 @@ func TestRunReconnectsWhenTheStreamEndsCleanly(t *testing.T) {
 	stop := runInBackground(t, b)
 	defer stop()
 
-	waitFor(t, 2*time.Second, "the bot to reconnect after a clean end", func() bool {
+	waitFor(t, 2*time.Second, "the bot to reconnect after a stream ended", func() bool {
 		return c.count() >= 3
+	})
+}
+
+// Silence in the log is what hid this bug for twelve minutes, so a
+// connection that ends has to leave a trace even when nothing errored.
+func TestAnEndedConnectionIsLogged(t *testing.T) {
+	c := &countingAPI{newStream: func(int) io.ReadCloser { return io.NopCloser(emptyReader{}) }}
+	var buf syncBuf
+	b := &Bot{
+		API:            c,
+		Player:         engine.Strong(1),
+		Username:       "tidymazebot",
+		Log:            newBufLogger(&buf),
+		ReconnectDelay: time.Millisecond,
+	}
+	stop := runInBackground(t, b)
+	defer stop()
+
+	waitFor(t, 2*time.Second, "the end of a connection to reach the log", func() bool {
+		return strings.Contains(buf.String(), "reconnecting")
 	})
 }
 
@@ -216,8 +165,7 @@ func TestRunReconnectsWhenTheStreamEndsCleanly(t *testing.T) {
 // returns 429 and 5xx often enough that giving up on one is giving up for
 // the day.
 func TestRunKeepsTryingWhenAConnectionCannotBeOpened(t *testing.T) {
-	c := &countingAPI{newStream: func(int) io.ReadCloser { return nil }}
-	failing := &failOpenAPI{inner: c}
+	failing := &failOpenAPI{}
 	b := &Bot{
 		API:            failing,
 		Player:         engine.Strong(1),
@@ -252,9 +200,9 @@ func TestRunOpensNothingWhenTheContextIsAlreadyCancelled(t *testing.T) {
 // The backoff schedule, checked without waiting on it.
 func TestReconnectBackoffDoublesResetsAndIsCapped(t *testing.T) {
 	b := &Bot{
-		IdleTimeout:       100 * time.Millisecond,
 		ReconnectDelay:    10 * time.Millisecond,
 		MaxReconnectDelay: 40 * time.Millisecond,
+		HealthyConnection: 100 * time.Millisecond,
 	}
 	cases := []struct {
 		name    string
@@ -277,17 +225,38 @@ func TestReconnectBackoffDoublesResetsAndIsCapped(t *testing.T) {
 }
 
 // Unset knobs must fall back to values that work against the real lichess,
-// not to zero, which would mean no timeout and a busy reconnect loop.
+// not to zero, which would mean a busy reconnect loop and a backoff that
+// never resets.
 func TestUnsetTimingKnobsFallBackToTheDefaults(t *testing.T) {
 	b := &Bot{}
-	if got := b.idleTimeout(); got != defaultIdleTimeout {
-		t.Errorf("idleTimeout() = %v, want %v", got, defaultIdleTimeout)
-	}
 	if got := b.reconnectDelay(); got != defaultReconnectDelay {
 		t.Errorf("reconnectDelay() = %v, want %v", got, defaultReconnectDelay)
 	}
 	if got := b.maxReconnectDelay(); got != maxReconnectDelay {
 		t.Errorf("maxReconnectDelay() = %v, want %v", got, maxReconnectDelay)
+	}
+	if got := b.healthyConnection(); got != defaultHealthyConnection {
+		t.Errorf("healthyConnection() = %v, want %v", got, defaultHealthyConnection)
+	}
+}
+
+// The whole reason silence is safe to ignore is that the transport asks the
+// connection whether it is alive. Without this the bot is back to blocking
+// forever on a socket that died, which is the bug that started all of this.
+func TestTheRealClientPingsAnIdleConnection(t *testing.T) {
+	a := newHTTPAPI("tok")
+	tr, ok := a.http.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("transport is %T, want *http.Transport", a.http.Transport)
+	}
+	if tr.HTTP2 == nil || tr.HTTP2.SendPingTimeout <= 0 {
+		t.Fatal("no HTTP/2 ping health check: a dead connection would never be noticed")
+	}
+	if a.http.Timeout != 0 {
+		t.Errorf("Client.Timeout is %v, want 0: it caps the body read and would cut every stream off", a.http.Timeout)
+	}
+	if tr.ResponseHeaderTimeout <= 0 {
+		t.Error("no ResponseHeaderTimeout: a request that is never answered would hang the bot")
 	}
 }
 
@@ -298,7 +267,6 @@ func (emptyReader) Read(p []byte) (int, error) { return 0, io.EOF }
 type failOpenAPI struct {
 	mu    sync.Mutex
 	tries int
-	inner *countingAPI
 }
 
 func (f *failOpenAPI) streamNDJSON(ctx context.Context, path string) (io.ReadCloser, error) {
@@ -314,47 +282,4 @@ func (f *failOpenAPI) attempts() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.tries
-}
-
-// The idle watchdog must not fire on a stream that is talking, including
-// one that only sends lichess's blank keepalive lines.
-func TestAStreamThatKeepsTalkingIsNotDropped(t *testing.T) {
-	pr, pw := io.Pipe()
-	r := newIdleReader(pr, 200*time.Millisecond, func() { pr.Close() })
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		for i := 0; i < 8; i++ {
-			time.Sleep(40 * time.Millisecond)
-			if _, err := pw.Write([]byte("\n")); err != nil {
-				return
-			}
-		}
-		pw.Close()
-	}()
-
-	n := 0
-	err := eachLine(r, func(line []byte) error { n++; return nil })
-	<-done
-	if err != nil {
-		t.Fatalf("a stream sending keepalives every 40ms under a 200ms idle timeout ended with %v", err)
-	}
-}
-
-// And it must fire on one that stops talking mid-stream, not only on one
-// that never spoke at all.
-func TestAStreamThatGoesQuietMidwayIsDropped(t *testing.T) {
-	s := newBlockingStream()
-	r := newIdleReader(s, 50*time.Millisecond, func() { s.Close() })
-	start := time.Now()
-	_, err := io.ReadAll(r)
-	if took := time.Since(start); took > time.Second {
-		t.Fatalf("the idle timeout took %v to fire, want about 50ms", took)
-	}
-	if err != nil && err != io.EOF {
-		t.Fatalf("reading a dropped stream gave %v", err)
-	}
-	if !s.isClosed() {
-		t.Error("the idle timeout fired without closing the underlying stream")
-	}
 }
