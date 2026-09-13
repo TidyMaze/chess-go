@@ -19,10 +19,31 @@ be delivered. Replacing or supplementing that distance fixed the bishops
 and broke the rook mate at every weight tried, so it is not a one line
 change.
 
+Measured across depths on the committed code, the problem is wider than
+the bishops and the whole area is fragile:
+
+| search depth | mates that fail |
+|---|---|
+| 3 | two bishops |
+| 4 | two bishops |
+| 5 | two bishops |
+| 6 | king and rook |
+
+The rook mate failing at depth 6 while converting at 3, 4 and 5 is not
+something a bishop-specific fix explains. Conversion here depends on the
+depth in a way that looks like luck rather than technique.
+
+Three approaches have been tried and all rejected on measurement: a
+Manhattan corner distance replacing the Chebyshev one, the two combined
+with the corner as a tie-break, and a full mop-up term gated to positions
+with no queen or rook. Each fixed one mate and broke another, or moved
+with the depth. The last one made depth 6 worse, two failures against
+one, and fixed nothing.
+
 Low priority, and the game study says why: of 36 games that were not won,
 only 7 involved an advantage of two pawns or more held for ten plies or
 longer. The engine rarely survives far enough ahead for endgame technique
-to decide the game.
+to decide the game, so this is not where the Elo is.
 
 ### 2. Outgoing challenges are rate limited by lichess
 Not an engine bug, a consequence of this session sending far too many
