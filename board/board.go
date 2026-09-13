@@ -235,6 +235,142 @@ func (b *Board) CellPiece(s Sq) (Piece, bool) {
 	return decodePiece(c), true
 }
 
+// HitsSlider scans along ray (df, dr) from square from. It returns true if the first
+// piece encountered is an enemy piece matching t1 or t2, false otherwise.
+var (
+	knightDeltas = [8]int{
+		2*width + 1, 2*width - 1, -2*width + 1, -2*width - 1,
+		1*width + 2, 1*width - 2, -1*width + 2, -1*width - 2,
+	}
+	kingDeltas = [8]int{
+		1*width + 1, 1*width, 1*width - 1,
+		-1, 1,
+		-1*width + 1, -1*width, -1*width - 1,
+	}
+	rookDeltas   = [4]int{width, -width, 1, -1}
+	bishopDeltas = [4]int{width + 1, width - 1, -width + 1, -width - 1}
+)
+
+func (b *Board) hitsSliderDelta(idx, delta int, enemy Color, t1, t2 PieceType) bool {
+	for {
+		idx += delta
+		code := b.cells[idx]
+		if code == codeOffBoard {
+			return false
+		}
+		if code == codeEmpty {
+			continue
+		}
+		p := decodePiece(code)
+		return p.Color == enemy && (p.Type == t1 || p.Type == t2)
+	}
+}
+
+func (b *Board) HitsSlider(from Sq, df, dr int, enemy Color, t1, t2 PieceType) bool {
+	return b.hitsSliderDelta(index(from), dr*width+df, enemy, t1, t2)
+}
+
+// IsAttackedBy reports whether sq is attacked by side by.
+func (b *Board) IsAttackedBy(sq Sq, by Color) bool {
+	baseIdx := index(sq)
+
+	// Pawn attacks
+	enemyPawn := encodePiece(Piece{Color: by, Type: Pawn})
+	if by == Black {
+		if b.cells[baseIdx+width-1] == enemyPawn || b.cells[baseIdx+width+1] == enemyPawn {
+			return true
+		}
+	} else {
+		if b.cells[baseIdx-width-1] == enemyPawn || b.cells[baseIdx-width+1] == enemyPawn {
+			return true
+		}
+	}
+
+	// Knight attacks
+	enemyKnight := encodePiece(Piece{Color: by, Type: Knight})
+	for _, d := range knightDeltas {
+		if b.cells[baseIdx+d] == enemyKnight {
+			return true
+		}
+	}
+
+	// Sliders: Rook / Queen
+	for _, d := range rookDeltas {
+		if b.hitsSliderDelta(baseIdx, d, by, Rook, Queen) {
+			return true
+		}
+	}
+
+	// Sliders: Bishop / Queen
+	for _, d := range bishopDeltas {
+		if b.hitsSliderDelta(baseIdx, d, by, Bishop, Queen) {
+			return true
+		}
+	}
+
+	// King attacks
+	enemyKing := encodePiece(Piece{Color: by, Type: King})
+	for _, d := range kingDeltas {
+		if b.cells[baseIdx+d] == enemyKing {
+			return true
+		}
+	}
+
+	return false
+}
+
+// IsInCheck reports whether the king of color is in check.
+func (b *Board) IsInCheck(color Color) bool {
+	return b.IsAttackedBy(b.kings[color], color.Other())
+}
+
+// AppendSlideMoves appends to dst all pseudo-legal target squares for a slider at sq moving along dirs.
+func (b *Board) AppendSlideMoves(dst []Sq, sq Sq, color Color, dirs [][2]int) []Sq {
+	moves := dst
+	baseIdx := index(sq)
+	for _, d := range dirs {
+		delta := d[1]*width + d[0]
+		currIdx := baseIdx
+		f, r := sq.File, sq.Rank
+		for {
+			currIdx += delta
+			code := b.cells[currIdx]
+			if code == codeOffBoard {
+				break
+			}
+			f += d[0]
+			r += d[1]
+			target := Sq{File: f, Rank: r}
+			if code == codeEmpty {
+				moves = append(moves, target)
+				continue
+			}
+			if decodePiece(code).Color != color {
+				moves = append(moves, target)
+			}
+			break
+		}
+	}
+	return moves
+}
+
+// AppendStepMoves appends to dst all pseudo-legal target squares for a stepper at sq using offsets.
+func (b *Board) AppendStepMoves(dst []Sq, sq Sq, color Color, offsets [][2]int) []Sq {
+	moves := dst
+	baseIdx := index(sq)
+	for _, d := range offsets {
+		idx := baseIdx + d[1]*width + d[0]
+		code := b.cells[idx]
+		if code == codeOffBoard {
+			continue
+		}
+		if code == codeEmpty || decodePiece(code).Color != color {
+			moves = append(moves, Sq{File: sq.File + d[0], Rank: sq.Rank + d[1]})
+		}
+	}
+	return moves
+}
+
 // PieceCount is the number of men on the board. Kept as a counter rather
 // than recounted, because the endgame tablebase probe needs to reject the
 // vast majority of positions before doing anything expensive, and it is

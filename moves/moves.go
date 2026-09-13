@@ -14,42 +14,11 @@ var bishopDirs = [4][2]int{{1, 1}, {1, -1}, {-1, 1}, {-1, -1}}
 var rookDirs = [4][2]int{{1, 0}, {-1, 0}, {0, 1}, {0, -1}}
 
 func stepMoves(dst []board.Sq, b *board.Board, sq board.Sq, color board.Color, offsets [][2]int) []board.Sq {
-	moves := dst
-	for _, d := range offsets {
-		target := board.Sq{File: sq.File + d[0], Rank: sq.Rank + d[1]}
-		if b.CellOffBoard(target) {
-			continue
-		}
-		piece, occupied := b.CellPiece(target)
-		if !occupied || piece.Color != color {
-			moves = append(moves, target)
-		}
-	}
-	return moves
+	return b.AppendStepMoves(dst, sq, color, offsets)
 }
 
 func slideMoves(dst []board.Sq, b *board.Board, sq board.Sq, color board.Color, dirs [][2]int) []board.Sq {
-	moves := dst
-	for _, d := range dirs {
-		f, r := sq.File+d[0], sq.Rank+d[1]
-		for {
-			target := board.Sq{File: f, Rank: r}
-			if b.CellOffBoard(target) {
-				break
-			}
-			piece, occupied := b.CellPiece(target)
-			if !occupied {
-				moves = append(moves, target)
-			} else {
-				if piece.Color != color {
-					moves = append(moves, target)
-				}
-				break
-			}
-			f, r = f+d[0], r+d[1]
-		}
-	}
-	return moves
+	return b.AppendSlideMoves(dst, sq, color, dirs)
 }
 
 func pawnMoves(dst []board.Sq, b *board.Board, sq board.Sq, color board.Color) []board.Sq {
@@ -132,101 +101,14 @@ func LegalTargets(b *board.Board, sq board.Sq, color board.Color, pt board.Piece
 // IsInCheck probes outward from the king (knight/king offsets, rook/bishop
 // ray-scans, pawn-attack squares) instead of generating every enemy move:
 // O(1) piece-type checks instead of O(enemy pieces).
+// IsInCheck probes outward from the king: fast O(1) cell reads on the Board.
 func IsInCheck(b *board.Board, color board.Color) bool {
-	king := b.KingSquare(color)
-	enemy := color.Other()
-
-	for _, d := range knightOffsets {
-		target := board.Sq{File: king.File + d[0], Rank: king.Rank + d[1]}
-		if p, ok := b.CellPiece(target); ok && p.Color == enemy && p.Type == board.Knight {
-			return true
-		}
-	}
-	for _, d := range kingOffsets {
-		target := board.Sq{File: king.File + d[0], Rank: king.Rank + d[1]}
-		if p, ok := b.CellPiece(target); ok && p.Color == enemy && p.Type == board.King {
-			return true
-		}
-	}
-	for _, d := range rookDirs {
-		if hitsSlider(b, king, d, enemy, board.Rook, board.Queen) {
-			return true
-		}
-	}
-	for _, d := range bishopDirs {
-		if hitsSlider(b, king, d, enemy, board.Bishop, board.Queen) {
-			return true
-		}
-	}
-	enemyDir := direction[enemy]
-	for _, df := range [2]int{-1, 1} {
-		target := board.Sq{File: king.File + df, Rank: king.Rank - enemyDir}
-		if p, ok := b.CellPiece(target); ok && p.Color == enemy && p.Type == board.Pawn {
-			return true
-		}
-	}
-	return false
+	return b.IsInCheck(color)
 }
 
-func hitsSlider(b *board.Board, from board.Sq, d [2]int, enemy board.Color, types ...board.PieceType) bool {
-	f, r := from.File+d[0], from.Rank+d[1]
-	for {
-		target := board.Sq{File: f, Rank: r}
-		if b.CellOffBoard(target) {
-			return false
-		}
-		p, occupied := b.CellPiece(target)
-		if occupied {
-			if p.Color != enemy {
-				return false
-			}
-			for _, t := range types {
-				if p.Type == t {
-					return true
-				}
-			}
-			return false
-		}
-		f, r = f+d[0], r+d[1]
-	}
-}
-
-// IsAttackedBy probes outward from a square to see whether `by` attacks
-// it. Same technique as IsInCheck, applied to any square: O(1) piece-type
-// probes rather than generating every one of that side's moves and
-// checking their destinations, which is what the quiescence pruning was
-// doing for every candidate capture.
+// IsAttackedBy probes outward from a square to see whether `by` attacks it.
 func IsAttackedBy(b *board.Board, sq board.Sq, by board.Color) bool {
-	for _, d := range knightOffsets {
-		if p, ok := b.CellPiece(board.Sq{File: sq.File + d[0], Rank: sq.Rank + d[1]}); ok &&
-			p.Color == by && p.Type == board.Knight {
-			return true
-		}
-	}
-	for _, d := range kingOffsets {
-		if p, ok := b.CellPiece(board.Sq{File: sq.File + d[0], Rank: sq.Rank + d[1]}); ok &&
-			p.Color == by && p.Type == board.King {
-			return true
-		}
-	}
-	for _, d := range rookDirs {
-		if hitsSlider(b, sq, d, by, board.Rook, board.Queen) {
-			return true
-		}
-	}
-	for _, d := range bishopDirs {
-		if hitsSlider(b, sq, d, by, board.Bishop, board.Queen) {
-			return true
-		}
-	}
-	byDir := direction[by]
-	for _, df := range [2]int{-1, 1} {
-		if p, ok := b.CellPiece(board.Sq{File: sq.File + df, Rank: sq.Rank - byDir}); ok &&
-			p.Color == by && p.Type == board.Pawn {
-			return true
-		}
-	}
-	return false
+	return b.IsAttackedBy(sq, by)
 }
 
 // PinnedSquares returns the set of color's own squares that are pinned to

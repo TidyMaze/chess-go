@@ -129,3 +129,76 @@ func TestMakeUnmakeRestoresKingSquare(t *testing.T) {
 		t.Errorf("king square not restored")
 	}
 }
+
+func TestBoardHitsSlider(t *testing.T) {
+	b := NewEmpty()
+	b.Place(Sq{4, 0}, Piece{White, King})
+	b.Place(Sq{4, 7}, Piece{Black, Rook})
+	if !b.HitsSlider(Sq{4, 0}, 0, 1, Black, Rook, Queen) {
+		t.Errorf("expected HitsSlider to find Black rook on e8 from e1")
+	}
+	if b.HitsSlider(Sq{4, 0}, 0, 1, White, Rook, Queen) {
+		t.Errorf("expected HitsSlider to not match White enemy")
+	}
+	if b.HitsSlider(Sq{4, 0}, 1, 0, Black, Rook, Queen) {
+		t.Errorf("expected HitsSlider to return false when no piece on ray")
+	}
+	b.Place(Sq{4, 3}, Piece{White, Pawn})
+	if b.HitsSlider(Sq{4, 0}, 0, 1, Black, Rook, Queen) {
+		t.Errorf("expected HitsSlider to be blocked by friendly pawn")
+	}
+}
+
+func TestBoardAppendSlideAndStepMoves(t *testing.T) {
+	b := NewEmpty()
+	b.Place(Sq{3, 3}, Piece{White, Rook})
+	b.Place(Sq{3, 5}, Piece{Black, Pawn})
+	dirs := [][2]int{{0, 1}, {0, -1}, {1, 0}, {-1, 0}}
+	var buf [64]Sq
+	slides := b.AppendSlideMoves(buf[:0], Sq{3, 3}, White, dirs)
+	if len(slides) != 12 {
+		t.Errorf("expected 12 rook moves, got %d: %v", len(slides), slides)
+	}
+
+	knightOffsets := [][2]int{{1, 2}, {1, -2}, {-1, 2}, {-1, -2}, {2, 1}, {2, -1}, {-2, 1}, {-2, -1}}
+	steps := b.AppendStepMoves(buf[:0], Sq{3, 3}, White, knightOffsets)
+	if len(steps) != 8 {
+		t.Errorf("expected 8 knight steps from center, got %d: %v", len(steps), steps)
+	}
+}
+
+func TestBoardFastIsInCheck(t *testing.T) {
+	b := Initial()
+	if b.IsInCheck(White) || b.IsInCheck(Black) {
+		t.Errorf("initial board should not be in check")
+	}
+
+	// Put White king in check from Black queen on e8 -> e1
+	b.Remove(Sq{4, 1}) // remove e2 pawn
+	b.Remove(Sq{4, 6}) // remove e7 pawn
+	b.Place(Sq{4, 7}, Piece{Black, Queen})
+	if !b.IsInCheck(White) {
+		t.Errorf("White king should be in check from Black queen on e8")
+	}
+	if b.IsInCheck(Black) {
+		t.Errorf("Black king should not be in check")
+	}
+
+	// Put Black king in check from White knight
+	b.Place(Sq{2, 6}, Piece{White, Knight}) // c7 knight attacks e8 king
+	if !b.IsInCheck(Black) {
+		t.Errorf("Black king on e8 should be in check from White knight on c7")
+	}
+}
+
+func TestBoardFastIsAttackedBy(t *testing.T) {
+	b := NewEmpty()
+	b.Place(Sq{4, 4}, Piece{White, Pawn}) // e5
+	b.Place(Sq{3, 5}, Piece{Black, Pawn}) // d6 attacks e5
+	if !b.IsAttackedBy(Sq{4, 4}, Black) {
+		t.Errorf("e5 should be attacked by Black pawn on d6")
+	}
+	if b.IsAttackedBy(Sq{4, 4}, White) {
+		t.Errorf("e5 should not be attacked by White")
+	}
+}
