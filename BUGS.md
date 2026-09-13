@@ -1,102 +1,102 @@
 # Bug list
 
-Live list for the lichess bot and the engine behind it. A bug leaves here
-only when it is fixed with a test that failed before the fix, or when it
-is disproved with the output that disproves it.
+Live list for the lichess bot and the engine behind it. A bug leaves the
+open section only when it is fixed with a test that failed before the fix,
+or when it is disproved with the output that disproves it.
 
 ## Open
 
-### 1. Fast games end with a third of the clock unspent
-Measured across the 13 lost bullet and blitz games: we never came close
-to flagging. Minimum clock remaining, per game, at the end:
-
-| mode | clock | least remaining |
-|---|---|---|
-| bullet | 60 s | 10.4 s, 14.6 s, 15.1 s |
-| bullet | 120 s | 10.6 s, 34.7 s, 39.3 s |
-| blitz | 180 s | 14.7 s to 84.5 s |
-
-So a 60 second game ends with a sixth to a quarter of the clock unused,
-and a 120 second one with up to a third. Unspent clock is unsearched
-depth, and depth is what the losses are short of. The per move budget is
-`remaining/30 + 0.8 * increment`, which is too cautious when there is an
-increment to lean on.
-
-Not a flagging risk to fix: zero games have ever been lost on time, every
-loss is a checkmate.
-
-### 2. The search ignores the fifty-move clock, and draws won games
-`game.IsFiftyMoveDraw` exists and `engine/train.go` uses it, but nothing
-in the search does: `grep -rn 'HalfmoveClock\|IsFiftyMoveDraw' engine/`
-returns one hit, in the training loop. So a winning position and a
-position two moves from a forced draw score exactly the same, and the
-engine has no reason to make progress.
-
-Two confirmed cases, both real games, both drawn from clearly won
-positions:
-
-| game | material | halfmove clock | what it did |
-|---|---|---|---|
-| [MOo10QZv](https://lichess.org/MOo10QZv) | +2 pawns, rook and three pawns against rook and one, connected passers | 41 to 100 | shuffled the rook: Re5 Kb6 Rd5 Kc7 Re5 Kb7 Rd5 |
-| [96FKJUSy](https://lichess.org/96FKJUSy) | +3, two bishops against one | 32 upward | shuffled bishops and king |
-
-This is not the rare two-bishop curiosity below. A rook-and-pawns ending
-a clean two pawns up is the most ordinary winning endgame there is, and
-it was thrown away for nothing. Each one costs a half point directly.
-
-The fix is not a weight: the search needs to know the clock, so that a
-line which resets it, a pawn move or a capture, is worth something when
-the clock is high, and so a repetition into the draw is scored as the
-draw it is.
-
-### 3. King and two bishops cannot mate a lone king
-Reproducible, deterministic, gated behind `ENDGAME=1` in
+### 1. King and two bishops cannot mate a lone king
+Reproducible and deterministic, gated behind `ENDGAME=1` in
 `engine/endgame_mate_test.go`. King and queen and king and rook both
-convert. The cause is in `kingDrivingBonus`: it measures the bare king's
-distance from the centre with a Chebyshev distance, which saturates along
-an entire edge and scores a1 and a4 the same, so once the king reaches an
-edge nothing points at a corner.
+convert; two bishops never do in 120 plies.
 
-Low priority despite being real: the loss analysis shows the engine
-rarely survives far enough ahead to convert an endgame at all.
+The cause is in `kingDrivingBonus`: it measures the bare king's distance
+from the centre with a Chebyshev distance, which saturates along an
+entire edge and scores a1 and a4 the same, so once the king reaches an
+edge nothing points at a corner, which is where a two-bishop mate has to
+be delivered. Replacing or supplementing that distance fixed the bishops
+and broke the rook mate at every weight tried, so it is not a one line
+change.
+
+Low priority, and the game study says why: of 36 games that were not won,
+only 7 involved an advantage of two pawns or more held for ten plies or
+longer. The engine rarely survives far enough ahead for endgame technique
+to decide the game.
+
+### 2. Outgoing challenges are rate limited by lichess
+Not an engine bug, a consequence of this session sending far too many
+challenges. Every challenge has been refused for over half an hour, so
+the bot plays only when somebody challenges it. The challenger now backs
+off exponentially, which is the right behaviour but does not shorten the
+wait.
 
 ## Fixed
 
-- **The challenger drew a lichess rate limit and kept hammering it.** It
-  sent up to five challenges a minute and, when lichess answered "Too
-  many requests", retried on the same cadence, which keeps the limit
-  alive: eight minutes of refusals in the log with one game in flight
-  while the target was five. It now sends at most two per cycle, ten
-  seconds apart, and backs off for ten minutes on a rate limit.
-
+- **The search ignored the fifty-move clock and drew won games.**
+  `IsFiftyMoveDraw` existed and only the training loop called it, so a
+  dead drawn position evaluated as won, +2.04 in the position from the
+  game that exposed it. Two games were thrown away that way, one of them
+  rook and three pawns against rook and one. The evaluation now returns
+  the draw once the clock is spent and fades toward it before that, and
+  the search tracks the clock per ply, which it had never done: it makes
+  moves straight on the board and never advanced `Game.HalfmoveClock`, so
+  every node saw the root's value. Commit 7b08545.
+- **That fix then paid the engine to sacrifice.** Fading all the way to
+  zero means a capture, which resets the clock, restores full scaling: six
+  pawns up at a fade of 0.3 scores 1.8, and giving a bishop away to reset
+  scores 3.0. The engine handed a lone king a bishop in the mate test and
+  lost a rook mate it had been converting. The fade now stops at half.
+  Caught by the gated endgame test within the hour. Commit cc3bf1a.
+- **Fast games ended with a third of the clock unspent.** Across the 13
+  lost bullet and blitz games the bot never came close to flagging,
+  ending a 60 second game with 10.4 s in hand. Spending is now a
+  twentieth of what is left plus most of the increment, above a reserve,
+  and the old cautious rule is kept when there is no increment because a
+  twentieth flags over 120 moves of 1+0. Bullet 2+1 goes from 3221 ms a
+  move to 3651 ms. Commit 32a5526.
+- **Two threads cost a full ply.** Set so five concurrent games would fit
+  ten cores, while the rate limit means one or two run. Measured with one
+  game in flight: two threads reach mean depth 8.0, four and eight both
+  reach 9.0. Commit c6ccaad.
 - **Repetition tracking was dead on any game rebuilt from a FEN.**
   `game.New` turns it on, `game.ParseFEN` deliberately does not, and the
-  bridge took the ParseFEN branch. The move picker's only anti-shuffle
-  rule was therefore dead in those games. Commit 784b860.
+  bridge took the ParseFEN branch, so the move picker's only anti-shuffle
+  rule was dead in those games. Commit 784b860.
 - **Fifty-six search threads on ten cores.** Seven concurrent games at
-  eight threads each. The bot now declines past a cap, default two.
-  Commit 95395eb.
-- **Our own outgoing challenges were declined, and 404'd.** Lichess
-  echoes them on the same stream as incoming ones and has no decline
-  action for them. Fixed twice: once for the field that does not exist
-  (59af7a9) and once after a check-ordering change reintroduced it
-  (6a802af).
-- **The challenger resent to one opponent forever.** Candidates are
-  sorted by rating distance, so an unaccepted challenge won every cycle:
-  fourteen in a row to the same bot. Opponents now carry a cooldown.
-  Commit 477115a.
+  eight threads each. The bot declines past a cap now. Commit 95395eb.
+- **Our own outgoing challenges were declined, and 404'd.** Lichess echoes
+  them on the same stream as incoming ones and has no decline action for
+  them. Fixed twice: once for a field that does not exist (59af7a9) and
+  again after a check-ordering change reintroduced it (6a802af).
+- **The challenger resent to one opponent forever**, fourteen in a row,
+  because candidates are sorted by rating distance and an unaccepted
+  challenge wins every cycle. Opponents now carry a cooldown, commit
+  477115a. Then it hammered a rate limit on the same cadence, which is
+  what keeps one alive: one per cycle and exponential backoff now,
+  commits 968286e and 7f8c1ec.
 
 ## Investigated and not bugs
 
 - **The parallel search plays a blunder the serial one does not.** Four
-  hypotheses tested and all negative: aborted searches are already
-  guarded from storing, root ordering uses each thread's own best rather
-  than the table, the accumulator stack is re-pointed per thread, and the
-  reproduction is clean under `-race`. It is ordinary Lazy SMP
+  hypotheses tested and all negative: aborted searches are already guarded
+  from storing, root ordering uses each thread's own best rather than the
+  table, the accumulator stack is re-pointed per thread, and the
+  reproduction is clean under `-race`. Ordinary Lazy SMP
   non-determinism, and SMP measures +182 +/- 117 over one thread at
   200 ms, so it pays for itself.
-- **Searches appeared to use only 70% of their budget.** They use 107%.
-  The mean was dragged down by book positions, which return in zero
-  milliseconds because no search happens at all.
+- **Searches appeared to use 70% of their budget.** They use 107%. The
+  mean was dragged down by book positions, which return in zero
+  milliseconds because no search happens.
 - **Helper threads appeared to delay each move by unwinding.** One thread
-  and eight threads return in the same time at 30, 60 and 120 ms.
+  and eight return in the same time at 30, 60 and 120 ms.
+- **Blitz looked like a weak mode** at 2-2-8. Its opponents average 2404
+  against rapid's 1923. Every mode's rating lands near 2200, which is the
+  consistent reading.
+- **"Every loss came after being two pawns up"** was an artifact of
+  scoring material after every ply, which counts the spike between a
+  capture and its recapture. Advantages held ten plies or more give 7 of
+  36, not 29 of 29.
+- **Time management in blitz.** Every control the bot plays was simulated
+  through the shipped rule and none flags; 5+3 over eighty moves ends with
+  5.9 s in hand.
