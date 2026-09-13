@@ -473,3 +473,20 @@ still high. That is a depth and tactics problem, which is where
 LEARNINGS already says the remaining Elo lives, and it is the phase any
 further engine work should target. Endgame technique, by contrast, is
 worth little here: the engine seldom reaches a won endgame to convert.
+
+**One blunder, not drift.** Taking the same lost games and re-examining
+our own moves between ply 36 and 64, with the reference being this same
+engine given 700 ms instead of the game's budget, so no outside
+evaluation is involved: 2 of 86 moves (2%) are ones where the deeper
+search holds a pawn or more, and both are worth about three pawns.
+
+    pOuBop87 ply 37: played Rad8 (-2.0), deeper search plays c7d6 (+1.0)
+    fnFTZCQo ply 62: played Ke2 (-1.0), deeper search plays e4g2 (+2.0)
+
+So the three-pawn swing in the aggregate is not many small errors
+accumulating, it is roughly one decisive tactical miss every three games.
+That is a search depth and pruning-safety question in complex positions,
+not an evaluation-weights question. The proxy here is material one ply
+after the move, which is crude and misses deeper tactics, so treat the
+2% as indicative rather than exact; the shape of the answer, rare and
+large rather than frequent and small, is the part worth acting on.
