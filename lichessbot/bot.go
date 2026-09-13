@@ -203,8 +203,18 @@ func (b *Bot) handleChallenge(line []byte) {
 // rather than incrementally tracked; a dropped or reordered event then
 // costs one extra replay instead of a desynced board.
 func (b *Bot) playGame(ctx context.Context, gameID string) {
-	b.gamesInPlay.Add(1)
+	inPlay := b.gamesInPlay.Add(1)
 	defer b.gamesInPlay.Add(-1)
+	// A game the bot plays without saying so is a game nobody can tell it is
+	// playing. The only reason the log stayed empty through a whole blitz
+	// game against Stockfish was that starting one logged nothing: lichess
+	// replays ongoing games as gameStart on every connect, and that path
+	// never went past the challenge handler.
+	started := time.Now()
+	b.logf("game %s: playing (%d in play)", gameID, inPlay)
+	defer func() {
+		b.logf("game %s: finished after %s", gameID, time.Since(started).Round(time.Second))
+	}()
 	gameCtx, dropGame := context.WithCancel(ctx)
 	defer dropGame()
 	stream, err := b.API.streamNDJSON(gameCtx, "/api/bot/game/stream/"+gameID)

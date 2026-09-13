@@ -283,3 +283,21 @@ func (f *failOpenAPI) attempts() int {
 	defer f.mu.Unlock()
 	return f.tries
 }
+
+// Lichess replays every ongoing game as a gameStart on each connect, and
+// that path logged nothing at all, so the bot played a whole blitz game
+// against Stockfish while its log stayed empty.
+func TestPlayingAGameIsLogged(t *testing.T) {
+	f := newFakeAPI()
+	f.streams["/api/stream/event"] = `{"type":"gameStart","game":{"id":"g99"}}` + "\n"
+	f.streams["/api/bot/game/stream/g99"] = `{"type":"gameFull","id":"g99","white":{"id":"tidymazebot"},"black":{"id":"opponent"},"initialFen":"startpos","state":{"type":"gameState","moves":"","status":"started"}}` + "\n"
+
+	var buf syncBuf
+	b := &Bot{API: f, Player: engine.Strong(1), Username: "tidymazebot", Log: newBufLogger(&buf)}
+	if err := b.runOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, 2*time.Second, "the game to reach the log", func() bool {
+		return strings.Contains(buf.String(), "g99") && strings.Contains(buf.String(), "finished")
+	})
+}
