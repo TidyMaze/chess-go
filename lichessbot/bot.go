@@ -75,16 +75,16 @@ func (b *Bot) handleChallenge(line []byte) {
 		return
 	}
 	c := e.Challenge.toChallenge(b.Username)
+	if c.Outgoing {
+		// Lichess echoes our own outgoing challenges on this stream too;
+		// there is no accept or decline action for one we sent ourselves.
+		return
+	}
 	if b.MaxGames > 0 && int(b.gamesInPlay.Load()) >= b.MaxGames {
 		b.logf("declining challenge %s: already playing %d games", c.ID, b.gamesInPlay.Load())
 		if err := b.API.postForm("/api/challenge/"+c.ID+"/decline", ""); err != nil {
 			b.logf("decline %s failed: %v", c.ID, err)
 		}
-		return
-	}
-	if c.Outgoing {
-		// Lichess echoes our own outgoing challenges on this stream too;
-		// there is no accept or decline action for one we sent ourselves.
 		return
 	}
 	if !shouldAcceptChallenge(c) {

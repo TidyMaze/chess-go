@@ -646,3 +646,21 @@ func TestBotLogsAFailedDeclineAtTheGameLimit(t *testing.T) {
 		t.Errorf("log did not mention the failed decline: %q", buf.String())
 	}
 }
+
+// Our own outgoing challenge must be ignored even when we are at the
+// game limit. The limit check was added ahead of the outgoing check and
+// reintroduced exactly the bug the outgoing check exists to prevent:
+// lichess has no decline action for a challenge you sent yourself, so
+// every one of ours 404'd. Observed live minutes after deploying the cap.
+func TestBotIgnoresItsOwnOutgoingChallengeEvenAtTheGameLimit(t *testing.T) {
+	f := newFakeAPI()
+	f.streams["/api/stream/event"] = `{"type":"challenge","challenge":{"id":"cmine","rated":true,"speed":"rapid","variant":{"key":"standard"},"challenger":{"id":"tidymazebot"}}}` + "\n"
+	b := &Bot{API: f, Player: engine.Strong(1), Username: "tidymazebot", Log: silentLogger(), MaxGames: 1}
+	b.gamesInPlay.Store(5)
+	if err := b.Run(); err != nil {
+		t.Fatal(err)
+	}
+	if posts := f.postedPaths(); len(posts) != 0 {
+		t.Errorf("posts: %v, want none for our own outgoing challenge at the limit", posts)
+	}
+}
