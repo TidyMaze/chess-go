@@ -448,6 +448,48 @@ one's name. The function now carries a warning saying so.
 calibration that file carries is not disturbed, and the book is generated
 rather than versioned.
 
+## The book was popular, not good, 2026-09-13
+
+Popularity and quality are not the same thing, and nothing had checked
+which one the book had. The case on record for it was entirely clock: 16
+plies played instantly instead of searched, about 8 s a game handed back.
+Move quality was assumed.
+
+`cmd/bookcheck` asks this engine what it thinks of its own book, never an
+outside evaluation: for each sampled position it searches to a fixed
+depth, then plays the book move and searches the reply, and the gap is
+what the book move costs. Measured at depth 7 over 200 positions:
+
+| source | positions | mean loss | 90th pct | losing >0.5 pawns |
+|---|---|---|---|---|
+| most played, any rating | 37323 | +0.116 | +0.473 | 8.5% |
+| rated 2000+, 20 games | 1847 | +0.112 | +0.357 | 4.0% |
+| rated 1800+, 10 games | 16438 | +0.103 | +0.355 | 5.5% |
+
+The median book move costs nothing in all three, so most of the book was
+always fine. What a rating floor removes is the tail. The builder now
+ignores games below the floor and, among the moves left, prefers the one
+that actually scored rather than the one played most often, shrunk toward
+a draw by twenty games of prior so a move played the bare minimum of times
+cannot win on a lucky run. The deployed book is the 1800 one: 2000 buys
+almost nothing more and costs nine tenths of the coverage, and coverage is
+the point of a book.
+
+**A correction, since it is the kind of mistake worth keeping.** The worst
+entry in the old book looked like it hung a queen for a bishop. It does
+not. The bishop pinned that queen to the king, so the queen was lost
+whatever White played, and the engine scores the book move a tenth of a
+pawn behind its own choice. Reading a FEN and inferring a blunder is not
+measuring one.
+
+**Two things that measuring found on the way.** The search picks at random
+among moves it scores equally, so two identical searches of the start
+position answer g1f3 and then b1c3; any test that pins agreement needs a
+position with one legal move. And the book is derived data, 1.5 MB from a
+286 MB database, so it is not versioned. It had no recorded build command
+either, which made `champion_bot.json` depend on a file that existed on
+one machine; `scripts/build_book.sh` is now that recipe.
+
 ## Where the bot actually loses, 2026-09-13
 
 Material balance from our own side, measured by replaying all 26 lost

@@ -228,6 +228,10 @@ func (b *Bot) playGame(ctx context.Context, gameID string) {
 	haveFull := false
 
 	err = eachLine(stream, func(line []byte) error {
+		// Stamped before anything is parsed: the clock has been running
+		// since lichess registered the opponent's move, and everything from
+		// here to the move being posted is charged to it.
+		received := time.Now()
 		kind, err := parseKind(line)
 		if err != nil {
 			return nil
@@ -238,7 +242,7 @@ func (b *Bot) playGame(ctx context.Context, gameID string) {
 				return nil
 			}
 			haveFull = true
-			b.maybeMove(gameID, full, full.State)
+			b.maybeMove(gameID, full, full.State, received)
 		case "gameState":
 			if !haveFull {
 				return nil
@@ -247,7 +251,7 @@ func (b *Bot) playGame(ctx context.Context, gameID string) {
 			if err := json.Unmarshal(line, &st); err != nil {
 				return nil
 			}
-			b.maybeMove(gameID, full, st)
+			b.maybeMove(gameID, full, st, received)
 		}
 		return nil
 	})
@@ -275,7 +279,7 @@ func effectivePlayer(base engine.Player, ourColor string, st gameState, speed st
 	return base
 }
 
-func (b *Bot) maybeMove(gameID string, full gameFull, st gameState) {
+func (b *Bot) maybeMove(gameID string, full gameFull, st gameState, received time.Time) {
 	if gameOver(st.Status) {
 		return
 	}
@@ -318,8 +322,12 @@ func (b *Bot) maybeMove(gameID string, full gameFull, st gameState) {
 	// bullet move and cannot be explained by a search that overruns by 7%.
 	// Whether that sits in the search or in the round trip is not something
 	// the finished game's clocks can answer, so it is measured here.
-	b.logf("game %s: %s in %s search + %s post (budget %s)",
+	// total is everything this process is responsible for. Whatever the
+	// clock lost beyond it is lichess reaching us, which nothing here can
+	// measure directly and nothing here can shorten either.
+	b.logf("game %s: %s in %s search + %s post, %s total (budget %s)",
 		gameID, uci, searched.Round(time.Millisecond), posted.Round(time.Millisecond),
+		time.Since(received).Round(time.Millisecond),
 		player.TimeBudget.Round(time.Millisecond))
 }
 

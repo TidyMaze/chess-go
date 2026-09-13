@@ -62,12 +62,15 @@ func controlsWePlay() []control {
 // declined.
 func simulateClock(c control) (lowestMS, meanMS int64) {
 	const (
-		// The search overruns its budget by a few percent, measured, and
-		// every move then costs the clock what it takes to reach lichess,
-		// instrumented in play at 530 ms to 680 ms. Both are charged to the
-		// same clock, so both belong in the model.
+		// The search overruns its budget by a few percent, measured. The
+		// move then costs whatever it takes to reach lichess, which against
+		// real opponents is 15 ms to 36 ms; the 530 ms to 680 ms seen
+		// earlier was particular to games against the lichess AI. 300 ms is
+		// several times the real figure and still well under the AI one, so
+		// the floors are checked against a move that costs more than any
+		// rated game has been seen to cost.
 		overrunPercent = 110
-		moveOverheadMS = 600
+		moveOverheadMS = 300
 	)
 	remaining := c.start
 	lowest := remaining

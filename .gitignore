@@ -92,3 +92,5 @@ nets_torch/
 # "nnue-bin -book-from-pgn"; regenerate rather than version it.
 games_book.txt
 games_book_full.txt
+games_book_v2.txt
+games_book_v3.txt

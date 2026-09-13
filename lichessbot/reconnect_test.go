@@ -317,6 +317,6 @@ func TestEachMoveLogsItsSearchAndPostTime(t *testing.T) {
 	}
 	waitFor(t, 2*time.Second, "the move timing to reach the log", func() bool {
 		s := buf.String()
-		return strings.Contains(s, "search +") && strings.Contains(s, "post (budget")
+		return strings.Contains(s, "search +") && strings.Contains(s, "total (budget")
 	})
 }

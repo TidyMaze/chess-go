@@ -179,27 +179,23 @@ func moveTimeBudget(ourColor string, st gameState) time.Duration {
 		reserveIncrements = 5
 		maxReserveShare   = 0.5
 
-		// What a move costs the clock beyond its search. Measured, cause
-		// not established, and the reservation stands on the measurement
-		// rather than on the explanation.
+		// What a move costs the clock beyond its search, measured against
+		// real opponents rather than against the lichess AI.
 		//
-		// What is known: posting a move took 530 ms to 680 ms through the
-		// fast games, and 16 ms to 26 ms in a rapid game whose moves were
-		// twelve seconds apart. Ruled out by experiment, each of which
-		// came back at about 17 ms: the network cold including DNS and TLS,
-		// the same client with a stream open on it, closing the response
-		// body unread, and a local post made immediately after a four
-		// thread search. GC runs half a millisecond a cycle, and pausing
-		// every other process on the machine changed nothing. So it is not
-		// the network, not the client, and not the search starving the
-		// post. What separates the fast games from the slow one is how
-		// quickly moves are submitted, which points at throttling
-		// somewhere, but that is a hypothesis and is not measured.
+		// This was 550 ms, taken from games against the AI where posting a
+		// move really did cost 530 ms to 680 ms. Against real opponents it
+		// does not: a rated blitz game posts in 15 ms to 36 ms even
+		// straight after a six second search, and over its 61 moves the
+		// clock audit put the median move 0.4 s *under* its budget rather
+		// than over. Reserving half a second there was taking thinking time
+		// away for an overhead that is not present, which matters most in
+		// exactly the games that can least afford it.
 		//
-		// The clock is charged for it either way, so the budget is what the
-		// whole move may cost and the search gets what is left. In bullet
-		// that is the difference between a move costing 1.1 s and 0.6 s.
-		moveOverheadMs = 550
+		// 150 ms is several times the measured cost and still leaves room
+		// for the one thing not measured here, lichess reaching us, which
+		// happens before the search starts and so before anything this
+		// process can time.
+		moveOverheadMs = 150
 
 		safetyMarginMs = 200
 		minBudgetMs    = 50
