@@ -328,3 +328,57 @@ turkjs, charibot, halcyonbot, fathzer-jchess, bottios, croco_little_bot,
 and others), sequentially with a few seconds between each so as not to
 spam lichess's challenge endpoint. Live status:
 `https://lichess.org/@/TidyMazeBot`.
+
+## Endgame technique is the next real gap, 2026-09-13
+
+A live lichess game ([96FKJUSy](https://lichess.org/96FKJUSy)) reached king
+and two bishops against king and bishop, a full piece up, and repeated
+moves for twenty moves with the halfmove clock climbing from 32 toward
+the fifty-move draw. Investigating it turned up something broader than
+that one game.
+
+**The engine cannot reliably convert basic won endgames.** Replaying the
+champion against itself from textbook positions, at 50 ms a move:
+
+| ending | result |
+|---|---|
+| king and queen against king | mates |
+| king and rook against king | erratic: mates at 50 ms and 200 ms, not at 500 ms |
+| king and two bishops against king | never mates, 120 plies |
+
+`engine/endgame_mate_test.go` is that check, gated behind `ENDGAME=1`
+because it currently fails. It is a documenting test, not a passing one.
+
+**The mechanism, confirmed by reading the code.** `kingDrivingBonus` is
+the one term that drives a won endgame toward mate, and it measures the
+bare king's distance from the centre with `centerDistance`, a Chebyshev
+distance. That saturates along an entire edge: a1 and a4 both score 3.5.
+So once the bare king reaches an edge the term is flat and the search has
+no gradient left pointing at a corner, which is exactly where a
+two-bishop mate has to deliver. The king sits on the edge and shuffles.
+
+**A second, smaller finding.** The same term only engages once the score
+clears 4 pawns. A lone extra minor piece is 3, so a two-bishops-against-
+bishop ending (+3) never engaged it at all, which is why that specific
+game had no king-approach signal whatsoever.
+
+**What was tried and deliberately not kept.** Replacing the Chebyshev
+term with a Manhattan centre distance (which keeps rising toward a
+corner) made the two-bishop mate work and broke the rook mate. Keeping
+both, with the corner term as a small tie-breaker, made the rook mate
+work at 50 ms and 200 ms but not 500 ms. The results moved around between
+runs at different budgets with the same code, so the term is a weak and
+noisy gradient rather than reliable technique, and none of it was
+measured head-to-head. Per this file's own rules that is not something to
+adopt, so the evaluation is unchanged and only the failing test and this
+note were committed.
+
+**Why it is hard here specifically.** The deployed champion blends
+`0.45 * hand + 0.55 * net`, and the network was trained on positions that
+are almost never near mate, so in a bare endgame its output is close to
+noise. The king-driving term maxes out around 0.85 pawns and has to
+compete with that. Fixing endgames properly probably means either a real
+mop-up evaluation that overrides the blend once material is nearly gone,
+or extending the tablebases past their current `TablebaseMaxPieces = 4`
+so these endings are exact rather than estimated. The champion does not
+even load tablebases today: `champion.json` has no `syzygy` field.
