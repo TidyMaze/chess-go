@@ -999,22 +999,29 @@ out that depth-8 labels pay off at a volume where the network is not
 starved. This session paid for that volume, 400153 positions at depth 8,
 about two hours of labelling at 32 positions a second.
 
-A HalfKP network of the champion's own shape, 64 hidden and 8 buckets,
-trained on it explains 80.7% of held-out variance. Raced against the
-champion at 200 ms a move, single threaded:
+The first race was against the champion, which confounds label depth with
+volume, since the champion learned from millions of positions and this
+network from 400k. So a control was labelled at depth 3 to exactly the
+same size and trained and raced identically. Both at 200 ms a move, single
+threaded, SPRT stopped each after one chunk:
 
-| | games | W-D-L | Elo |
-|---|---|---|---|
-| depth-8 labels, 400k | 100 | 17-13-70 | **-205 +/- 83** |
+| labels, 400k | labelling time | explains | W-D-L | Elo vs champion |
+|---|---|---|---|---|
+| depth 8 | ~2 hours (32 pos/s) | 80.7% | 17-13-70 | -205 +/- 83 |
+| depth 3 | ~3.5 min (1876 pos/s) | 85.1% | 13-19-68 | -215 +/- 85 |
 
-SPRT stopped it after one chunk, llr -4.04 against a -2.94 bound. The
-caveat is not supported at 400k, and the volume that would settle it for
-good was already costed at about 21 days of labelling.
+Ten Elo apart with margins of eighty odd: indistinguishable. **At equal
+volume the depth of the label makes no measurable difference, and depth 8
+costs about sixty times more to produce.** That is the clean answer the
+60000 position run could not give, and it closes the caveat rather than
+leaving it open on a technicality.
 
-The cost ratio is the other half of the argument, and it was measured
-again here rather than recalled: depth 3 labels the same corpus at 1876
-positions a second against 32, roughly sixty times faster for the same
-400k.
+Two things worth keeping from it. The binding constraint is volume, not
+label quality: both networks land near -210 because 400k is a small
+corpus, whatever is written in it. And held-out variance did not predict
+strength again, the depth-3 network explains 4.4 points more and plays ten
+Elo worse, well inside the noise; the same thing was already observed with
+smoothness at 60000 positions.
 
 ## Plan toward Deep Blue 1997 (~2700), set 2026-09-08
 
