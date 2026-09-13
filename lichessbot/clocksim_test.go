@@ -27,6 +27,9 @@ func TestClockSimulation(t *testing.T) {
 		{"bullet 1+0  80mv", 60000, 0, 80},
 		{"bullet 1+0 120mv", 60000, 0, 120},
 		{"blitz 3+2  100mv", 180000, 2000, 100},
+		{"blitz 5+3   40mv", 300000, 3000, 40},
+		{"blitz 5+3   80mv", 300000, 3000, 80},
+		{"blitz 3+0   60mv", 180000, 0, 60},
 		{"blitz 1+10  60mv", 60000, 10000, 60},
 	} {
 		r := c.start

@@ -557,3 +557,41 @@ Depth parity is not strength parity. Helpers improve the table and the
 move ordering the main thread searches with, so the same nominal depth is
 searched better, and a depth count cannot see that. Measure Elo, not
 plies, when judging SMP.
+
+## What 75 lichess games say, 2026-09-13 evening
+
+39 wins, 7 draws, 29 losses. Studied properly, three of the obvious
+readings turn out to be wrong.
+
+**The mode records are opponent strength, not mode weakness.**
+
+| mode | mean opponent | median | W-D-L |
+|---|---|---|---|
+| rapid | 1923 | 1829 | 26-2-12 |
+| bullet | 2239 | 2124 | 6-3-6 |
+| classical | 2226 | 2252 | 5-0-3 |
+| blitz | 2404 | 2362 | 2-2-8 |
+
+Blitz looked like the weakest mode by a distance and is simply the
+hardest schedule: its opponents average 480 points above rapid's. The
+ratings all land near 2200 regardless, which is the consistent reading.
+Rapid's good record is easy opposition, blitz's poor one is hard
+opposition, and neither is a defect.
+
+**"Every loss came after being two pawns up" was a measurement
+artifact.** Scoring material after every ply counts the spike between a
+capture and its recapture, which made 29 of 29 losses look like
+squandered wins. Counting only an advantage held for ten plies or more
+gives 7 of 36 not-won games. Conversion failure is real and is not the
+main way games are lost.
+
+**The fifty move rule cuts both ways.** Of the seven draws, two were wins
+thrown away at a spent clock, and one was a draw rescued from six pawns
+down at a spent clock. So the fix for it has to be symmetric: a losing
+side must see the clock running as good news exactly as a winning side
+sees it as bad. `TestFiftyMoveFadeHelpsTheLosingSideToo` holds that.
+
+**The clock rule was checked against every control the bot plays** and
+none of them flags: bullet 2+1 and 1+0, blitz 5+3, 3+2 and 3+0. Blitz
+5+3 over eighty moves ends with 5.9 s in hand. The weak blitz record is
+not a time management problem.

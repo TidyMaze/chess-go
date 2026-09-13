@@ -63,3 +63,22 @@ func TestFreshClockLeavesTheScoreAlone(t *testing.T) {
 		t.Errorf("a fresh clock changed the score: %+.4f against %+.4f", withClock, plain)
 	}
 }
+
+// The rule saves games as well as costing them. Of seven drawn games,
+// two were wins thrown away at a spent clock, and one was a draw rescued
+// from six pawns down at a spent clock. So a losing side must see the
+// clock running as good news, exactly as the winning side sees it as bad:
+// the fade has to work on a negative score too, or the engine would walk
+// away from its own drawing resource.
+func TestFiftyMoveFadeHelpsTheLosingSideToo(t *testing.T) {
+	// Six pawns down, the material from the game that was saved this way.
+	losing := -6.0
+	fresh := fadeForFiftyMove(losing, 0)
+	late := fadeForFiftyMove(losing, 90)
+	if late <= fresh {
+		t.Errorf("a losing score reads %+.2f at a spent clock against %+.2f at a fresh one; the draw must look better as the clock runs", late, fresh)
+	}
+	if drawn := fadeForFiftyMove(losing, 100); drawn != 0 {
+		t.Errorf("a spent clock scored %+.2f, want the draw", drawn)
+	}
+}
