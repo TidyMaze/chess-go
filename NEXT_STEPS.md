@@ -1105,8 +1105,16 @@ same clock both sides, or it did not happen.
     are not). Exit: 1000 games past the margin. Expected +10-30.
  8. Evaluation on clean labels, then the lambda (game-outcome) sweep whose
     400k pools exist (lam_*.bin). Honest expectation 0-30.
- 9. Speed I: pin-based legality, no make/unmake per candidate when in
-    check or pinned. Exit: identical node count, less time. ~10%.
+ 9. ~~Speed I: pin-based legality~~ **already implemented, checked
+    2026-09-14.** `Game.appendLegalMoves` computes `moves.PinnedSquares`
+    once per call and only makes and unmakes when the move actually needs
+    it: in check, the king itself, a pinned piece, or an en passant
+    capture, which has to be tested because it removes a pawn from neither
+    the origin nor the destination. Landed in 7baf635, guarded by
+    game/perft_test.go and engine/perft_test.go. Baseline as it stands:
+    AllLegalMoves 437 ns/op, a full depth-5 search 12.5 ms/op. Anyone
+    picking this item up would be re-doing finished work; the remaining
+    speed item is 10.
 10. Speed II: bitboards. 1.6-1.8x nodes/s, +50-70. Days; last.
 
 ## Stockfish-ideas campaign and the 100% coverage requirement, 2026-09-08 evening
