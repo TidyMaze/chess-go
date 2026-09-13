@@ -759,6 +759,7 @@ func run(args []string) int {
 	bookPGN := fs.String("book-pgn", "-", "PGN source for -book-from-pgn; - reads stdin")
 	bookPlies := fs.Int("book-plies", 16, "record positions this many plies from the start")
 	bookMin := fs.Int("book-min", 20, "a move must have been played in at least this many games")
+	bookMinElo := fs.Int("book-min-elo", 2000, "ignore games where either player is rated below this; 0 keeps every game, which is how the first book let weak play in")
 	countPool := fs.String("count-pool", "", "print how many positions a pool file holds and exit")
 	emitCheck := fs.String("emit-eval-check", "", "write FENs, their HalfKP features and this engine's evaluation of them, for cross-checking a PyTorch export")
 	importPGNPath := fs.String("import-pgn", "", "import a PGN games file ('-' for stdin): moves and results only, labels computed here")
@@ -789,7 +790,7 @@ func run(args []string) int {
 			fmt.Fprintln(os.Stderr, err)
 			return 1
 		}
-		n, err := BuildBookFromPGN(src, out, *bookPlies, *bookMin)
+		n, err := BuildBookFromPGN(src, out, *bookPlies, *bookMin, *bookMinElo)
 		out.Close()
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)

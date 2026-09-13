@@ -290,7 +290,7 @@ func TestPGNLabelDepthKeepsTheSamePositions(t *testing.T) {
 // from it alone must answer e2e4 at the start and g1f3 after 1.e4 e5.
 func TestBookFromPGNRecordsTheMovesPlayed(t *testing.T) {
 	var out strings.Builder
-	n, err := BuildBookFromPGN(strings.NewReader(operaGamePGN), &out, 6, 1)
+	n, err := BuildBookFromPGN(strings.NewReader(operaGamePGN), &out, 6, 1, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -392,5 +392,84 @@ func TestPGNGameOutcomeReachesTheLabel(t *testing.T) {
 	}
 	if checked == 0 {
 		t.Error("every target was clamped, so nothing was verified against the game result")
+	}
+}
+
+// Games below the rating floor must not reach the book at all. The first
+// book had no floor, and judged by this engine 8.5% of its moves lost more
+// than half a pawn, the worst hanging a queen because twenty weak players
+// had grabbed a bishop.
+func TestBookFromPGNIgnoresGamesBelowTheRatingFloor(t *testing.T) {
+	const weak = `[Event "weak"]
+[White "a"]
+[Black "b"]
+[WhiteElo "1200"]
+[BlackElo "1150"]
+[Result "1-0"]
+
+1. h4 h5 2. a4 a5 3. Rh3 Rh6 4. Ra3 Ra6 5. Rg3 Rg6 1-0
+`
+	var out strings.Builder
+	n, err := BuildBookFromPGN(strings.NewReader(weak), &out, 6, 1, 2000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Errorf("wrote %d positions from a game below the floor, want none:\n%s", n, out.String())
+	}
+	// The same game with no floor is kept, so the exclusion is the rating
+	// and not something else about the game.
+	out.Reset()
+	n, err = BuildBookFromPGN(strings.NewReader(weak), &out, 6, 1, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n == 0 {
+		t.Error("no floor wrote nothing either, so the rating filter is not what excluded it")
+	}
+}
+
+// A move that lost every time must not win its position just by being the
+// most played one. This is the whole difference between a book of what was
+// popular and a book of what worked.
+func TestBookFromPGNPrefersTheMoveThatScored(t *testing.T) {
+	// Three games play 1.a3 and lose, one plays 1.d4 and wins. Popularity
+	// alone would answer a3.
+	pgn := ""
+	for i := 0; i < 3; i++ {
+		pgn += `[Event "x"]
+[WhiteElo "2400"]
+[BlackElo "2400"]
+[Result "0-1"]
+
+1. a3 e5 2. b3 d5 3. c3 Nf6 4. d3 Nc6 5. e3 Bd6 0-1
+
+`
+	}
+	pgn += `[Event "x"]
+[WhiteElo "2400"]
+[BlackElo "2400"]
+[Result "1-0"]
+
+1. d4 e5 2. b3 d5 3. c3 Nf6 4. d3 Nc6 5. e3 Bd6 1-0
+`
+	var out strings.Builder
+	if _, err := BuildBookFromPGN(strings.NewReader(pgn), &out, 2, 1, 2000); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "book.txt")
+	if err := os.WriteFile(path, []byte(out.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	book, err := engine.LoadBook(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, ok := book.Move(game.New())
+	if !ok {
+		t.Fatal("the book has no move for the start position")
+	}
+	if got := m.UCI(); got != "d2d4" {
+		t.Errorf("book answers %s at the start, want d2d4: a3 was played three times and lost every one of them", got)
 	}
 }

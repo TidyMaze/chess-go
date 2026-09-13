@@ -40,6 +40,10 @@ import (
 type pgnGame struct {
 	moves  []string
 	result float64 // 1 White won, 0 Black won, 0.5 drawn
+	// whiteElo and blackElo are 0 when the game did not say. The opening
+	// book uses them to leave out weak games, whose most played move is
+	// whatever was popular rather than whatever was good.
+	whiteElo, blackElo int
 }
 
 // stripComments removes PGN comments and variations.
@@ -116,6 +120,24 @@ func moveToken(t string) (string, bool) {
 	return t, true
 }
 
+// eloHeader reads a rating out of a PGN header such as [WhiteElo "2314"].
+// Lichess writes "?" for an unrated player, which reads as no rating
+// rather than as zero, and both end up excluded by any positive minimum.
+func eloHeader(line, prefix string) (int, bool) {
+	if !strings.HasPrefix(line, prefix) {
+		return 0, false
+	}
+	i, j := strings.Index(line, "\""), strings.LastIndex(line, "\"")
+	if i < 0 || j <= i {
+		return 0, false
+	}
+	n, err := strconv.Atoi(line[i+1 : j])
+	if err != nil {
+		return 0, false
+	}
+	return n, true
+}
+
 // readPGN streams games. A game is its header block followed by its
 // movetext, separated from the next by a blank line.
 func readPGN(r io.Reader, out chan<- pgnGame) {
@@ -125,6 +147,7 @@ func readPGN(r io.Reader, out chan<- pgnGame) {
 
 	var moveText strings.Builder
 	result, haveResult := 0.0, false
+	whiteElo, blackElo := 0, 0
 	flush := func() {
 		text := stripComments(moveText.String())
 		moveText.Reset()
@@ -138,8 +161,10 @@ func readPGN(r io.Reader, out chan<- pgnGame) {
 			}
 		}
 		haveResult = false
+		w, b := whiteElo, blackElo
+		whiteElo, blackElo = 0, 0
 		if len(moves) >= 10 {
-			out <- pgnGame{moves: moves, result: result}
+			out <- pgnGame{moves: moves, result: result, whiteElo: w, blackElo: b}
 		}
 	}
 
@@ -150,6 +175,12 @@ func readPGN(r io.Reader, out chan<- pgnGame) {
 			// complete. PGN has no end-of-game marker other than this.
 			if moveText.Len() > 0 {
 				flush()
+			}
+			if n, ok := eloHeader(line, "[WhiteElo "); ok {
+				whiteElo = n
+			}
+			if n, ok := eloHeader(line, "[BlackElo "); ok {
+				blackElo = n
 			}
 			if strings.HasPrefix(line, "[Result ") {
 				if i, j := strings.Index(line, "\""), strings.LastIndex(line, "\""); i >= 0 && j > i {
