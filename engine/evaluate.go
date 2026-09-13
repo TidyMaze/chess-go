@@ -680,15 +680,24 @@ func fadeForFiftyMove(score float64, halfmoveClock int) float64 {
 	const (
 		limit     = 100 // plies, the fifty move rule
 		fadeAfter = 20  // leave early play completely alone
+		// The fade stops here rather than reaching zero. Fading all the
+		// way creates an incentive to throw material away: a capture
+		// resets the clock, so at a fade of 0.3 a side six pawns up scores
+		// 1.8, while sacrificing a bishop to reset it scores 3.0. The
+		// engine did exactly that, handing a lone king a bishop in the
+		// two-bishop mate test, which is how this was caught.
+		floor = 0.5
 	)
 	if halfmoveClock >= limit {
+		// The draw has actually happened. This one is not a fade, it is
+		// the result.
 		return 0
 	}
 	if halfmoveClock <= fadeAfter {
 		return score
 	}
-	remaining := float64(limit - halfmoveClock)
-	return score * remaining / float64(limit-fadeAfter)
+	spent := float64(halfmoveClock-fadeAfter) / float64(limit-fadeAfter)
+	return score * (1 - (1-floor)*spent)
 }
 
 // evalPositionFor is evalPosition told which side is to move, for the
