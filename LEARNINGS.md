@@ -278,3 +278,43 @@ MEASURE=1 SMP_MS=10 go test -count=1 -run TestParallelDepthInOneSecond -v ./engi
 # Coverage, the project's own gate
 ./scripts/coverage.sh
 ```
+
+## The champion on lichess, 2026-09-13
+
+A bot bridge (`lichessbot/`, command `cmd/lichessbot`) runs the deployed
+champion against real opponents on lichess, as **TidyMazeBot**, a fresh
+BOT account made for this purpose (not TidyMaze, the maintainer's own
+account with 267 human games). It reads `LICHESS_BOT_TOKEN`, accepts
+standard-chess challenges, and answers every move with `PlayerPickWith`
+on the champion, the same call every other measurement in this repo
+makes. TDD throughout, 100% coverage on the new package, race-clean.
+
+**First results**, unrated and rated 10+5 games against online lichess
+bots: beat maia5 (1655), sargon-3ply (1545) and GarboBot (1988), all by
+checkmate. lichess's own rapid rating for the account read 3004 after
+five games. A game against Lynx_BOT (2671) ran deep into a real
+middlegame before this note was written.
+
+**A real bug found live, twice.** Lichess echoes a bot's own outgoing
+challenge on the same account event stream used for incoming ones, and
+the first fix assumed a `direction` field that does not exist there (it
+only appears on the POST response that creates the challenge). The bot
+tried to accept its own challenges and logged a 404 for each one. Fixed
+by matching `challenger.id` against the bot's own username, the only
+signal the stream event actually carries; caught and confirmed against
+the real API before committing (commits a7a3dd8, 8435e54 partial fix,
+59af7a9 real fix).
+
+**Strong bots (Boris-Trapsky, Elmichess, Lynx_BOT, simpleEval, raspfish,
+all 2100 to 3000 rated) mostly declined direct challenges** from a
+brand-new provisional account, rated or not; that is their own
+acceptance policy, not a bug here. Lynx_BOT was the exception.
+
+**How to run it:**
+```bash
+LICHESS_BOT_TOKEN=<token with bot:play scope> go run ./cmd/lichessbot \
+  -champion champion.json -username tidymazebot
+```
+The token lives only in the process environment, never in a file in
+this repo. Regenerate it at Preferences -> API access tokens on the
+TidyMazeBot account if it is ever lost or revoked.
