@@ -515,3 +515,21 @@ func TestBotTreatsAnEmptyInitialFenAsStartpos(t *testing.T) {
 	}
 	waitForPosts(t, f, 1)
 }
+
+// Lichess echoes our own outgoing challenges on the same event stream it
+// uses for incoming ones. Neither accept nor decline exists for a
+// challenge we sent ourselves, so the bot must ignore it rather than post
+// a call that 404s. Observed against the real API 2026-09-13: TidyMazeBot
+// logged "accept 9PZvBKIy failed: 404 Not Found" for a challenge it had
+// just sent to maia5 itself.
+func TestBotIgnoresItsOwnOutgoingChallenge(t *testing.T) {
+	f := newFakeAPI()
+	f.streams["/api/stream/event"] = `{"type":"challenge","challenge":{"id":"c19","rated":false,"speed":"rapid","direction":"out","variant":{"key":"standard"},"challenger":{"title":"BOT"}}}` + "\n"
+	b := &Bot{API: f, Player: engine.Strong(1), Username: "tidymazebot", Log: silentLogger()}
+	if err := b.Run(); err != nil {
+		t.Fatal(err)
+	}
+	if posts := f.postedPaths(); len(posts) != 0 {
+		t.Errorf("posts: %v, want none for our own outgoing challenge", posts)
+	}
+}

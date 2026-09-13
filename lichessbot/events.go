@@ -18,10 +18,11 @@ type accountEvent struct {
 }
 
 type challengeWire struct {
-	ID      string `json:"id"`
-	Rated   bool   `json:"rated"`
-	Speed   string `json:"speed"`
-	Variant struct {
+	ID        string `json:"id"`
+	Rated     bool   `json:"rated"`
+	Speed     string `json:"speed"`
+	Direction string `json:"direction"` // "in" or "out"; lichess echoes our own outgoing challenges here too
+	Variant   struct {
 		Key string `json:"key"`
 	} `json:"variant"`
 	Challenger struct {
@@ -31,11 +32,12 @@ type challengeWire struct {
 
 func (c challengeWire) toChallenge() Challenge {
 	return Challenge{
-		ID:      c.ID,
-		Variant: c.Variant.Key,
-		Rated:   c.Rated,
-		SpeedTC: c.Speed,
-		FromBot: c.Challenger.Title == "BOT",
+		ID:       c.ID,
+		Variant:  c.Variant.Key,
+		Rated:    c.Rated,
+		SpeedTC:  c.Speed,
+		FromBot:  c.Challenger.Title == "BOT",
+		Outgoing: c.Direction == "out",
 	}
 }
 

@@ -64,6 +64,11 @@ func (b *Bot) handleChallenge(line []byte) {
 		return
 	}
 	c := e.Challenge.toChallenge()
+	if c.Outgoing {
+		// Lichess echoes our own outgoing challenges on this stream too;
+		// there is no accept or decline action for one we sent ourselves.
+		return
+	}
 	if !shouldAcceptChallenge(c) {
 		b.logf("declining challenge %s (variant=%q speed=%q)", c.ID, c.Variant, c.SpeedTC)
 		if err := b.API.postForm("/api/challenge/"+c.ID+"/decline", ""); err != nil {

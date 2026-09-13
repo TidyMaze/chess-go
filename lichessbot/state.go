@@ -14,12 +14,13 @@ import (
 
 // A challenge lichess offers the bot. Only the fields the decision needs.
 type Challenge struct {
-	ID      string
-	Variant string // "standard", "chess960", "atomic", ...
-	Rated   bool
-	SpeedTC string // "bullet", "blitz", "rapid", "classical", "correspondence"
-	FromBot bool   // the challenger is itself a bot account
-	Casual  bool
+	ID       string
+	Variant  string // "standard", "chess960", "atomic", ...
+	Rated    bool
+	SpeedTC  string // "bullet", "blitz", "rapid", "classical", "correspondence"
+	FromBot  bool   // the challenger is itself a bot account
+	Outgoing bool   // this bot sent the challenge; lichess echoes it back on the same stream
+	Casual   bool
 }
 
 // shouldAcceptChallenge decides whether to accept, without touching the
