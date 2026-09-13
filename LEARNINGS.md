@@ -318,3 +318,13 @@ LICHESS_BOT_TOKEN=<token with bot:play scope> go run ./cmd/lichessbot \
 The token lives only in the process environment, never in a file in
 this repo. Regenerate it at Preferences -> API access tokens on the
 TidyMazeBot account if it is ever lost or revoked.
+
+**Building a real ranking, 2026-09-13 afternoon.** 3004 after five games
+is provisional and not a ranking; lichess needs a real sample across a
+spread of opponent strengths for the number to settle. Queued 23 rated
+10+5 challenges across ratings 1200 to 2400 (sargon/bernstein/turochamp
+engines, the maia family, davidsguterbot, schnecken_bot, darkonweakbot,
+turkjs, charibot, halcyonbot, fathzer-jchess, bottios, croco_little_bot,
+and others), sequentially with a few seconds between each so as not to
+spam lichess's challenge endpoint. Live status:
+`https://lichess.org/@/TidyMazeBot`.
