@@ -62,6 +62,13 @@ rarely survives far enough ahead to convert an endgame at all.
 
 ## Fixed
 
+- **The challenger drew a lichess rate limit and kept hammering it.** It
+  sent up to five challenges a minute and, when lichess answered "Too
+  many requests", retried on the same cadence, which keeps the limit
+  alive: eight minutes of refusals in the log with one game in flight
+  while the target was five. It now sends at most two per cycle, ten
+  seconds apart, and backs off for ten minutes on a rate limit.
+
 - **Repetition tracking was dead on any game rebuilt from a FEN.**
   `game.New` turns it on, `game.ParseFEN` deliberately does not, and the
   bridge took the ParseFEN branch. The move picker's only anti-shuffle

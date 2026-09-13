@@ -26,6 +26,9 @@ SLEEP=${CHALLENGE_INTERVAL:-60}
 CAPPED=/tmp/lichess_capped_$$.txt
 RECENT=/tmp/lichess_recent_$$.txt
 COOLDOWN=${CHALLENGE_COOLDOWN:-900}
+BACKOFF=${CHALLENGE_BACKOFF:-600}
+PERCYCLE=${CHALLENGE_PER_CYCLE:-2}
+RATELIMITED=0
 : > "$CAPPED"
 : > "$RECENT"
 
@@ -105,6 +108,14 @@ challenge() {
       echo "$opp $(date +%s)" >> "$RECENT"
       echo "$(date +%H:%M:%S) challenged $opp at ${lim}+${inc}"
       ;;
+    *"Too many requests"*)
+      # Lichess is rate limiting us. Retrying on the same cadence just
+      # keeps the limit alive, which is how the bot ended up with one
+      # game in flight and eight minutes of refusals in the log.
+      echo "$(date +%H:%M:%S) rate limited, backing off for ${BACKOFF}s"
+      RATELIMITED=1
+      sleep "$BACKOFF"
+      ;;
     *)
       echo "$opp $(date +%s)" >> "$RECENT"
       echo "$(date +%H:%M:%S) $opp declined or errored: $(echo "$resp" | head -c 120)"
@@ -123,12 +134,17 @@ while true; do
     # Only send as many as there is room for. A challenge takes a while
     # to be accepted, so the in-flight count does not move between sends
     # and checking it in the loop would fire one per candidate.
+    # At most a couple per cycle. Sending five at once, every minute, is
+    # what drew the rate limit in the first place.
     room=$((WANT - n))
+    [ "$room" -gt "$PERCYCLE" ] && room=$PERCYCLE
+    RATELIMITED=0
     for opp in $(candidates "$mode"); do
       [ "$room" -le 0 ] && break
+      [ "$RATELIMITED" = "1" ] && break
       challenge "$opp" "$lim" "$inc"
       room=$((room - 1))
-      sleep 5
+      sleep 10
     done
   fi
   sleep "$SLEEP"
