@@ -24,7 +24,10 @@ ME=${LICHESS_BOT_USER:-tidymazebot}
 WANT=${1:-2}
 SLEEP=${CHALLENGE_INTERVAL:-60}
 CAPPED=/tmp/lichess_capped_$$.txt
+RECENT=/tmp/lichess_recent_$$.txt
+COOLDOWN=${CHALLENGE_COOLDOWN:-900}
 : > "$CAPPED"
+: > "$RECENT"
 
 api() { curl -s -H "Authorization: Bearer $TOKEN" "$@"; }
 
@@ -66,7 +69,7 @@ for line in sys.stdin:
     r=d.get('perfs',{}).get(mode,{}).get('rating')
     if r and abs(r-me)<=250: out.append((abs(r-me), d['id']))
 out.sort()
-print(' '.join(i for _,i in out[:6]))" "$mode" /tmp/me_$$.json "$CAPPED"
+print(' '.join(i for _,i in out[:6]))" "$mode" /tmp/me_$$.json "$CAPPED" "$COOLDOWN" "$RECENT"
   rm -f /tmp/me_$$.json
 }
 
@@ -81,9 +84,11 @@ challenge() {
       echo "$(date +%H:%M:%S) $opp is at the daily cap, skipping it from now on"
       ;;
     *'"id"'*)
+      echo "$opp $(date +%s)" >> "$RECENT"
       echo "$(date +%H:%M:%S) challenged $opp at ${lim}+${inc}"
       ;;
     *)
+      echo "$opp $(date +%s)" >> "$RECENT"
       echo "$(date +%H:%M:%S) $opp declined or errored: $(echo "$resp" | head -c 120)"
       ;;
   esac
