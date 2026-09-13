@@ -122,6 +122,8 @@ func lmrReduction(depth, moveIndex int, pvNode, isKiller, promoted bool) int {
 	r := lmrTable(depth, moveIndex)
 	if pvNode {
 		r = r * 2 / 3
+	} else if r > 1 {
+		r++
 	}
 	if isKiller {
 		r--
@@ -442,10 +444,9 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 		return 0
 	}
 	if tt != nil && depth > 0 {
-		if score, ok := tt.probe(key, depth, maximizingFor, alpha, beta); ok {
+		if score, cutoff, m, okMove := tt.probeWithMove(key, depth, maximizingFor, alpha, beta); cutoff {
 			return score
-		}
-		if m, ok := tt.bestMove(key); ok {
+		} else if okMove {
 			ttMove = m
 		}
 	}
@@ -461,17 +462,19 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 	// 96, not 64: a middlegame with the queens out has 50 to 60 legal
 	// moves, and every position past the buffer's capacity reallocated
 	// on the heap. The allocation profile put 48% of all bytes there.
-	var moveBuf [96]game.Move
-	legal, inCheck := g.AppendLegalMovesInCheck(moveBuf[:0], color)
-	if len(legal) == 0 {
-		return terminalScore(g, color, maximizingFor, depth)
-	}
 	if depth <= 0 {
 		if c.quiescence {
 			return quiesce(g, color, maximizingFor, alpha, beta, c.ev, 0, ply)
 		}
+		var moveBuf [96]game.Move
+		legal, _ := g.AppendLegalMovesInCheck(moveBuf[:0], color)
+		if len(legal) == 0 {
+			return terminalScore(g, color, maximizingFor, depth)
+		}
 		return evalPositionFor(g, color, maximizingFor, c.ev)
 	}
+
+	inCheck := moves.IsInCheck(&g.Board, color)
 
 	maximizing := color == maximizingFor
 
@@ -583,6 +586,12 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 		}
 	}
 
+	var moveBuf [96]game.Move
+	legal := g.AppendLegalMovesGivenCheck(moveBuf[:0], color, inCheck)
+	if len(legal) == 0 {
+		return terminalScore(g, color, maximizingFor, depth)
+	}
+
 	if ply > 0 {
 		c.prevMove = c.moveStack[ply-1]
 	} else {
@@ -639,10 +648,11 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 			continue
 		}
 
-		// Late move pruning, at zero-window nodes only: the ordering has
-		// put this quiet move far down the list at a depth where even a
-		// reduced search of it is not worth the nodes.
-		if lmp && i > 0 && lateMovePruned(depth, i, false, inCheck, isCapture, promoted, givesCheck, c.isKiller(ply, m)) {
+		maxLMP := 5
+		if c.ev != nil && c.ev.DeepLMP {
+			maxLMP = 8
+		}
+		if lmp && i > 0 && lateMovePrunedMax(depth, i, false, inCheck, isCapture, promoted, givesCheck, c.isKiller(ply, m), maxLMP) {
 			g.Board.UnmakeMove(undo)
 			continue
 		}
@@ -1211,7 +1221,14 @@ func deadPosition(b *board.Board) bool {
 // cannot vouch for, and never past depth 5, where a pruned move's
 // subtree would have been large enough to matter.
 func lateMovePruned(depth, moveIndex int, improving, inCheck, isCapture, promoted, givesCheck, isKiller bool) bool {
-	if depth > 5 || inCheck || isCapture || promoted || givesCheck || isKiller {
+	return lateMovePrunedMax(depth, moveIndex, improving, inCheck, isCapture, promoted, givesCheck, isKiller, 5)
+}
+
+func lateMovePrunedMax(depth, moveIndex int, improving, inCheck, isCapture, promoted, givesCheck, isKiller bool, maxDepth int) bool {
+	if maxDepth <= 0 {
+		maxDepth = 5
+	}
+	if depth > maxDepth || inCheck || isCapture || promoted || givesCheck || isKiller {
 		return false
 	}
 	div := 2
@@ -1220,6 +1237,7 @@ func lateMovePruned(depth, moveIndex int, improving, inCheck, isCapture, promote
 	}
 	return moveIndex >= (3+depth*depth)/div
 }
+
 
 // reverseFutilityMargin is how far a static evaluation must stand beyond
 // the bound, in pawns, for a zero-window node at this depth to return it

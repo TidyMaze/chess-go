@@ -43,6 +43,7 @@ func main() {
 	probe := flag.Int("probe", 8, "games per level in the first pass")
 	features := flag.String("features", "", "comma-separated search features to switch on for the engine under test: lmp, scaledlmr, rfp, nullgate, countermove, iir, see")
 	only := flag.String("levels", "", "comma-separated Stockfish Elo levels to play; empty means the whole ladder. One level skips the probe pass and plays -games there")
+	timeMS := flag.Int("time", 0, "per-move budget in milliseconds (0 = fixed depth)")
 	flag.Parse()
 
 	// Every milestone has to be measured on the same Stockfish scale for the
@@ -75,29 +76,11 @@ func main() {
 		fmt.Printf("calibrating the champion: %s (claimed %.0f Elo)\n", c.Label, c.Elo)
 	}
 
-	for _, f := range strings.Split(*features, ",") {
-		switch strings.TrimSpace(f) {
-		case "":
-		case "lmp":
-			me.LMP = true
-		case "scaledlmr":
-			me.ScaledLMR = true
-		case "rfp":
-			me.DeepRFP = true
-		case "nullgate":
-			me.NullGate = true
-		case "countermove":
-			me.Countermoves = true
-		case "iir":
-			me.IIR = true
-		case "see":
-			me.MainSEE = true
-		case "historymalus":
-			me.HistoryMalus = true
-		default:
-			fmt.Printf("unknown feature %q\n", f)
-			return
-		}
+	if *features != "" {
+		me.ApplyFeatures(*features)
+	}
+	if *timeMS > 0 {
+		me.TimeBudget = time.Duration(*timeMS) * time.Millisecond
 	}
 
 	switch *config {

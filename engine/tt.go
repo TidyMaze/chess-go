@@ -175,6 +175,46 @@ func (t *TranspositionTable) probe(key uint64, depth int, maximizingFor board.Co
 	return 0, false
 }
 
+// probeWithMove probes for both a cutoff score and the stored best move in a single lookup and lock.
+func (t *TranspositionTable) probeWithMove(key uint64, depth int, maximizingFor board.Color, alpha, beta float64) (score float64, cutoff bool, m game.Move, okMove bool) {
+	if t == nil {
+		return 0, false, game.Move{}, false
+	}
+	idx := key & t.mask
+	var e ttEntry
+	if t.shared {
+		l := &t.locks[idx&(ttStripes-1)]
+		l.Lock()
+		e = t.entries[idx]
+		l.Unlock()
+	} else {
+		e = t.entries[idx]
+	}
+	if e.key32 != keyUpper(key) {
+		return 0, false, game.Move{}, false
+	}
+	m = game.Move{From: indexToSq(e.from), To: indexToSq(e.to)}
+	okMove = true
+	if int(e.depth) < depth || e.maximizingFor != uint8(maximizingFor) {
+		return 0, false, m, true
+	}
+	score = e.score
+	switch e.flag {
+	case ttExact:
+		return score, true, m, true
+	case ttLowerBound:
+		if score >= beta {
+			return score, true, m, true
+		}
+	case ttUpperBound:
+		if score <= alpha {
+			return score, true, m, true
+		}
+	}
+	return 0, false, m, true
+}
+
+
 func (t *TranspositionTable) store(key uint64, score float64, depth int, flag ttFlag, maximizingFor board.Color) {
 	t.storeWithMove(key, score, depth, flag, maximizingFor, game.Move{})
 }

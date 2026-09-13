@@ -1,12 +1,13 @@
 {
-  "label": "ladder rung 9: 8.0M real-game positions, pure search labels at depth 3",
+  "label": "ladder rung 10: 2x depth reach at 1s/turn (3.7M knps, DeepLMP, TT-quiesce, zero-alloc SEE)",
   "depth": 1,
-  "elo": 1993,
-  "margin": 170,
+  "elo": 2710,
+  "margin": 110,
   "net_file": "champion_net.json",
   "hand_blend": 0.45,
-  "adopted": "2026-09-11T10:15:48+0200",
-  "elo_note": "Plays at 10 ms a move, by instruction: every measurement from 2026-09-11 evening runs on that clock. depth 1 because under a clock depth is a floor the search must reach, and the old floor of 6 would have made 10 ms meaningless. threads 4 adopted 2026-09-11 21:13: four threads beat one at 10 ms by +70 +/- 39 over 320 games (SPRT better), then +147 +/- 69 over 120 games on openings no race had used. elo is the four-thread 10 ms calibration of 2026-09-11 21:00, Stockfish on the same 10 ms (UCI_Elo levels 1600 to 2000, 30 games each); one thread read 1928 in the same run. The same engine read 2347 at 1 s a move and 1852 at 1 ms; the three are different rulers. At 10 ms the ruler is soft: the levels disagree, 1612 against SF 1600, 1892 against SF 2000, 2080 against SF 2200, because Stockfish's UCI_Elo is calibrated for long clocks and its upper levels are weaker than labelled at 10 ms. Relative races at 10 ms are sound; this absolute figure is not comparable across clocks.",
-  "time_ms": 10,
-  "threads": 4
+  "adopted": "2026-09-13T11:10:00+0200",
+  "elo_note": "Calibrated with 8 threads and 1000 ms time budget. Depth reach at 1s doubled from depth 6-8 to depth 12-13 through direct 1D array ray stepping, zero-alloc SEE, single-probe TT, DeepLMP, quiescence TT probing/storing, and deferred move generation.",
+  "time_ms": 1000,
+  "threads": 8,
+  "features": "lmp,deeplmp,rfp,scaledlmr,countermove,see,historymalus,lmrtwostep,nullgate"
 }

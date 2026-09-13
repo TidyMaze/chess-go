@@ -87,6 +87,12 @@ func (g *Game) AppendLegalMovesInCheck(dst []Move, color board.Color) ([]Move, b
 	return g.appendLegalMoves(dst, color, inCheck), inCheck
 }
 
+// AppendLegalMovesGivenCheck appends legal moves when inCheck has already been computed.
+func (g *Game) AppendLegalMovesGivenCheck(dst []Move, color board.Color, inCheck bool) []Move {
+	return g.appendLegalMoves(dst, color, inCheck)
+}
+
+
 func (g *Game) appendLegalMoves(dst []Move, color board.Color, inCheck bool) []Move {
 	pinned := moves.PinnedSquares(&g.Board, color)
 	var pieceBuf [16]board.PieceAtSquare

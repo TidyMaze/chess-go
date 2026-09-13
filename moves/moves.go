@@ -12,6 +12,8 @@ var knightOffsets = [8][2]int{{1, 2}, {1, -2}, {-1, 2}, {-1, -2}, {2, 1}, {2, -1
 var kingOffsets = [8][2]int{{-1, -1}, {-1, 0}, {-1, 1}, {0, -1}, {0, 1}, {1, -1}, {1, 0}, {1, 1}}
 var bishopDirs = [4][2]int{{1, 1}, {1, -1}, {-1, 1}, {-1, -1}}
 var rookDirs = [4][2]int{{1, 0}, {-1, 0}, {0, 1}, {0, -1}}
+var queenDirs = [8][2]int{{1, 1}, {1, -1}, {-1, 1}, {-1, -1}, {1, 0}, {-1, 0}, {0, 1}, {0, -1}}
+
 
 func stepMoves(dst []board.Sq, b *board.Board, sq board.Sq, color board.Color, offsets [][2]int) []board.Sq {
 	return b.AppendStepMoves(dst, sq, color, offsets)
@@ -285,12 +287,11 @@ func AttackerOfType(b *board.Board, sq board.Sq, by board.Color, typ board.Piece
 			}
 		}
 	case board.Bishop, board.Rook, board.Queen:
-		var dirs [][2]int
-		if typ != board.Rook {
-			dirs = append(dirs, bishopDirs[:]...)
-		}
-		if typ != board.Bishop {
-			dirs = append(dirs, rookDirs[:]...)
+		dirs := queenDirs[:]
+		if typ == board.Bishop {
+			dirs = bishopDirs[:]
+		} else if typ == board.Rook {
+			dirs = rookDirs[:]
 		}
 		for _, d := range dirs {
 			from := sq

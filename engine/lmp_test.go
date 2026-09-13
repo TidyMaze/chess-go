@@ -58,6 +58,29 @@ func TestLateMovePruningExemptions(t *testing.T) {
 	}
 }
 
+func TestDeepLateMovePruning(t *testing.T) {
+	// With maxDepth = 8:
+	// depth 6: (3 + 36)/2 = 19
+	// depth 7: (3 + 49)/2 = 26
+	// depth 8: (3 + 64)/2 = 33
+	// depth 9: beyond cap
+	for _, c := range []struct {
+		depth, index int
+		want         bool
+	}{
+		{6, 18, false}, {6, 19, true},
+		{7, 25, false}, {7, 26, true},
+		{8, 32, false}, {8, 33, true},
+		{9, 100, false},
+	} {
+		got := lateMovePrunedMax(c.depth, c.index, false, false, false, false, false, false, 8)
+		if got != c.want {
+			t.Errorf("depth %d move %d maxDepth 8: pruned %v, want %v", c.depth, c.index, got, c.want)
+		}
+	}
+}
+
+
 // Wired in, the rule must actually remove nodes.
 func TestLateMovePruningCutsNodes(t *testing.T) {
 	var with, without int
@@ -77,3 +100,26 @@ func TestLateMovePruningCutsNodes(t *testing.T) {
 		t.Errorf("late move pruning removed no nodes: %d with, %d without", with, without)
 	}
 }
+
+func TestDeepLateMovePruningCutsNodes(t *testing.T) {
+	var with, without int
+	for _, fen := range correctnessPositions[:4] {
+		g, _ := game.ParseFEN(fen)
+		off, on := Strong(7), Strong(7)
+		off.LMP = true
+		off.DeepLMP = false
+		on.LMP = true
+		on.DeepLMP = true
+		ResetNodes()
+		PlayerScoreWith(off, g, nil)
+		without += TotalNodes()
+		ResetNodes()
+		PlayerScoreWith(on, g, nil)
+		with += TotalNodes()
+	}
+	t.Logf("nodes at depth 7: %d standard LMP, %d deep LMP (%.2fx)", without, with, float64(without)/float64(with))
+	if with >= without {
+		t.Errorf("deep late move pruning removed no nodes: %d with, %d without", with, without)
+	}
+}
+

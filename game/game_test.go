@@ -174,3 +174,19 @@ func TestPawnOnLastRankGeneratesNoForwardMove(t *testing.T) {
 		}
 	}
 }
+
+func TestAppendLegalMovesGivenCheckMatches(t *testing.T) {
+	g := New()
+	var buf1, buf2 [96]Move
+	m1, inCheck := g.AppendLegalMovesInCheck(buf1[:0], board.White)
+	m2 := g.AppendLegalMovesGivenCheck(buf2[:0], board.White, inCheck)
+	if len(m1) != len(m2) {
+		t.Fatalf("length mismatch: %d vs %d", len(m1), len(m2))
+	}
+	for i := range m1 {
+		if m1[i] != m2[i] {
+			t.Errorf("move %d mismatch: %v vs %v", i, m1[i], m2[i])
+		}
+	}
+}
+
