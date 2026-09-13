@@ -91,3 +91,4 @@ nets_torch/
 # Opening book generated from the PGN game database by
 # "nnue-bin -book-from-pgn"; regenerate rather than version it.
 games_book.txt
+games_book_full.txt
