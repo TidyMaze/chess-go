@@ -448,6 +448,32 @@ one's name. The function now carries a warning saying so.
 calibration that file carries is not disturbed, and the book is generated
 rather than versioned.
 
+## What a move actually costs the clock, settled 2026-09-14
+
+The per move accounting now closes, measured in a rated bullet game at
+120+1 with the deployed build:
+
+```
+f2g3 in 1.808s search + 22ms post, 1.829s total (budget 1.717s)
+```
+
+Budget 1.72 s, search 1.81 s, post 0.02 s, total 1.83 s, and the clock
+audit of the whole game puts the median move 0.1 s over its budget. Every
+one of those agrees with the others, which answers the thing that was left
+open when the overhead reservation was written: whether lichess reaching us
+costs anything outside the window this process can time. It does not
+measurably. The search overrun, about six percent, is the whole of it.
+
+That also confirms the 550 ms reservation was wrong and specific to games
+against the lichess AI, where posting really did take 530 to 680 ms.
+Against real opponents a post is 15 to 36 ms whatever the search just did,
+including straight after a 15.8 s one. The reservation is 150 ms, which is
+several times the real cost and small enough not to matter.
+
+Four consecutive rated games audited clean across three time controls
+after the rewrite: 60+3 overhead 0.0 s, 180+2 0.1 s, 600+0 0.3 s, 120+1
+0.1 s, none below its floor, none lost on time.
+
 ## The book was popular, not good, 2026-09-13
 
 Popularity and quality are not the same thing, and nothing had checked
