@@ -151,9 +151,16 @@ func (b *Bot) playGame(gameID string) {
 // not the fixed budget champion.json carries for a measurement race.
 // Depth, threads and the network are untouched; only how long the search
 // is allowed to run changes, per move, every move.
-func effectivePlayer(base engine.Player, ourColor string, st gameState) engine.Player {
+func effectivePlayer(base engine.Player, ourColor string, st gameState, speed string) engine.Player {
 	if budget := moveTimeBudget(ourColor, st); budget > 0 {
 		base.TimeBudget = budget
+		return base
+	}
+	if speed == "correspondence" {
+		// No clock to spend, so the race budget champion.json carries is
+		// the wrong one: it played lichess's Stockfish at its top level
+		// on one second a move and lost, game N1ok1iNf.
+		base.TimeBudget = unlimitedBudget
 	}
 	return base
 }
@@ -179,7 +186,7 @@ func (b *Bot) maybeMove(gameID string, full gameFull, st gameState) {
 	if !isOurTurn(g, color) {
 		return
 	}
-	m, ok := engine.PlayerPick(effectivePlayer(b.Player, color, st), g)
+	m, ok := engine.PlayerPick(effectivePlayer(b.Player, color, st, full.Speed), g)
 	if !ok {
 		b.logf("game %s: no legal move found on our turn", gameID)
 		return

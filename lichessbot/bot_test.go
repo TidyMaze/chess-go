@@ -540,7 +540,7 @@ func TestBotIgnoresItsOwnOutgoingChallenge(t *testing.T) {
 func TestEffectivePlayerUsesTheLiveClockOverTheChampionsFixedBudget(t *testing.T) {
 	base := engine.Player{TimeBudget: 999 * time.Hour, Depth: 3}
 	st := gameState{WhiteTimeMS: 30000, WhiteIncMS: 0}
-	got := effectivePlayer(base, "white", st)
+	got := effectivePlayer(base, "white", st, "blitz")
 	if got.TimeBudget == base.TimeBudget {
 		t.Error("the live clock did not override the champion's fixed time budget")
 	}
@@ -556,7 +556,7 @@ func TestEffectivePlayerUsesTheLiveClockOverTheChampionsFixedBudget(t *testing.T
 // own configured budget rather than being handed zero thinking time.
 func TestEffectivePlayerKeepsTheChampionsBudgetWithNoClock(t *testing.T) {
 	base := engine.Player{TimeBudget: 5 * time.Second}
-	got := effectivePlayer(base, "white", gameState{})
+	got := effectivePlayer(base, "white", gameState{}, "blitz")
 	if got.TimeBudget != base.TimeBudget {
 		t.Errorf("got %v, want the champion's own %v kept with no clock data", got.TimeBudget, base.TimeBudget)
 	}
@@ -662,5 +662,27 @@ func TestBotIgnoresItsOwnOutgoingChallengeEvenAtTheGameLimit(t *testing.T) {
 	}
 	if posts := f.postedPaths(); len(posts) != 0 {
 		t.Errorf("posts: %v, want none for our own outgoing challenge at the limit", posts)
+	}
+}
+
+// A correspondence game has no clock at all, so the champion's own race
+// budget is the wrong one: on one second a move it played lichess's
+// Stockfish at its top level and lost, game N1ok1iNf. It gets a real
+// budget instead, and only correspondence does, because inferring "no
+// clock" from a missing field would hand a bullet game a fifteen second
+// think and flag it.
+func TestCorrespondenceGetsARealBudget(t *testing.T) {
+	base := engine.Player{TimeBudget: time.Second}
+	got := effectivePlayer(base, "white", gameState{}, "correspondence")
+	if got.TimeBudget <= time.Second {
+		t.Errorf("correspondence got %v, no better than the race budget", got.TimeBudget)
+	}
+}
+
+func TestAClockedGameWithNoClockFieldKeepsTheChampionBudget(t *testing.T) {
+	base := engine.Player{TimeBudget: time.Second}
+	got := effectivePlayer(base, "white", gameState{}, "bullet")
+	if got.TimeBudget != time.Second {
+		t.Errorf("bullet with no clock field got %v; it must keep the champion's budget, not an unlimited one", got.TimeBudget)
 	}
 }

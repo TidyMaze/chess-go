@@ -382,3 +382,13 @@ func TestMoveTimeBudgetCeilingClampsABigIncrementOnATinyClock(t *testing.T) {
 		t.Error("budget must stay positive")
 	}
 }
+
+// With no clock reported this reports nothing and leaves the decision to
+// the caller, which knows the game's speed. Deciding "unlimited" here,
+// from a missing field alone, would hand a bullet game whose event simply
+// omitted the clock a fifteen second think and flag it.
+func TestNoClockDefersToTheCaller(t *testing.T) {
+	if got := moveTimeBudget("white", gameState{}); got != 0 {
+		t.Errorf("got %v with no clock, want 0 so the caller decides on the game's speed", got)
+	}
+}

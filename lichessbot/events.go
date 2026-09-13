@@ -61,7 +61,13 @@ type gameFull struct {
 		ID string `json:"id"`
 	} `json:"black"`
 	InitialFen string `json:"initialFen"`
-	State      gameState
+	// Speed is lichess's own classification. A correspondence game has no
+	// clock at all, and that is the only case where the engine may think
+	// as long as it likes. Deciding that from a missing clock field would
+	// be dangerous: an event that simply omitted the clock would then get
+	// a fifteen second think in a bullet game and flag it.
+	Speed string `json:"speed"`
+	State gameState
 }
 
 // WhiteTimeMS, BlackTimeMS, WhiteIncMS and BlackIncMS are the live clock

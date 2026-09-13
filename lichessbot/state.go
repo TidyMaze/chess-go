@@ -111,6 +111,11 @@ func moveUCIForLichess(g *game.Game, m game.Move) string {
 	return uci + "q"
 }
 
+// unlimitedBudget is what one move gets in a game with no clock, a
+// correspondence or unlimited challenge. Long enough to be a real search
+// rather than a race budget, short enough that nobody waits on it.
+const unlimitedBudget = 15 * time.Second
+
 // moveTimeBudget turns the live clock lichess sends into a per-move
 // thinking budget, so the engine spends more time in a long game and less
 // in a short one instead of always thinking for whatever champion.json
@@ -131,8 +136,8 @@ func moveTimeBudget(ourColor string, st gameState) time.Duration {
 		remainMs, incMs = st.BlackTimeMS, st.BlackIncMS
 	}
 	if remainMs <= 0 {
-		// No clock at all (correspondence) or a clock that has not been
-		// reported yet: let the caller fall back to a fixed budget.
+		// No clock reported. Let the caller decide: a correspondence game
+		// gets a real budget, anything else falls back to the champion's.
 		return 0
 	}
 	const (
