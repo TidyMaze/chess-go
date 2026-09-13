@@ -25,7 +25,31 @@ increment to lean on.
 Not a flagging risk to fix: zero games have ever been lost on time, every
 loss is a checkmate.
 
-### 2. King and two bishops cannot mate a lone king
+### 2. The search ignores the fifty-move clock, and draws won games
+`game.IsFiftyMoveDraw` exists and `engine/train.go` uses it, but nothing
+in the search does: `grep -rn 'HalfmoveClock\|IsFiftyMoveDraw' engine/`
+returns one hit, in the training loop. So a winning position and a
+position two moves from a forced draw score exactly the same, and the
+engine has no reason to make progress.
+
+Two confirmed cases, both real games, both drawn from clearly won
+positions:
+
+| game | material | halfmove clock | what it did |
+|---|---|---|---|
+| [MOo10QZv](https://lichess.org/MOo10QZv) | +2 pawns, rook and three pawns against rook and one, connected passers | 41 to 100 | shuffled the rook: Re5 Kb6 Rd5 Kc7 Re5 Kb7 Rd5 |
+| [96FKJUSy](https://lichess.org/96FKJUSy) | +3, two bishops against one | 32 upward | shuffled bishops and king |
+
+This is not the rare two-bishop curiosity below. A rook-and-pawns ending
+a clean two pawns up is the most ordinary winning endgame there is, and
+it was thrown away for nothing. Each one costs a half point directly.
+
+The fix is not a weight: the search needs to know the clock, so that a
+line which resets it, a pawn move or a capture, is worth something when
+the clock is high, and so a repetition into the draw is scored as the
+draw it is.
+
+### 3. King and two bishops cannot mate a lone king
 Reproducible, deterministic, gated behind `ENDGAME=1` in
 `engine/endgame_mate_test.go`. King and queen and king and rook both
 convert. The cause is in `kingDrivingBonus`: it measures the bare king's
