@@ -36,6 +36,12 @@ func controlsWePlay() []control {
 		{"blitz 3+0", 180000, 0, 120, 3000, 72000},
 		{"blitz 3+2", 180000, 2000, 120, 10000, 72000},
 		{"blitz 5+3", 300000, 3000, 120, 15000, 120000},
+		// A short base with a fat increment is the hoarding case: the
+		// increment can exceed what the rule ever spends, so the clock grows
+		// and the engine searches less than it could afford. Observed in a
+		// rated 60+3 game whose clock never once went below its starting
+		// minute over 36 moves.
+		{"bullet 1+3", 60000, 3000, 120, 15000, 60000},
 		// A 1+10 clock grows: ten seconds back a move is more than the rule
 		// ever spends, so the most that can be asked is that it not idle
 		// above where it started.
