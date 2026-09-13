@@ -70,3 +70,45 @@ func TestHandleEvalReturnsMetrics(t *testing.T) {
 		t.Fatalf("expected ok eval, got %+v", res)
 	}
 }
+
+func TestScoreIsWhiteRelative(t *testing.T) {
+	initTestChampion()
+	// Position where White is missing a queen (d1 empty): score MUST be negative (Black winning)
+	body, _ := json.Marshal(moveRequest{
+		FEN: "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNB1KBNR b KQkq - 0 1",
+	})
+	req := httptest.NewRequest("POST", "/api/eval", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	handleEval(w, req)
+
+	var res moveResponse
+	if err := json.NewDecoder(w.Body).Decode(&res); err != nil {
+		t.Fatal(err)
+	}
+	if res.Score >= 0 {
+		t.Errorf("expected negative score for White when Black is winning, got %f", res.Score)
+	}
+}
+
+func TestHandleMoveScoreIsWhiteRelative(t *testing.T) {
+	initTestChampion()
+	// White plays e2-e4 from a position where White is missing queen
+	body, _ := json.Marshal(moveRequest{
+		FEN:  "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNB1KBNR w KQkq - 0 1",
+		From: "e2",
+		To:   "e4",
+	})
+	req := httptest.NewRequest("POST", "/api/move", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	handleMove(w, req)
+
+	var res moveResponse
+	if err := json.NewDecoder(w.Body).Decode(&res); err != nil {
+		t.Fatal(err)
+	}
+	if res.Score >= 0 {
+		t.Errorf("expected negative score for White when Black is winning, got %f", res.Score)
+	}
+}
+
+

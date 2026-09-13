@@ -265,7 +265,7 @@ function updateLiveMetrics(score, depth, nodes, knps) {
     if (textEl) {
       if (Math.abs(score) < 0.2) textEl.textContent = "Equal position";
       else if (score > 0) textEl.textContent = "White ahead +" + score.toFixed(2);
-      else textEl.textContent = "Black ahead " + score.toFixed(2);
+      else textEl.textContent = "Black ahead +" + Math.abs(score).toFixed(2);
     }
     const barEl = document.getElementById("evalBar");
     if (barEl) {

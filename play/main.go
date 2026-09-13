@@ -146,6 +146,7 @@ func handleMove(w http.ResponseWriter, r *http.Request) {
 
 	engine.ResetNodes()
 	t0 := time.Now()
+	engineSide := g.Turn
 	reply, score, ok := engine.PlayerPickScored(best(), g)
 	elapsed := time.Since(t0)
 	if !ok {
@@ -161,11 +162,16 @@ func handleMove(w http.ResponseWriter, r *http.Request) {
 		knps = float64(nodes) / elapsed.Seconds() / 1000
 	}
 
+	whiteScore := score
+	if engineSide == board.Black {
+		whiteScore = -score
+	}
+
 	writeJSON(w, moveResponse{
 		OK: true, FEN: g.FEN(), EngineMove: reply.UCI(),
 		Status: status(g), Legal: legalUCI(g),
 		ThinkMS: elapsed.Milliseconds(),
-		Score:   score,
+		Score:   whiteScore,
 		Depth:   depth,
 		Nodes:   nodes,
 		KNPS:    knps,
@@ -187,6 +193,7 @@ func handleHint(w http.ResponseWriter, r *http.Request) {
 	}
 	engine.ResetNodes()
 	t0 := time.Now()
+	evalSide := g.Turn
 	m, score, ok := engine.PlayerPickScored(best(), g)
 	elapsed := time.Since(t0)
 	if !ok {
@@ -199,10 +206,16 @@ func handleHint(w http.ResponseWriter, r *http.Request) {
 	if elapsed.Seconds() > 0 {
 		knps = float64(nodes) / elapsed.Seconds() / 1000
 	}
+
+	whiteScore := score
+	if evalSide == board.Black {
+		whiteScore = -score
+	}
+
 	writeJSON(w, moveResponse{
 		OK: true, FEN: req.FEN, EngineMove: m.UCI(), Legal: legalUCI(g),
 		ThinkMS: elapsed.Milliseconds(),
-		Score:   score,
+		Score:   whiteScore,
 		Depth:   depth,
 		Nodes:   nodes,
 		KNPS:    knps,
@@ -225,10 +238,16 @@ func handleEval(w http.ResponseWriter, r *http.Request) {
 	p := best()
 	p.Depth = 5
 	p.TimeBudget = 100 * time.Millisecond
+	evalSide := g.Turn
 	_, score, ok := engine.PlayerPickScored(p, g)
 	elapsed := time.Since(t0)
-	if !ok {
-		score = engine.PlayerStaticEval(best(), &g.Board)
+	whiteScore := score
+	if ok {
+		if evalSide == board.Black {
+			whiteScore = -score
+		}
+	} else {
+		whiteScore = engine.PlayerStaticEval(best(), &g.Board)
 	}
 	nodes := engine.TotalNodes()
 	depth := engine.LastSearchDepth()
@@ -239,7 +258,7 @@ func handleEval(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, moveResponse{
 		OK: true, FEN: req.FEN, Legal: legalUCI(g),
 		ThinkMS: elapsed.Milliseconds(),
-		Score:   score,
+		Score:   whiteScore,
 		Depth:   depth,
 		Nodes:   nodes,
 		KNPS:    knps,
