@@ -447,3 +447,29 @@ one's name. The function now carries a warning saying so.
 `champion_bot.json` is kept separate from `champion.json` so the
 calibration that file carries is not disturbed, and the book is generated
 rather than versioned.
+
+## Where the bot actually loses, 2026-09-13
+
+Material balance from our own side, measured by replaying all 26 lost
+lichess games and scoring the board at fixed checkpoints:
+
+| checkpoint | mean material | games already behind |
+|---|---|---|
+| ply 20 | +0.65 | 0 of 26 |
+| ply 40 | +0.69 | 3 of 26 |
+| ply 60 | -2.04 | 14 of 24 |
+| ply 80 | -2.82 | 12 of 17 |
+
+Every lost game was still level or better at ply 20, and all but three at
+ply 40. The collapse is between ply 40 and ply 60: about three pawns
+swing away in twenty plies and the count of games already behind goes
+from 3 to 14.
+
+So the losses are not opening preparation, not the clock (all 26 are
+mate, none on time), and not endgame conversion, which the engine rarely
+gets far enough ahead to attempt. They are the late middlegame, around
+moves 20 to 30, where the position is most complex and the piece count is
+still high. That is a depth and tactics problem, which is where
+LEARNINGS already says the remaining Elo lives, and it is the phase any
+further engine work should target. Endgame technique, by contrast, is
+worth little here: the engine seldom reaches a won endgame to convert.
