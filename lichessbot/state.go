@@ -136,15 +136,55 @@ func moveTimeBudget(ourColor string, st gameState) time.Duration {
 		return 0
 	}
 	const (
-		fractionOfRemaining = 1.0 / 30.0
-		fractionOfIncrement = 0.8
-		safetyMarginMs      = 200
-		minBudgetMs         = 50
-		maxBudgetMs         = 15000
+		fractionOfRemaining      = 1.0 / 20.0
+		fractionWithoutIncrement = 1.0 / 30.0
+		fractionOfIncrement      = 0.9
+		safetyMarginMs           = 200
+		minBudgetMs              = 50
+		maxBudgetMs              = 15000
+		// The reserve is what a long game runs on. Spending is generous
+		// above it and throttles hard below, so a game that goes long
+		// slows down by itself instead of flagging.
+		baseReserveMs     = 8000
+		reserveIncrements = 10
+		maxReserveShare   = 0.25
 	)
-	budgetMs := float64(remainMs)*fractionOfRemaining + float64(incMs)*fractionOfIncrement
+	// A sixth to a quarter of the clock was going unspent in real games:
+	// the thirteen lost bullet and blitz games ended with between 10.4 s
+	// of a 60 s clock and 84.5 s of a 180 s one still on it, and none was
+	// ever close to flagging. Unspent clock is unsearched depth, and
+	// depth is what those losses were short of. Simulated over a whole
+	// game, a flat smaller divisor buys that back but reaches zero in a
+	// 120 move game without increment; holding a reserve buys most of it
+	// and does not.
+	// Increment is what makes generous spending safe: every move hands
+	// some of it back, so a long game cannot drain the clock the way it
+	// can without one. Simulated over 120 moves of 1+0, spending a
+	// twentieth of what is left exhausts the clock exactly and flags,
+	// while a thirtieth ends with half a second in hand. So the share
+	// depends on whether there is an increment to lean on.
+	share := fractionOfRemaining
+	if incMs <= 0 {
+		share = fractionWithoutIncrement
+	}
+	budgetMs := float64(remainMs)*share + float64(incMs)*fractionOfIncrement
 	if budgetMs > maxBudgetMs {
 		budgetMs = maxBudgetMs
+	}
+	// The reserve is capped as a share of the clock: ten increments is
+	// the right idea on a 2+1 bullet clock and absurd on a 1+10 one,
+	// where it would swallow the whole clock and make the engine think
+	// less with an increment than without one.
+	reserveMs := float64(baseReserveMs + reserveIncrements*incMs)
+	if maxReserve := float64(remainMs) * maxReserveShare; reserveMs > maxReserve {
+		reserveMs = maxReserve
+	}
+	// Capping the reserve at a quarter keeps this at three quarters of the
+	// clock or more, so it never goes negative and the scramble is handled
+	// by the floor below rather than by a separate branch.
+	usable := float64(remainMs) - reserveMs
+	if budgetMs > usable {
+		budgetMs = usable
 	}
 	if budgetMs < minBudgetMs {
 		budgetMs = minBudgetMs

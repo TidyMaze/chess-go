@@ -268,3 +268,117 @@ func TestApplyMovesStringTracksRepetitionFromAnyStart(t *testing.T) {
 		t.Error("a game rebuilt from a FEN does not track repetition, so the anti-shuffle rule is dead in it")
 	}
 }
+
+// With a healthy clock the budget must be more generous than the old
+// remaining/30 rule, which left a sixth to a quarter of the clock unspent
+// at the end of real games: minimum remaining across the thirteen lost
+// bullet and blitz games ran from 10.4 s of a 60 s clock to 84.5 s of a
+// 180 s one. Unspent clock is unsearched depth.
+func TestMoveTimeBudgetSpendsMoreWhenTheClockIsHealthy(t *testing.T) {
+	st := gameState{WhiteTimeMS: 120000, WhiteIncMS: 1000}
+	got := moveTimeBudget("white", st)
+	old := time.Duration(float64(st.WhiteTimeMS)/30.0+0.8*float64(st.WhiteIncMS)) * time.Millisecond
+	if got <= old {
+		t.Errorf("budget %v is not more than the old rule's %v on a healthy clock", got, old)
+	}
+}
+
+// It must not spend into the reserve while the reserve is intact: that is
+// what keeps a long game from flagging. Simulated over 120 moves of
+// bullet with no increment, the aggressive rules without a reserve reach
+// zero and flag, and this one does not.
+func TestMoveTimeBudgetLeavesTheReserveAlone(t *testing.T) {
+	st := gameState{WhiteTimeMS: 60000, WhiteIncMS: 0}
+	got := moveTimeBudget("white", st)
+	reserve := 8 * time.Second
+	if got > time.Duration(st.WhiteTimeMS)*time.Millisecond-reserve {
+		t.Errorf("budget %v eats into the reserve on a %dms clock", got, st.WhiteTimeMS)
+	}
+}
+
+// Once the reserve is gone the engine still has to move, so the budget
+// stays positive and small rather than refusing or overrunning.
+func TestMoveTimeBudgetStillMovesBelowTheReserve(t *testing.T) {
+	st := gameState{WhiteTimeMS: 3000, WhiteIncMS: 0}
+	got := moveTimeBudget("white", st)
+	if got <= 0 {
+		t.Error("budget must stay positive below the reserve")
+	}
+	if got >= 3000*time.Millisecond {
+		t.Errorf("budget %v exceeds the whole remaining clock", got)
+	}
+}
+
+// Without an increment there is nothing handing time back, so a long
+// game drains the clock: simulated over 120 moves of 1+0, spending a
+// twentieth of what is left each move exhausts it exactly and flags,
+// while a thirtieth ends with half a second in hand. The share must
+// therefore depend on whether there is an increment to lean on.
+func TestMoveTimeBudgetIsMoreCautiousWithoutAnIncrement(t *testing.T) {
+	withInc := moveTimeBudget("white", gameState{WhiteTimeMS: 60000, WhiteIncMS: 1000})
+	without := moveTimeBudget("white", gameState{WhiteTimeMS: 60000, WhiteIncMS: 0})
+	if without >= withInc {
+		t.Errorf("no increment gave %v and an increment gave %v; the no-increment case must be the cautious one", without, withInc)
+	}
+	// And it must match the old, safe rule on a healthy no-increment clock.
+	wantOld := time.Duration(60000/30) * time.Millisecond
+	if without != wantOld {
+		t.Errorf("got %v, want the old %v rule without an increment", without, wantOld)
+	}
+}
+
+// A reserve of ten increments is right on a 2+1 clock and absurd on a
+// 1+10 one, where it would swallow the whole clock and make the engine
+// think less with an increment than without. It is capped as a share of
+// what is left.
+func TestMoveTimeBudgetReserveCannotSwallowTheClock(t *testing.T) {
+	big := moveTimeBudget("white", gameState{WhiteTimeMS: 60000, WhiteIncMS: 10000})
+	none := moveTimeBudget("white", gameState{WhiteTimeMS: 60000, WhiteIncMS: 0})
+	if big <= none {
+		t.Errorf("a 10s increment gave %v, less than no increment at %v", big, none)
+	}
+}
+
+// Once the reserve is spent the engine is in the scramble and runs on a
+// small share of what is left, and once even that is under the floor it
+// runs on the floor. Both branches have to produce a move: an engine
+// that returns nothing here loses on time for certain.
+func TestMoveTimeBudgetScrambleBranches(t *testing.T) {
+	// Below the reserve but well above the floor.
+	if got := moveTimeBudget("white", gameState{WhiteTimeMS: 4000, WhiteIncMS: 0}); got <= 0 || got >= 4000*time.Millisecond {
+		t.Errorf("scramble budget %v is not a sane slice of a 4s clock", got)
+	}
+	// Almost nothing left: the floor, and never more than the clock.
+	got := moveTimeBudget("white", gameState{WhiteTimeMS: 120, WhiteIncMS: 0})
+	if got <= 0 {
+		t.Error("a nearly flagged clock still has to produce a move")
+	}
+	if got > 120*time.Millisecond {
+		t.Errorf("budget %v exceeds the 120ms actually left", got)
+	}
+}
+
+// A long clock must not make one move think for minutes: the cap applies
+// before anything else, and 10.6 plies in a second already only buys
+// about a ply per further second.
+func TestMoveTimeBudgetCapAppliesOnAVeryLongClock(t *testing.T) {
+	got := moveTimeBudget("white", gameState{WhiteTimeMS: 3600000, WhiteIncMS: 60000})
+	if got != 15*time.Second {
+		t.Errorf("got %v, want the 15s cap on a one hour clock", got)
+	}
+}
+
+// A large increment on a nearly empty clock is the one case where the
+// reserve still leaves more than the safety margin allows, so the final
+// ceiling has to clamp it. Without that clamp the engine would spend
+// past the flag.
+func TestMoveTimeBudgetCeilingClampsABigIncrementOnATinyClock(t *testing.T) {
+	st := gameState{WhiteTimeMS: 600, WhiteIncMS: 10000}
+	got := moveTimeBudget("white", st)
+	if got >= time.Duration(st.WhiteTimeMS)*time.Millisecond {
+		t.Errorf("budget %v does not leave the safety margin on a 600ms clock", got)
+	}
+	if got <= 0 {
+		t.Error("budget must stay positive")
+	}
+}

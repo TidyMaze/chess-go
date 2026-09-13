@@ -1,5 +1,5 @@
 {
-  "label": "ladder rung 10: 2x depth reach at 1s/turn (3.7M knps, DeepLMP, TT-quiesce, zero-alloc SEE) + games opening book",
+  "label": "ladder rung 10: 2x depth reach at 1s/turn (3.7M knps, DeepLMP, TT-quiesce, zero-alloc SEE) + games opening book, 2 threads for five concurrent games",
   "depth": 1,
   "elo": 2710,
   "margin": 110,
@@ -8,7 +8,7 @@
   "adopted": "2026-09-13T11:10:00+0200",
   "elo_note": "Calibrated with 8 threads and 1000 ms time budget. Depth reach at 1s doubled from depth 6-8 to depth 12-13 through direct 1D array ray stepping, zero-alloc SEE, single-probe TT, DeepLMP, quiescence TT probing/storing, and deferred move generation.",
   "time_ms": 1000,
-  "threads": 8,
+  "threads": 2,
   "tt_bits": 22,
   "features": "lmp,deeplmp,rfp,scaledlmr,countermove,see,historymalus,lmrtwostep,nullgate,iir",
   "book": "games_book_full.txt"

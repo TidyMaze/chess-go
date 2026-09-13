@@ -38,15 +38,21 @@ try: print(len(json.load(sys.stdin).get('nowPlaying',[])))
 except Exception: print(-1)"
 }
 
-# The mode with the fewest rated games, so the thin ones catch up. Prints
+# Which mode to challenge in next. MODES limits the pool: bullet and
+# blitz finish in minutes, so they are what keeps games actually running,
+# while a classical game ties a slot up for half an hour and a rating
+# built only on the thinnest mode never arrives. Within the pool the mode
+# with the fewest rated games goes first, so both fill evenly. Prints
 # "name limit increment".
 thinnest_mode() {
-  api "https://lichess.org/api/user/$ME" | python3 -c "
-import json,sys
+  api "https://lichess.org/api/user/$ME" | MODES="${MODES:-bullet,blitz}" python3 -c "
+import json,os,sys
 try: p=json.load(sys.stdin).get('perfs',{})
 except Exception: p={}
 clocks={'bullet':('120','1'),'blitz':('300','3'),'rapid':('600','5'),'classical':('1200','10')}
-worst=min(clocks, key=lambda m: p.get(m,{}).get('games',0))
+allowed=[m for m in os.environ['MODES'].split(',') if m in clocks]
+if not allowed: allowed=list(clocks)
+worst=min(allowed, key=lambda m: p.get(m,{}).get('games',0))
 print(worst, clocks[worst][0], clocks[worst][1])"
 }
 
@@ -60,6 +66,18 @@ import json,sys
 mode=sys.argv[1]
 me=json.load(open(sys.argv[2])).get('perfs',{}).get(mode,{}).get('rating',2200)
 capped=set(x.strip() for x in open(sys.argv[3]) if x.strip())
+# Anyone challenged recently is skipped. Candidates are sorted by rating
+# distance, so without this the nearest opponent wins every cycle and is
+# challenged again and again: fourteen times in a row, observed twice.
+import time as _t
+_now=_t.time(); _cut=float(sys.argv[4])
+try:
+    for _ln in open(sys.argv[5]):
+        _p=_ln.split()
+        if len(_p)==2 and _now-float(_p[1]) < _cut:
+            capped.add(_p[0])
+except FileNotFoundError:
+    pass
 out=[]
 for line in sys.stdin:
     line=line.strip()
