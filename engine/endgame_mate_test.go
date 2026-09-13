@@ -3,14 +3,13 @@ package engine
 import (
 	"os"
 	"testing"
-	"time"
 
 	"chess/game"
 )
 
 // convertsToMate plays the champion against itself from fen and reports
 // whether the side to move first drove it to a terminal position.
-func convertsToMate(t *testing.T, fen string, budget time.Duration, maxPlies int) (bool, string) {
+func convertsToMate(t *testing.T, fen string, depth int, maxPlies int) (bool, string) {
 	t.Helper()
 	g, err := game.ParseFEN(fen)
 	if err != nil {
@@ -22,8 +21,15 @@ func convertsToMate(t *testing.T, fen string, budget time.Duration, maxPlies int
 	// does not repeat a position it has already stood in, and that rule
 	// is dead without this.
 	g.EnableRepetitionTracking()
-	p := Strong(1)
-	p.TimeBudget = budget
+	// Seeded: the move picker breaks ties between equally-scored moves at
+	// random, so without this the same code gives pass, fail, pass on
+	// three consecutive runs and the test measures luck.
+	SeedRandom(1)
+	// Fixed depth, not a time budget: a wall-clock budget makes this test
+	// depend on what else the machine is doing, and it was run while the
+	// lichess bot had six games in flight. Same code, three runs, gave
+	// pass, fail, pass.
+	p := Strong(depth)
 	tt := NewTranspositionTable(20)
 	for i := 0; i < maxPlies; i++ {
 		if len(g.AllLegalMoves(g.Turn)) == 0 {
@@ -58,7 +64,7 @@ func TestBasicMatesAreConverted(t *testing.T) {
 		{"king and rook", "8/8/8/4k3/8/8/8/3RK3 w - - 0 1", 80},
 		{"king and two bishops", "8/8/8/4k3/8/8/8/2BBK3 w - - 0 1", 120},
 	} {
-		done, final := convertsToMate(t, c.fen, 50*time.Millisecond, c.maxPlies)
+		done, final := convertsToMate(t, c.fen, 4, c.maxPlies)
 		if !done {
 			t.Errorf("%s: no mate in %d plies, ended at %s", c.name, c.maxPlies, final)
 		}

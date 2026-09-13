@@ -381,6 +381,31 @@ only the failing test and this note were committed. With a correct
 harness the experiment is worth redoing, gated on `gamePhase` so it
 cannot touch the middlegame.
 
+**The instrument had to be fixed before any of this could be trusted.**
+The first version of the mate check used a wall-clock budget and an
+unseeded engine, and it was run while the lichess bot had six games in
+flight. Same code, three consecutive runs: pass, fail, pass. Two separate
+causes. A time budget makes the depth reached depend on what else the
+machine is doing, and the move picker breaks ties between equally-scored
+moves at random. The check now uses a fixed depth and `SeedRandom(1)`,
+and repeats identically. Anything measured before that was noise,
+including two rounds of weight tuning that looked like progress.
+
+**With a trustworthy instrument, the corner term does not survive.**
+Sweeping the corner weight at two depths, counting how many of the three
+basic mates fail:
+
+| corner weight | depth 4 | depth 6 |
+|---|---|---|
+| 0.02 | 0 fail | 1 fail |
+| 0.20 | 1 fail | 0 fail |
+| 0.60 | 1 fail | 1 fail |
+
+No weight works at both depths. A single seeded self-play line is one
+sample, and whether a 120-ply shuffle stumbles into mate is close to a
+coin flip, so this is a fragile mechanism rather than technique. Nothing
+was adopted; the evaluation is unchanged.
+
 **Why it is hard here specifically.** The deployed champion blends
 `0.45 * hand + 0.55 * net`, and the network was trained on positions that
 are almost never near mate, so in a bare endgame its output is close to
