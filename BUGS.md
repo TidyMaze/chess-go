@@ -47,10 +47,21 @@ to decide the game, so this is not where the Elo is.
 
 ### 2. Outgoing challenges are rate limited by lichess
 Not an engine bug, a consequence of this session sending far too many
-challenges. Every challenge has been refused for over half an hour, so
-the bot plays only when somebody challenges it. The challenger now backs
-off exponentially, which is the right behaviour but does not shorten the
-wait.
+challenges early on: five at a time every minute, and fourteen in a row to
+one opponent.
+
+Six attempts spread over three hours were all refused, at 20:14, 20:35,
+21:16, 22:18, 23:19 and 23:20. The response carries no Retry-After and no
+rate limit headers, only `{"error":"Too many requests. Try again later."}`,
+so lichess says nothing about how long it lasts. Hourly retrying for three
+hours produced nothing, which is enough to say this is not a short window
+even without knowing what it is.
+
+The challenger now waits an hour before its first retry and up to four
+between them, rather than hammering hourly for a limit that is clearly
+longer than that. Incoming challenges are unaffected and are where every
+game of the last few hours came from, so the bot keeps playing, just not
+on demand.
 
 ## Fixed
 
