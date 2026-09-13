@@ -213,3 +213,12 @@ func moveTimeBudget(ourColor string, st gameState) time.Duration {
 	}
 	return time.Duration(budgetMs) * time.Millisecond
 }
+
+// MoveTimeBudget is moveTimeBudget for callers outside this package, so a
+// tool can audit real games against the rule the bot actually plays by
+// instead of against a copy of it. A copy is exactly how an earlier version
+// of this rule was cleared: a hand written model of it said a 120 move game
+// ended with 0.3 s in hand, and the real function flagged.
+func MoveTimeBudget(remainingMS, incrementMS int64) time.Duration {
+	return moveTimeBudget("white", gameState{WhiteTimeMS: remainingMS, WhiteIncMS: incrementMS})
+}
