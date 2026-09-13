@@ -54,6 +54,31 @@ wait.
 
 ## Fixed
 
+- **The clock rule bled itself into a permanent scramble, and lost a game
+  on time.** Blitz game hTmspQs0 was forfeited on time with the opponent
+  still holding 4:58 of its five minutes: 4:30 left at move 8, 1:32 at move
+  27, 0:19 at move 51. Nothing went wrong on one move, the whole game went
+  wrong. Spending a twentieth of the clock plus nine tenths of the
+  increment solves to a fixed point near seven tenths of the increment, so
+  any long game drifted to a two second clock and stayed there. Simulated
+  over 120 moves, seven of the eight controls the bot accepts ran to zero,
+  so it was never a 5+3 problem.
+
+  Spending now takes half the increment and spreads what sits above a
+  reserve over the moves still to come, which settles 5+3 at 47 s instead
+  of 0.2. The simulation is no longer gated behind an environment variable
+  and asserts a floor and a ceiling per control, because a rule that never
+  spends is safe and useless, which is the complaint that produced the old
+  one.
+
+  The second cause was contention, and measuring separated it from the
+  first. Across eight rated games the bot finished under its budget every
+  time, by 82 ms to 4.8 s a move; the lost game ran about a second a move
+  over, and it was the one with a correspondence game searching fifteen
+  seconds at a time on the same cores. Correspondence is declined now: it
+  moves none of the four ratings being chased, holds a game slot for days,
+  and starves the games that count. Commit c6bbedd.
+
 - **The bot went deaf and said nothing, for as long as it was left.**
   Its process was alive at 0% CPU with an empty log while its only
   connection to lichess sat in CLOSED, and a monitor saw no games in flight
