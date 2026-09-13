@@ -991,6 +991,26 @@ distillation ceiling stands: a network trained to predict its own teacher's
 score cannot pass the teacher, and changing how deep the teacher looks does
 not change that.
 
+## Pruning re-tune, first knob: null-move reduction, 2026-09-14
+
+Item 4 expects +30 to +80 from re-tuning pruning that was set through a
+since-fixed table. The first knob tried is the null-move reduction, at 4
+plies against the historical 3, at 200 ms a move with the blend matched:
+
+| | games | W-D-L | Elo | against the -10 baseline |
+|---|---|---|---|---|
+| null-reduction 4 | 400 | 131-109-160 | -25 +/- 34 | about -15 |
+
+SPRT never reached a bound, llr -2.25 against -2.94, so this is not
+conclusive on its own terms. It is also not promising: the point estimate
+is negative at both 200 and 400 games and the direction never changed.
+Rejected without spending the confirmation.
+
+Note the baseline. A null control of the champion against itself in this
+exact setup reads -10 +/- 48, so a raw -25 is about -15 of real effect,
+not -25. Any screen run this way has to subtract that or it will read
+every neutral change as a small loss.
+
 ## The harness is sound, but not at zero opening plies, 2026-09-13
 
 Item 7 wants the opening book measured over 1000 games. A book only
