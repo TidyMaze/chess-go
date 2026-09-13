@@ -991,6 +991,43 @@ distillation ceiling stands: a network trained to predict its own teacher's
 score cannot pass the teacher, and changing how deep the teacher looks does
 not change that.
 
+## The harness is sound, but not at zero opening plies, 2026-09-13
+
+Item 7 wants the opening book measured over 1000 games. A book only
+applies from the start of the game, so the obvious setup is
+`-opening-plies 0`. That setup turns out to bias the harness by about as
+much as the book could ever be worth, which was found by racing the
+champion against itself and expecting nothing:
+
+| opening plies | hand blend | games | Elo, same player both sides |
+|---|---|---|---|
+| 0 | 0 | 120 | -41 +/- 63 |
+| 0 | 0 | 200 | -44 +/- 49 |
+| 0 | 0.45 | 200 | -38 +/- 49 |
+| 6 (default) | 0.45 | 200 | **-10 +/- 48** |
+
+At the default the null control sits on zero, so **the harness is sound as
+normally used and every race run through it stands**, including this
+session's depth-8 and depth-3 numbers, which used the default. At zero
+plies it reads about forty Elo against a player that is literally itself.
+Starting every game from the same position leaves the games correlated and
+the colour advantage uncancelled, which is exactly what the random plies
+are there to do.
+
+The blend was the first suspect and it is not the cause: `-blend` defaults
+to 0 while the champion carries `hand_blend: 0.45`, so a challenger given
+`-halfkp` really does evaluate differently from a `-ref-champion`
+reference. Matching it moved the number by six Elo, inside the noise. It
+is still worth passing, but it is not this.
+
+**So item 7 cannot be closed the obvious way.** The artifact is larger
+than the +10 to +30 the book is expected to be worth. A sound version
+needs openings that are themselves in the book and varied, through
+`-match-openings`, rather than no openings at all. The book's measured
+case remains what it always was: clock, 16 plies played instantly, and now
+also move quality, where `cmd/bookcheck` says the rebuilt book loses 0.103
+pawns a move against 0.116.
+
 ## Deep labels at 400k: the caveat is closed, 2026-09-13
 
 The depth-8 result at 60000 positions left one thing open in its own
