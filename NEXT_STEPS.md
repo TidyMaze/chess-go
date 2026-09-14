@@ -1015,6 +1015,17 @@ to the middlegame. So this measures the book's *move quality* only, and on
 that it contributes nothing. The clock argument is untested and remains the
 only argument for keeping it.
 
+**What the clock case is worth, by arithmetic rather than by race.** The
+book's recorded saving is 8 s a game at a 500 ms budget, which in a 2+1
+bullet game is about 7% more time for the moves that remain. At this
+repo's own yardsticks, a ply is about +130 Elo and a doubling of time is
+about a ply, 7% more time is log2(1.07) or a tenth of a ply, so about +13
+Elo. That is consistent with measuring nothing: +13 sits far inside the
++/- 62 that 300 games an arm can resolve, and resolving it would take
+about (62/13)^2 x 300, near 6800 games an arm, for a result the size of a
+rounding error. The book is probably worth a little and it is not worth
+the compute to prove it.
+
 **On the weighting, and on losses.** PolyGlot's 2 x wins + draws is twice
 the points scored, so a loss contributes zero rather than being ignored,
 and a move that always loses weighs nothing and is dropped. The real
