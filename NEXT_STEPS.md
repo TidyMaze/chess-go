@@ -991,6 +991,46 @@ distillation ceiling stands: a network trained to predict its own teacher's
 score cannot pass the teacher, and changing how deep the teacher looks does
 not change that.
 
+## The opening book measured against Stockfish, 2026-09-14
+
+Item 7 wanted the book measured over 1000 games. It is now measured, in the
+one setup where a book can be: both arms from the start position against
+Stockfish limited to UCI_Elo 2200, so the roughly 40 Elo that zero opening
+plies fabricates is common to both and cancels.
+
+| arm | games | W-D-L | Elo vs Stockfish 2200 |
+|---|---|---|---|
+| champion with the book | 300 | 184-47-69 | +140 +/- 43 |
+| champion with no book | 300 | 193-41-66 | **+157 +/- 44** |
+
+The book is worth **-17 +/- 62**, which is nothing, and if anything
+negative. The absolute number is a useful cross check on its own: +140
+against a 2200 opponent puts the engine near 2340, and the recorded
+calibration at 1 s a move is 2347.
+
+**What this cannot measure, and it is the book's entire case.** The harness
+gives a fixed 200 ms every move, so time not spent on a book move is not
+banked; it evaporates. In a real game the same 16 book plies hand about 8 s
+to the middlegame. So this measures the book's *move quality* only, and on
+that it contributes nothing. The clock argument is untested and remains the
+only argument for keeping it.
+
+**On the weighting, and on losses.** PolyGlot's 2 x wins + draws is twice
+the points scored, so a loss contributes zero rather than being ignored,
+and a move that always loses weighs nothing and is dropped. The real
+weakness is that it is a count: a move played 1000 times at 30% weighs 600
+against 480 for one played 400 times at 60%, so popularity can beat
+quality. Books normally avoid this by being built from curated strong
+player databases, which the rating floor here only approximates.
+
+A 40% score floor on top of the count was tried and rejected. It changed
+278 entries, which says the defect is real and present, but it dropped 2702
+positions and did so unevenly: 19.0% of black-to-move positions against
+13.8% of white-to-move ones, because Black scores about 45% across all
+chess and a flat floor cuts nearer the bone for it. A colour blind floor
+builds a colour biased book. Not worth fixing properly for something
+measured at zero.
+
 ## The tablebase probe is worth nothing at 200 ms, 2026-09-14
 
 Item 6 wanted the endgame probe re-measured now that it indexes the right
@@ -1197,8 +1237,10 @@ same clock both sides, or it did not happen.
     nothing**: -4 +/- 20 over 1200 games against a -9 null control, where
     +10 to +20 was expected and would have shown at that margin. Caveat
     recorded: three piece endings may simply not arise at 200 ms.
- 7. Opening book from the PGN database (match history is allowed, scores
-    are not). Exit: 1000 games past the margin. Expected +10-30.
+ 7. ~~Opening book from the PGN database~~ **measured 2026-09-14, worth
+    nothing on move quality**: -17 +/- 62 against Stockfish 2200 over 300
+    games an arm. Its clock case, 16 plies played instantly, is untested
+    and unmeasurable on a fixed per move budget.
  8. Evaluation on clean labels, then the lambda (game-outcome) sweep whose
     400k pools exist (lam_*.bin). Honest expectation 0-30.
  9. ~~Speed I: pin-based legality~~ **already implemented, checked
