@@ -73,7 +73,8 @@ them again:
 | a cap per opponent | a fresh opponent, leelapieceodds | refused |
 
 So it is account wide, it does not reset at the UTC day boundary, and it
-has outlasted four hours. Waiting is the only move; the doubling backoff
+has now outlasted ten hours: refused at 20:14, 20:35, 21:16, 22:18, 23:19,
+23:20, 00:05 UTC, 02:24 and 06:26, with a fresh opponent among them. Waiting is the only move; the doubling backoff
 is there so the wait is not spent making requests that cannot succeed.
 
 **The AI endpoint shares the same budget, which was assumed and should not
