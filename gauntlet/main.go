@@ -260,39 +260,6 @@ func main() {
 		}
 		fmt.Printf("starting games from %d real openings\n", len(engine.MatchOpenings))
 	}
-	for _, spec := range []struct {
-		path string
-		p    *engine.Player
-		who  string
-	}{{*bookPath, &challenger, "challenger"}, {*refBookPath, &reference, "reference"}} {
-		if spec.path == "" {
-			continue
-		}
-		b, err := engine.LoadBook(spec.path)
-		if err != nil {
-			fmt.Println("book:", err)
-			return
-		}
-		spec.p.Book = b
-		fmt.Printf("%s opening book: %d positions\n", spec.who, b.Len())
-	}
-
-	for _, spec := range []struct {
-		path string
-		p    *engine.Player
-		who  string
-	}{{*tbPath, &challenger, "challenger"}, {*refTBPath, &reference, "reference"}} {
-		if spec.path == "" {
-			continue
-		}
-		tb, err := engine.LoadTablebases(spec.path)
-		if err != nil {
-			fmt.Println("tablebases:", err)
-			return
-		}
-		spec.p.Tablebases = tb
-		fmt.Printf("%s tablebases: %d exact positions\n", spec.who, tb.Len())
-	}
 
 	if *tunedFile != "" {
 		tf, err := engine.LoadTunedFile(*tunedFile)
@@ -348,7 +315,7 @@ func main() {
 			fmt.Println(err)
 			return
 		}
-		fmt.Printf("challenger is the champion: %s (other challenger flags ignored; -features still applies)\n", c.Label)
+		fmt.Printf("challenger is the champion: %s (-features, -book, -tablebases and the harness clock still apply; other challenger flags are discarded by the replacement)\n", c.Label)
 	}
 	if *refChampion != "" {
 		c := engine.ReadChampion(*refChampion)
@@ -398,6 +365,49 @@ func main() {
 	if err != nil {
 		fmt.Println(err)
 		return
+	}
+
+	// The book and the tablebases load here, after both sides have had their
+	// chance to be replaced by a champion file, because a replacement
+	// discards everything set before it.
+	//
+	// They used to load before, which meant -ref-book and -ref-tablebases
+	// silently did nothing whenever -ref-champion was used: the same shape
+	// of mistake this file's header lists for -futility and -ref-no-castle,
+	// with these two missing from that list. Adding -champion gave the
+	// challenger side the identical defect until this moved.
+	for _, spec := range []struct {
+		path string
+		p    *engine.Player
+		who  string
+	}{{*bookPath, &challenger, "challenger"}, {*refBookPath, &reference, "reference"}} {
+		if spec.path == "" {
+			continue
+		}
+		b, err := engine.LoadBook(spec.path)
+		if err != nil {
+			fmt.Println("book:", err)
+			return
+		}
+		spec.p.Book = b
+		fmt.Printf("%s opening book: %d positions\n", spec.who, b.Len())
+	}
+
+	for _, spec := range []struct {
+		path string
+		p    *engine.Player
+		who  string
+	}{{*tbPath, &challenger, "challenger"}, {*refTBPath, &reference, "reference"}} {
+		if spec.path == "" {
+			continue
+		}
+		tb, err := engine.LoadTablebases(spec.path)
+		if err != nil {
+			fmt.Println("tablebases:", err)
+			return
+		}
+		spec.p.Tablebases = tb
+		fmt.Printf("%s tablebases: %d exact positions\n", spec.who, tb.Len())
 	}
 
 	engine.MatchOpeningOffset = *openingOffset
