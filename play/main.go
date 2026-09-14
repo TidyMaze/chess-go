@@ -16,6 +16,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"math"
 	"net/http"
 	"runtime"
 	"time"
@@ -68,17 +69,34 @@ type moveRequest struct {
 }
 
 type moveResponse struct {
-	OK         bool     `json:"ok"`
-	Error      string   `json:"error,omitempty"`
-	FEN        string   `json:"fen"`
-	EngineMove string   `json:"engine_move,omitempty"`
-	Status     string   `json:"status"`
-	Legal      []string `json:"legal"`
-	ThinkMS    int64    `json:"think_ms,omitempty"`
-	Score      float64  `json:"score"`
-	Depth      int      `json:"depth"`
-	Nodes      int      `json:"nodes"`
-	KNPS       float64  `json:"knps"`
+	OK         bool      `json:"ok"`
+	Error      string    `json:"error,omitempty"`
+	FEN        string    `json:"fen"`
+	EngineMove string    `json:"engine_move,omitempty"`
+	Status     string    `json:"status"`
+	Legal      []string  `json:"legal"`
+	ThinkMS    int64     `json:"think_ms,omitempty"`
+	Score      jsonFloat `json:"score"`
+	Depth      int       `json:"depth"`
+	Nodes      int       `json:"nodes"`
+	KNPS       jsonFloat `json:"knps"`
+}
+
+// jsonFloat marshals a non-finite float as null instead of failing.
+//
+// The engine uses NaN to mean "there is no score": a book move is played
+// without a search, so there is nothing to report. JSON has no NaN, and
+// encoding/json fails the WHOLE document rather than the one field, so
+// every book-move reply went out as 200 with an empty body and the board
+// froze on move one. The browser already treats a non-number score as
+// "unknown", which is exactly what null gives it.
+type jsonFloat float64
+
+func (f jsonFloat) MarshalJSON() ([]byte, error) {
+	if math.IsNaN(float64(f)) || math.IsInf(float64(f), 0) {
+		return []byte("null"), nil
+	}
+	return json.Marshal(float64(f))
 }
 
 // legalUCI lists every legal move for the side to move, so the browser
@@ -94,7 +112,9 @@ func legalUCI(g *game.Game) []string {
 
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(v)
+	if err := json.NewEncoder(w).Encode(v); err != nil {
+		log.Printf("writeJSON: %v (response dropped)", err)
+	}
 }
 
 func handleNew(w http.ResponseWriter, r *http.Request) {
@@ -102,7 +122,7 @@ func handleNew(w http.ResponseWriter, r *http.Request) {
 	score := engine.PlayerStaticEval(best(), &g.Board)
 	writeJSON(w, moveResponse{
 		OK: true, FEN: g.FEN(), Legal: legalUCI(g),
-		Score: score,
+		Score: jsonFloat(score),
 	})
 }
 
@@ -171,10 +191,10 @@ func handleMove(w http.ResponseWriter, r *http.Request) {
 		OK: true, FEN: g.FEN(), EngineMove: reply.UCI(),
 		Status: status(g), Legal: legalUCI(g),
 		ThinkMS: elapsed.Milliseconds(),
-		Score:   whiteScore,
+		Score:   jsonFloat(whiteScore),
 		Depth:   depth,
 		Nodes:   nodes,
-		KNPS:    knps,
+		KNPS:    jsonFloat(knps),
 	})
 }
 
@@ -215,10 +235,10 @@ func handleHint(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, moveResponse{
 		OK: true, FEN: req.FEN, EngineMove: m.UCI(), Legal: legalUCI(g),
 		ThinkMS: elapsed.Milliseconds(),
-		Score:   whiteScore,
+		Score:   jsonFloat(whiteScore),
 		Depth:   depth,
 		Nodes:   nodes,
-		KNPS:    knps,
+		KNPS:    jsonFloat(knps),
 	})
 }
 
@@ -258,10 +278,10 @@ func handleEval(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, moveResponse{
 		OK: true, FEN: req.FEN, Legal: legalUCI(g),
 		ThinkMS: elapsed.Milliseconds(),
-		Score:   whiteScore,
+		Score:   jsonFloat(whiteScore),
 		Depth:   depth,
 		Nodes:   nodes,
-		KNPS:    knps,
+		KNPS:    jsonFloat(knps),
 	})
 }
 
