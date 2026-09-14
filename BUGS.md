@@ -63,6 +63,19 @@ longer than that. Incoming challenges are unaffected and are where every
 game of the last few hours came from, so the bot keeps playing, just not
 on demand.
 
+Three hypotheses were tested and all are wrong, so nobody needs to test
+them again:
+
+| guess | test | result |
+|---|---|---|
+| a short window | six retries an hour apart | refused every time |
+| a daily cap on UTC | one request at 00:05 UTC | refused |
+| a cap per opponent | a fresh opponent, leelapieceodds | refused |
+
+So it is account wide, it does not reset at the UTC day boundary, and it
+has outlasted four hours. Waiting is the only move; the doubling backoff
+is there so the wait is not spent making requests that cannot succeed.
+
 ## Fixed
 
 - **The clock rule bled itself into a permanent scramble, and lost a game
