@@ -76,6 +76,18 @@ So it is account wide, it does not reset at the UTC day boundary, and it
 has outlasted four hours. Waiting is the only move; the doubling backoff
 is there so the wait is not spent making requests that cannot succeed.
 
+**The AI endpoint shares the same budget, which was assumed and should not
+have been.** Challenging `/api/challenge/ai` kept working for hours after
+bot to bot challenges were refused, so it looked like a separate limit and
+was used to keep the bot playing, about eight games. It is not separate: by
+04:44 the AI endpoint was refusing too. Those games probably spent the
+allowance that would otherwise have gone to rated ones, which is the worse
+trade, since AI games are unrated and move no rating at all.
+
+`scripts/ai_game_keeper.sh` exists for this situation but is stopped for
+now: it cannot do its job while the endpoint is refusing, and retrying a
+limit is how this started.
+
 ## Fixed
 
 - **The clock rule bled itself into a permanent scramble, and lost a game
