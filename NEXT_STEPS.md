@@ -991,6 +991,36 @@ distillation ceiling stands: a network trained to predict its own teacher's
 score cannot pass the teacher, and changing how deep the teacher looks does
 not change that.
 
+## The tablebase probe is worth nothing at 200 ms, 2026-09-14
+
+Item 6 wanted the endgame probe re-measured now that it indexes the right
+colour, having read -13 +/- 18 through that bug, and expected +10 to +20.
+Raced with the challenger probing and the reference not, both otherwise the
+same champion file:
+
+| games | W-D-L | Elo |
+|---|---|---|
+| 300 | 102-83-115 | -15 +/- 40 |
+| 600 | 216-166-218 | -1 +/- 28 |
+| 900 | 325-250-325 | -0 +/- 23 |
+| 1200 | 426-334-440 | **-4 +/- 20** |
+
+Against this setup's -9 null control that is about +5, and the margin at
+1200 games is +/- 20, so an effect of +10 to +20 would have shown. It did
+not.
+
+**What this does not say.** These are three piece tablebases, and two
+engines of equal strength at 200 ms a move rarely reduce to three pieces
+with the game still undecided, so the probe may simply have had nothing to
+probe. That is a null about how often the position arises, not about
+whether the lookup is correct, and the difference matters if longer time
+controls or an endgame-heavy opening set were ever tried. Nothing here
+measured how often a game actually reached three pieces.
+
+**The race was only possible after fixing the harness.** Combining
+-champion with -tablebases discarded the probe before this session, so the
+race would have measured a tablebase that was never loaded.
+
 ## nullgate at 200 ms, and a textbook evaporation, 2026-09-14
 
 The first feature raced through the new `-champion` flag, so both sides are
@@ -1163,8 +1193,10 @@ same clock both sides, or it did not happen.
     in the champion's feature list). History aging is **measured and
     worthless**, +6 +/- 34 on identical players, 2026-09-14. What is left
     of this item is SEE-ordered captures only, if that is not `see` too.
- 6. Endgames: re-measure the tablebase probe now that it indexes the right
-    colour (it read -13 +/- 18 through the bug). Expected +10-20.
+ 6. ~~Endgames: re-measure the tablebase probe~~ **done 2026-09-14, worth
+    nothing**: -4 +/- 20 over 1200 games against a -9 null control, where
+    +10 to +20 was expected and would have shown at that margin. Caveat
+    recorded: three piece endings may simply not arise at 200 ms.
  7. Opening book from the PGN database (match history is allowed, scores
     are not). Exit: 1000 games past the margin. Expected +10-30.
  8. Evaluation on clean labels, then the lambda (game-outcome) sweep whose
