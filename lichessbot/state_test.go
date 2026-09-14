@@ -210,14 +210,27 @@ func TestMoveTimeBudgetNeverExceedsWhatIsLeft(t *testing.T) {
 	}
 }
 
-// A very slow time control must not make the engine think forever for a
-// gain nothing here has ever measured: mean depth only grows from 10.6 to
-// 11.8 plies going from one to four threads at 1s, so there is no reason
-// to trust minutes of thinking on one move.
-func TestMoveTimeBudgetIsCappedOnASlowClock(t *testing.T) {
-	got := moveTimeBudget("white", gameState{WhiteTimeMS: 3600000, WhiteIncMS: 60000}, newOverheadEstimate())
-	if got > 15*time.Second {
-		t.Errorf("budget %v was not capped on a one hour clock", got)
+// A slow time control must still bound one move, but as a share of the
+// clock rather than at a flat fifteen seconds.
+//
+// The flat cap's stated reason was that mean depth only grows from 10.6 to
+// 11.8 plies going from one to four threads at 1 s. That is a measurement
+// about *threads* and says nothing about what more *time* buys, and the
+// other half of the argument, "about a ply per further second", is a reason
+// to think longer rather than a reason not to: this repo prices a ply at
+// about +130 Elo. Meanwhile real games showed the cost: audited classical
+// games ended with 801 s to 992 s of 1200 unspent and a 1800+2 game with
+// 785 s of 1800, because every think was cut to fifteen seconds however
+// much clock was sitting there.
+func TestMoveTimeBudgetIsBoundedAsAShareOfTheClock(t *testing.T) {
+	const hour = 3600000
+	got := moveTimeBudget("white", gameState{WhiteTimeMS: hour, WhiteIncMS: 60000}, newOverheadEstimate())
+	if max := time.Duration(hour/maxBudgetDivisor) * time.Millisecond; got > max {
+		t.Errorf("budget %v on a one hour clock exceeds a fiftieth of it (%v)", got, max)
+	}
+	// And it must actually use the longer clock, or the change is pointless.
+	if got <= minMaxBudgetMs*time.Millisecond {
+		t.Errorf("budget %v on a one hour clock is still at the old flat cap; the clock goes unspent and unspent clock is unsearched depth", got)
 	}
 }
 
@@ -355,13 +368,23 @@ func TestMoveTimeBudgetScrambleBranches(t *testing.T) {
 	}
 }
 
-// A long clock must not make one move think for minutes: the cap applies
-// before anything else, and 10.6 plies in a second already only buys
-// about a ply per further second.
-func TestMoveTimeBudgetCapAppliesOnAVeryLongClock(t *testing.T) {
-	got := moveTimeBudget("white", gameState{WhiteTimeMS: 3600000, WhiteIncMS: 60000}, newOverheadEstimate())
-	if got != 15*time.Second {
-		t.Errorf("got %v, want the 15s cap on a one hour clock", got)
+// A short clock keeps the old flat ceiling: a fiftieth of it is far below
+// fifteen seconds, so nothing about bullet, blitz or rapid changes. This is
+// the guard that the scaled cap did not quietly loosen the fast controls,
+// where the whole problem was overspending rather than hoarding.
+func TestTheScaledCapDoesNotTouchFastControls(t *testing.T) {
+	for _, c := range []struct {
+		name       string
+		start, inc int64
+	}{
+		{"bullet 2+1", 120000, 1000},
+		{"blitz 5+3", 300000, 3000},
+		{"rapid 10+5", 600000, 5000},
+	} {
+		got := moveTimeBudget("white", gameState{WhiteTimeMS: c.start, WhiteIncMS: c.inc}, newOverheadEstimate())
+		if got > minMaxBudgetMs*time.Millisecond {
+			t.Errorf("%s: budget %v is above the flat ceiling that still applies at this clock", c.name, got)
+		}
 	}
 }
 

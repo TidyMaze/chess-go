@@ -127,6 +127,24 @@ func moveUCIForLichess(g *game.Game, m game.Move) string {
 // rather than a race budget, short enough that nobody waits on it.
 const unlimitedBudget = 15 * time.Second
 
+// minMaxBudgetMs is a floor under the per-move ceiling, not the ceiling
+// itself. Past this a longer think buys little on a short clock, but on a
+// long one the flat cap was the binding constraint rather than the spending
+// rule: audited classical games finished with 801 s to 992 s of 1200
+// unspent, and a 1800+2 game bottomed out at 785 s of 1800, because every
+// think was cut to fifteen seconds however much clock was sitting there.
+// Unspent clock is unsearched depth, which is the complaint this whole rule
+// exists to answer.
+//
+// maxBudgetDivisor scales the ceiling with what is actually on the clock. A
+// fiftieth is deliberately conservative: it only lifts the cap once there is
+// more than 750 s left, so bullet, blitz and rapid never reach it and
+// nothing about them changes.
+const (
+	minMaxBudgetMs   = 15000
+	maxBudgetDivisor = 50
+)
+
 // moveTimeBudget turns the live clock lichess sends into a per-move
 // thinking budget, so the engine spends more time in a long game and less
 // in a short one instead of always thinking for whatever champion.json
@@ -240,9 +258,6 @@ func moveTimeBudget(ourColor string, st gameState, overhead *overheadEstimate) t
 
 		safetyMarginMs = 200
 		minBudgetMs    = 50
-		// Past this a longer think buys about a ply per second, measured,
-		// which is not worth the clock. See LEARNINGS.md.
-		maxBudgetMs = 15000
 	)
 	reserveMs := float64(baseReserveMs + reserveIncrements*incMs)
 	if maxReserve := float64(remainMs) * maxReserveShare; reserveMs > maxReserve {
@@ -255,6 +270,10 @@ func moveTimeBudget(ourColor string, st gameState, overhead *overheadEstimate) t
 		spread = movesToGoWithoutIncrement
 	}
 	budgetMs := float64(incMs)*incrementShare + spendable/spread - overhead.reserve()
+	maxBudgetMs := float64(remainMs) / maxBudgetDivisor
+	if maxBudgetMs < minMaxBudgetMs {
+		maxBudgetMs = minMaxBudgetMs
+	}
 	if budgetMs > maxBudgetMs {
 		budgetMs = maxBudgetMs
 	}

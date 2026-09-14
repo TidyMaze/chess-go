@@ -48,6 +48,14 @@ func controlsWePlay() []control {
 		{"blitz 1+10", 60000, 10000, 120, 15000, 60000},
 		{"rapid 10+5", 600000, 5000, 120, 20000, 240000},
 		{"classical 20+10", 1200000, 10000, 120, 30000, 480000},
+		// The same control over the length a real game actually runs. A
+		// 120 move simulation hides the 15 s think cap, because by move 120
+		// even 15 s a move has drawn the clock down. Real games end far
+		// sooner: audited classical games finished with 801 s to 992 s of
+		// 1200 unspent, and a 1800+2 game bottomed out at 785 s of 1800.
+		// Unspent clock is unsearched depth, which is the complaint that
+		// produced this whole rule.
+		{"classical 20+10, 40 moves", 1200000, 10000, 40, 30000, 800000},
 	}
 }
 
