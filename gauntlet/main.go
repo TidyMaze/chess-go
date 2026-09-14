@@ -116,6 +116,7 @@ func main() {
 	refNoRep := flag.Bool("ref-no-repetition", false, "reference has no repetition detection")
 	nullR := flag.Int("null-reduction", strongDefaults.NullReduction, "challenger's null-move reduction in plies (0 = the historical 3)")
 	nullScale := flag.Bool("null-scale", false, "challenger scales the null-move reduction with depth")
+	championPath := flag.String("champion", "", "challenger plays the champion described by this file, network included. Use it with -ref-champion on the same file to put the identical player on both sides, so a -features flag is the only difference between them. Without it the challenger is engine.Strong plus flags, which is NOT the champion: a null control of -halfkp against -ref-champion read -10 +/- 48 one run and -40 +/- 34 another.")
 	refChampion := flag.String("ref-champion", "", "reference plays the champion described by this file, network included. Without it the reference is the plain hand-written evaluation, so a network is measured against the original baseline and not against whatever it is supposed to have improved on.")
 	refUCI := flag.String("ref-uci", "", "reference is this external UCI engine (a path), on the challenger's clock when -time-ms is set, else at -depth. Built for racing one build of this engine against another.")
 	challengerUCI := flag.String("uci", "", "challenger is this external UCI engine (a path) instead of the in-process player, so two builds can be raced symmetrically, both behind stdio.")
@@ -316,6 +317,39 @@ func main() {
 	// comparison and were then summed as if they compounded. The claimed
 	// 2146 was 1955 + 191; calibration against Stockfish said 2041, and the
 	// same instrument put the baseline at 1987, a real gain of about +54.
+	// The challenger is replaced the same way the reference is below, and
+	// for the same reason: a replacement discards everything set before it,
+	// so the switches that matter are re-applied afterwards rather than
+	// before. Every other challenger flag is deliberately dropped here,
+	// exactly as -ref-champion drops the reference's, because the point of
+	// this mode is that both sides are the same file.
+	if *championPath != "" {
+		c := engine.ReadChampion(*championPath)
+		cp, err := c.PlayerOrError()
+		if err != nil {
+			fmt.Println("champion:", err)
+			return
+		}
+		d := challenger.Depth
+		challenger = cp
+		challenger.Depth = d
+		challenger.Name = "challenger: " + c.Label
+		challenger, err = referenceSwitches{
+			timeMS:  *timeMS,
+			threads: *threads,
+			// Futility comes from the same flag the reference reads, or a
+			// default nobody passed would switch it on for one side and
+			// off for the other, which is the mistake this file's header
+			// is about.
+			futility: *futility,
+			features: *features,
+		}.applyTo(challenger)
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+		fmt.Printf("challenger is the champion: %s (other challenger flags ignored; -features still applies)\n", c.Label)
+	}
 	if *refChampion != "" {
 		c := engine.ReadChampion(*refChampion)
 		rp, err := c.PlayerOrError()

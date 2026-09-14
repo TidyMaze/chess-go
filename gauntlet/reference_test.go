@@ -135,3 +135,49 @@ func TestTheReferenceTakesItsThreadsFromTheHarnessNotTheChampionFile(t *testing.
 		t.Errorf("-threads 2 gave the reference %d", two.Threads)
 	}
 }
+
+// The challenger can now be a champion file too, which is the only way to
+// put the identical player on both sides and let a single -features flag be
+// the whole difference. Without it the challenger is engine.Strong plus
+// flags, which is not the champion: a null control of -halfkp against
+// -ref-champion read -10 +/- 48 on one run and -40 +/- 34 on another, a
+// baseline that moves by more than most effects being looked for. With both
+// sides on champion.json it reads -9 +/- 34 over 400 games.
+//
+// The switches have to survive the replacement, exactly as they do on the
+// reference side, because a replacement discards everything set before it.
+func TestChallengerSwitchesSurviveAChampionReplacement(t *testing.T) {
+	champion := engine.Strong(4)
+	champion.Name = "challenger: some champion"
+	champion.TimeBudget = 1000 * 1000 * 1000 // a champion file's own clock
+	champion.Threads = 8
+
+	got, err := referenceSwitches{
+		timeMS:   200,
+		threads:  1,
+		futility: true,
+		features: "historyaging",
+	}.applyTo(champion)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The harness owns the clock and the threads on this side too, or a
+	// champion file saying 8 threads and one second would race a
+	// single-threaded challenger at 200 ms and win on nothing but that.
+	if got.TimeBudget != 200*1000*1000 {
+		t.Errorf("time budget %v, want the harness's 200ms and not the champion file's", got.TimeBudget)
+	}
+	if got.Threads != 1 {
+		t.Errorf("threads %d, want the harness's 1", got.Threads)
+	}
+	if !got.HistoryAging {
+		t.Error("-features did not reach the challenger after the replacement")
+	}
+	if !got.Futility {
+		t.Error("-futility did not reach the challenger after the replacement")
+	}
+	// And the feature under test must be the only thing switched on.
+	if got.NullGate || got.IIR || got.DeepRFP {
+		t.Error("a feature nobody asked for was switched on")
+	}
+}
