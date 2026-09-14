@@ -991,6 +991,30 @@ distillation ceiling stands: a network trained to predict its own teacher's
 score cannot pass the teacher, and changing how deep the teacher looks does
 not change that.
 
+## nullgate at 200 ms, and a textbook evaporation, 2026-09-14
+
+The first feature raced through the new `-champion` flag, so both sides are
+champion.json and the feature is the only difference. It is also the
+cleanest example of the adoption rule this repo already carries:
+
+| games | W-D-L | Elo |
+|---|---|---|
+| 200 | 87-60-53 | **+60 +/- 49** |
+| 400 | 155-111-134 | +18 +/- 34 |
+| 600 | 214-165-221 | **-4 +/- 28** |
+
+Stopping at 200 games would have adopted a sixty Elo feature. At 600 it is
+nothing, and against the -9 null control of this setup the effect is about
++5. It agrees with the older 10 ms screen, -10 +/- 48, which is worth
+noting on its own: the worry that those screens were run at the wrong clock
+and on the wrong configuration did not change the answer here.
+
+**That closes item 4.** Every pruning knob has now been measured and none
+survives: null-move reduction 4 about -15 (400 games), scaledlmr -21 +/- 26
+(680 games), nullgate -4 +/- 28 (600), iir -28 +/- 49 (200 at 10 ms),
+history aging +6 +/- 34 (400). The re-tune was worth doing to find that out
+and is worth nothing to keep doing.
+
 ## History aging measured at last, and it is nothing, 2026-09-14
 
 `HistoryAging` has sat in the Player struct and in the feature parser
@@ -1130,9 +1154,11 @@ same clock both sides, or it did not happen.
     fixed depth 6. Expected +100-200.
  3. Time management: iteration-cost prediction, use of the whole budget.
     Exit: mean depth reached per second, up. Expected +20-40.
- 4. Re-tune pruning on the corrected search: null-move reduction, LMR
-    scaling, futility margins were all tuned through the broken table.
-    1500 games each. Expected +30-80.
+ 4. ~~Re-tune pruning on the corrected search~~ **closed 2026-09-14, it is
+    worth nothing.** Every knob measured, none survives: null-move
+    reduction 4 about -15, scaledlmr -21 +/- 26 over 680 games, nullgate
+    -4 +/- 28 over 600, iir -28 +/- 49, history aging +6 +/- 34. The
+    expected +30-80 was not there.
  5. Move ordering: countermoves and SEE are **already adopted** (both are
     in the champion's feature list). History aging is **measured and
     worthless**, +6 +/- 34 on identical players, 2026-09-14. What is left
