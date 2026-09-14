@@ -40,14 +40,13 @@ func BuildBookFromPGN(r io.Reader, w io.Writer, maxPlies, minGames, minElo int) 
 	// that played it, so the winner can be the move that worked rather
 	// than the move that was common.
 	type record struct {
-		games int
-		score float64
+		games       int
+		wins, draws float64
 	}
 	type tally struct {
 		fen   string
 		moves map[string]*record
 	}
-	const priorGames = 20.0
 	book := map[string]*tally{}
 	games := make(chan pgnGame, 64)
 	go readPGN(r, games)
@@ -77,12 +76,17 @@ func BuildBookFromPGN(r io.Reader, w io.Writer, maxPlies, minGames, minElo int) 
 				t.moves[m.UCI()] = rec
 			}
 			rec.games++
-			// pg.result is written from White's side, so Black's score in
-			// the same game is its complement.
-			if g.Turn == board.White {
-				rec.score += pg.result
-			} else {
-				rec.score += 1 - pg.result
+			// pg.result is written from White's side, so the mover's result
+			// is its complement when Black is to move.
+			r := pg.result
+			if g.Turn != board.White {
+				r = 1 - r
+			}
+			switch r {
+			case 1:
+				rec.wins++
+			case 0.5:
+				rec.draws++
 			}
 			g.ApplyMove(m.From, m.To)
 		}
@@ -95,14 +99,26 @@ func BuildBookFromPGN(r io.Reader, w io.Writer, maxPlies, minGames, minElo int) 
 	written := 0
 	for _, k := range keys {
 		t := book[k]
-		best, bestRate, bestN := "", -1.0, 0
+		// PolyGlot's weight, the standard for books built from games:
+		// 2 x wins + draws, losses ignored. The important property is that
+		// it is a *count*, not a rate, so the number of games is part of
+		// the answer rather than divided out. A main line played 500 times
+		// scoring 45% weighs 2x225+100 = 550; a move played twelve times
+		// and won every one weighs 24.
+		//
+		// Dividing by games instead, which is what this did first, throws
+		// the sample size away and lets a lucky dozen games beat a main
+		// line. That is how b1a3 became the answer to the starting position
+		// and g8f6 the answer after 1.e4 Nc6 2.d4, giving away 1.2 pawns on
+		// move two of every game that reached it.
+		best, bestWeight, bestN := "", -1.0, 0
 		for mv, rec := range t.moves {
 			if rec.games < minGames {
 				continue
 			}
-			rate := (rec.score + 0.5*priorGames) / (float64(rec.games) + priorGames)
-			if rate > bestRate || (rate == bestRate && mv < best) {
-				best, bestRate, bestN = mv, rate, rec.games
+			weight := 2*rec.wins + rec.draws
+			if weight > bestWeight || (weight == bestWeight && mv < best) {
+				best, bestWeight, bestN = mv, weight, rec.games
 			}
 		}
 		if bestN == 0 {

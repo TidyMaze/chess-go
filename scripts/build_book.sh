@@ -16,7 +16,7 @@
 #   scripts/build_book.sh [output] [min-elo] [min-games] [plies]
 set -eu
 
-OUT=${1:-games_book_v3.txt}
+OUT=${1:-games_book_v5.txt}
 MIN_ELO=${2:-1800}
 MIN_GAMES=${3:-10}
 PLIES=${4:-16}

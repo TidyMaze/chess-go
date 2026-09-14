@@ -3,6 +3,7 @@ package main
 import (
 	"chess/board"
 	"chess/game"
+	"fmt"
 	"math"
 	"os"
 	"path/filepath"
@@ -471,5 +472,61 @@ func TestBookFromPGNPrefersTheMoveThatScored(t *testing.T) {
 	}
 	if got := m.UCI(); got != "d2d4" {
 		t.Errorf("book answers %s at the start, want d2d4: a3 was played three times and lost every one of them", got)
+	}
+}
+
+// A rare move with a lucky record must not beat a main line.
+//
+// This is the regression that put g8f6 into the book after 1.e4 Nc6 2.d4,
+// where the previous book had d7d5. Stockfish rates the position before the
+// move at -44 and after it at -165, so the book move gives away 1.2 pawns
+// on move two of every game that reaches it, and it lost game U8eSZyvP.
+//
+// The cause is shrinkage that is too weak for the sample sizes involved: a
+// move played a dozen times at 75% beat one played hundreds of times at
+// 45%, because twenty games of prior barely moves a twelve game estimate.
+func TestBookIgnoresALuckyRareMoveAgainstAMainLine(t *testing.T) {
+	var pgn strings.Builder
+	// The main line: played often, scoring the 45% a slightly worse
+	// opening actually scores.
+	for i := 0; i < 200; i++ {
+		// Black, the side to move here, scores 45%: it wins 9 of every 20.
+		result := "1-0"
+		if i%20 < 9 {
+			result = "0-1"
+		}
+		fmt.Fprintf(&pgn, "[Event \"x\"]\n[WhiteElo \"2400\"]\n[BlackElo \"2400\"]\n[Result \"%s\"]\n\n1. e4 e5 2. Nf3 Nc6 3. Bb5 a6 4. Ba4 Nf6 5. O-O Be7 6. Re1 b5 %s\n\n", result, result)
+	}
+	// The rare move: a dozen games, every one of them won.
+	for i := 0; i < 12; i++ {
+		// And Black wins every one of the twelve games with the rare move.
+		fmt.Fprintf(&pgn, "[Event \"x\"]\n[WhiteElo \"2400\"]\n[BlackElo \"2400\"]\n[Result \"0-1\"]\n\n1. e4 e5 2. Nf3 Nc6 3. Bb5 a6 4. Ba4 b5 5. Bb3 Na5 6. O-O d6 0-1\n\n")
+	}
+	var out strings.Builder
+	if _, err := BuildBookFromPGN(strings.NewReader(pgn.String()), &out, 8, 10, 2000); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "book.txt")
+	if err := os.WriteFile(path, []byte(out.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	book, err := engine.LoadBook(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := game.New()
+	for _, san := range []string{"e4", "e5", "Nf3", "Nc6", "Bb5", "a6", "Ba4"} {
+		m, ok := game.MoveFromSAN(g, san)
+		if !ok {
+			t.Fatalf("%s did not parse", san)
+		}
+		g.ApplyMove(m.From, m.To)
+	}
+	m, ok := book.Move(g)
+	if !ok {
+		t.Fatal("no book move for the position after 4.Ba4")
+	}
+	if got := m.UCI(); got != "g8f6" {
+		t.Errorf("book answers %s, want g8f6: b5 was played 12 times to Nf6's 200 and cannot be trusted over it on score alone", got)
 	}
 }

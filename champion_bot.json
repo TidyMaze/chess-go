@@ -11,5 +11,5 @@
   "threads": 4,
   "tt_bits": 22,
   "features": "lmp,deeplmp,rfp,scaledlmr,countermove,see,historymalus,lmrtwostep,nullgate,iir",
-  "book": "games_book_full.txt"
+  "book": "games_book_v5.txt"
 }
