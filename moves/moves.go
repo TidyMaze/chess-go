@@ -18,7 +18,6 @@ var bishopDirs = [4][2]int{{1, 1}, {1, -1}, {-1, 1}, {-1, -1}}
 var rookDirs = [4][2]int{{1, 0}, {-1, 0}, {0, 1}, {0, -1}}
 var queenDirs = [8][2]int{{1, 1}, {1, -1}, {-1, 1}, {-1, -1}, {1, 0}, {-1, 0}, {0, 1}, {0, -1}}
 
-
 func stepMoves(dst []board.Sq, b *board.Board, sq board.Sq, color board.Color, offsets [][2]int) []board.Sq {
 	return b.AppendStepMoves(dst, sq, color, offsets)
 }
@@ -85,9 +84,9 @@ func AppendLegalTargets(dst []board.Sq, b *board.Board, sq board.Sq, color board
 	case board.Pawn:
 		return pawnMoves(dst, b, sq, color)
 	case board.Knight:
-		return stepMoves(dst, b, sq, color, knightOffsetSlice)
+		return b.AppendKnightMoves(dst, sq, color)
 	case board.King:
-		return castlingMoves(stepMoves(dst, b, sq, color, kingOffsetSlice), b, sq, color)
+		return castlingMoves(b.AppendKingMoves(dst, sq, color), b, sq, color)
 	case board.Bishop:
 		return slideMoves(dst, b, sq, color, bishopDirSlice)
 	case board.Rook:

@@ -144,4 +144,3 @@ func BenchmarkAttackerOfType(b *testing.B) {
 		AttackerOfType(&bd, e4, board.White, board.Pawn)
 	}
 }
-

@@ -1,16 +1,18 @@
 package board
 
+import "math/bits"
+
 // Bitboard constants and precomputed attack/structure tables.
 // Square mapping: Little-Endian Rank-File (sq = rank*8 + file, 0=a1, 63=h8).
 
 var (
-	KnightAttacks      [64]uint64
-	KingAttacks        [64]uint64
-	PawnAttacks        [2][64]uint64 // Attacks FROM square sq for color
-	PawnAttacksTo      [2][64]uint64 // Attacks TO square sq from pawns of color
-	FileMask           [8]uint64
-	AdjacentFilesMask  [8]uint64
-	PassedPawnMask     [2][64]uint64
+	KnightAttacks     [64]uint64
+	KingAttacks       [64]uint64
+	PawnAttacks       [2][64]uint64 // Attacks FROM square sq for color
+	PawnAttacksTo     [2][64]uint64 // Attacks TO square sq from pawns of color
+	FileMask          [8]uint64
+	AdjacentFilesMask [8]uint64
+	PassedPawnMask    [2][64]uint64
 )
 
 func init() {
@@ -147,4 +149,38 @@ func init() {
 		}
 		PassedPawnMask[Black][sq] = bPassed
 	}
+}
+
+// AppendKnightMoves and AppendKingMoves generate targets from the
+// precomputed attack tables above instead of walking an offset list and
+// probing the padded cell array square by square.
+//
+// The tables have existed in this file since before move generation used
+// them: AppendStepMoves walked offsets, and each step cost a bounds check
+// against the padding plus a byte load and a colour decode. A table lookup
+// masked with the mover's own pieces answers the same question with one AND
+// and then one bit-scan per target actually produced.
+//
+// The targets come out in square-index order rather than offset order, so
+// the *set* is identical but the *sequence* is not. Perft is unaffected,
+// since it counts; alpha-beta is order sensitive, so node counts will move
+// and only Elo can say whether that mattered.
+func (b *Board) AppendKnightMoves(dst []Sq, sq Sq, color Color) []Sq {
+	return appendFromBitboard(dst, KnightAttacks[squareIndex(sq)]&^b.colorBB[color])
+}
+
+func (b *Board) AppendKingMoves(dst []Sq, sq Sq, color Color) []Sq {
+	return appendFromBitboard(dst, KingAttacks[squareIndex(sq)]&^b.colorBB[color])
+}
+
+// appendFromBitboard walks the set bits lowest first, clearing each with
+// the standard x&(x-1) so the loop runs once per target rather than once
+// per square.
+func appendFromBitboard(dst []Sq, bb uint64) []Sq {
+	for bb != 0 {
+		i := bits.TrailingZeros64(bb)
+		bb &= bb - 1
+		dst = append(dst, squareFromIndex(uint8(i)))
+	}
+	return dst
 }

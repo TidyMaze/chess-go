@@ -54,4 +54,3 @@ func BenchmarkPinnedSquares(b *testing.B) {
 		_ = PinnedSquares(&brd, board.White)
 	}
 }
-

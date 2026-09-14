@@ -221,4 +221,3 @@ func TestBoardFindPinnedPiece(t *testing.T) {
 		t.Fatalf("expected rook not to pin when checking for bishop")
 	}
 }
-

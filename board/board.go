@@ -118,7 +118,6 @@ func (b *Board) ColorBitboard(c Color) uint64 {
 	return b.colorBB[c]
 }
 
-
 // noEP marks "no en passant capture is available".
 const noEP uint8 = 64
 
@@ -230,7 +229,6 @@ func (b *Board) setPiece(s Sq, p Piece) {
 	}
 }
 
-
 // PieceAt is the safe, bounds-checked accessor for external callers.
 func (b *Board) PieceAt(s Sq) (Piece, bool) {
 	if s.File < 0 || s.File >= 8 || s.Rank < 0 || s.Rank >= 8 {
@@ -266,9 +264,9 @@ var (
 		1*width + 2, 1*width - 2, -1*width + 2, -1*width - 2,
 	}
 	kingDeltas = [8]int{
-		1*width + 1, 1*width, 1*width - 1,
+		1*width + 1, 1 * width, 1*width - 1,
 		-1, 1,
-		-1*width + 1, -1*width, -1*width - 1,
+		-1*width + 1, -1 * width, -1*width - 1,
 	}
 	rookDeltas   = [4]int{width, -width, 1, -1}
 	bishopDeltas = [4]int{width + 1, width - 1, -width + 1, -width - 1}
@@ -325,7 +323,6 @@ func (b *Board) FindPinnedPiece(king Sq, df, dr int, ownColor Color, s1, s2 Piec
 	}
 }
 
-
 // IsAttackedBy reports whether sq is attacked by side by.
 func (b *Board) IsAttackedBy(sq Sq, by Color) bool {
 	sqIdx := squareIndex(sq)
@@ -363,7 +360,6 @@ func (b *Board) IsAttackedBy(sq Sq, by Color) bool {
 
 	return false
 }
-
 
 // IsInCheck reports whether the king of color is in check.
 func (b *Board) IsInCheck(color Color) bool {
@@ -472,7 +468,6 @@ func (b *Board) Move(from, to Sq) {
 	}
 }
 
-
 // Clone is a plain struct copy (Board holds only arrays), not a
 // map/dict copy: this is the single biggest win of the flat-array
 // design over a map[Sq]Piece representation for the search hot path.
@@ -538,20 +533,20 @@ type Undo struct {
 	colorBB      [2]uint64
 }
 
-func (u Undo) MovedCode() uint8     { return uint8(u.movedCode) }
-func (u Undo) CapturedRaw() uint8   { return uint8(u.capturedRaw) }
-func (u Undo) Castle() uint8        { return u.castle }
+func (u Undo) MovedCode() uint8   { return uint8(u.movedCode) }
+func (u Undo) CapturedRaw() uint8 { return uint8(u.capturedRaw) }
+func (u Undo) Castle() uint8      { return u.castle }
 func (u Undo) OldEPSquare() (Sq, bool) {
 	if u.epSquare == noEP {
 		return Sq{}, false
 	}
 	return squareFromIndex(u.epSquare), true
 }
-func (u Undo) RookFrom() Sq         { return u.rookFrom }
-func (u Undo) RookTo() Sq           { return u.rookTo }
-func (u Undo) WasCastling() bool    { return u.wasCastling }
-func (u Undo) EPCaptured() Sq       { return u.epCaptured }
-func (u Undo) WasEPCapture() bool   { return u.wasEPCapture }
+func (u Undo) RookFrom() Sq       { return u.rookFrom }
+func (u Undo) RookTo() Sq         { return u.rookTo }
+func (u Undo) WasCastling() bool  { return u.wasCastling }
+func (u Undo) EPCaptured() Sq     { return u.epCaptured }
+func (u Undo) WasEPCapture() bool { return u.wasEPCapture }
 
 // MakeMove applies a move and returns what is needed to undo it.
 func (b *Board) MakeMove(from, to Sq) Undo {
@@ -698,4 +693,3 @@ func (b *Board) Remove(s Sq) {
 		}
 	}
 }
-
