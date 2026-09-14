@@ -290,7 +290,11 @@ func (f *failOpenAPI) attempts() int {
 func TestPlayingAGameIsLogged(t *testing.T) {
 	f := newFakeAPI()
 	f.streams["/api/stream/event"] = `{"type":"gameStart","game":{"id":"g99"}}` + "\n"
-	f.streams["/api/bot/game/stream/g99"] = `{"type":"gameFull","id":"g99","white":{"id":"tidymazebot"},"black":{"id":"opponent"},"initialFen":"startpos","state":{"type":"gameState","moves":"","status":"started"}}` + "\n"
+	// The terminal line is what ends the game. Without it the bot keeps
+	// reconnecting, which is the point of the reconnect loop: only lichess
+	// saying the game is over stops it.
+	f.streams["/api/bot/game/stream/g99"] = `{"type":"gameFull","id":"g99","white":{"id":"tidymazebot"},"black":{"id":"opponent"},"initialFen":"startpos","state":{"type":"gameState","moves":"","status":"started"}}` + "\n" +
+		`{"type":"gameState","moves":"e2e4 e7e5","status":"mate","winner":"white"}` + "\n"
 
 	var buf syncBuf
 	b := &Bot{API: f, Player: engine.Strong(1), Username: "tidymazebot", Log: newBufLogger(&buf)}

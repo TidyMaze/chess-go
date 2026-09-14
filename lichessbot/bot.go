@@ -53,6 +53,9 @@ const (
 	defaultReconnectDelay    = time.Second
 	maxReconnectDelay        = time.Minute
 	defaultHealthyConnection = 2 * time.Minute
+	// How many connections to a game's stream may hand over nothing at all
+	// before the bot accepts that lichess no longer serves that game.
+	maxEmptyGameStreams = 3
 )
 
 func (b *Bot) healthyConnection() time.Duration {
@@ -221,47 +224,90 @@ func (b *Bot) playGame(ctx context.Context, gameID string) {
 	overhead := newOverheadEstimate()
 	gameCtx, dropGame := context.WithCancel(ctx)
 	defer dropGame()
-	stream, err := b.API.streamNDJSON(gameCtx, "/api/bot/game/stream/"+gameID)
-	if err != nil {
-		b.logf("game %s: stream failed: %v", gameID, err)
-		return
-	}
-	defer stream.Close()
 
+	// The game outlives any one connection to it. A stream that drops is a
+	// dropped socket, not a finished game, and the only thing that ends a
+	// game is lichess saying so. Reading once and returning is how game
+	// rUZ1clR4 was lost on time: its stream died after 2m24s with errno
+	// 65535, this function logged "finished", and the bot then sat on a live
+	// board hearing nothing until the flag fell.
 	var full gameFull
 	haveFull := false
+	empties := 0
+	for {
+		if gameCtx.Err() != nil {
+			return
+		}
+		lines, over, err := b.readGameStream(gameCtx, gameID, &full, &haveFull, overhead)
+		if over {
+			return
+		}
+		// Progress is the thing worth retrying on. A connection that handed
+		// over even one line is a game lichess still knows about; several in
+		// a row that hand over nothing are a game it has forgotten, and
+		// retrying those forever would leave a goroutine spinning for the
+		// life of the process.
+		if lines > 0 {
+			empties = 0
+		} else if empties++; empties >= maxEmptyGameStreams {
+			b.logf("game %s: giving up after %d connections that delivered nothing", gameID, empties)
+			return
+		}
+		if err != nil && err != io.EOF {
+			b.logf("game %s: stream ended: %v; reconnecting", gameID, err)
+		}
+		select {
+		case <-gameCtx.Done():
+			return
+		case <-time.After(b.reconnectDelay()):
+		}
+	}
+}
+
+// readGameStream reads one connection to a game's stream to its end. It
+// reports how many lines it managed to read, so the caller can tell a
+// dropped connection from a game lichess no longer serves, and whether the
+// game is over, which is the only reason to stop reconnecting.
+func (b *Bot) readGameStream(ctx context.Context, gameID string, full *gameFull, haveFull *bool, overhead *overheadEstimate) (lines int, over bool, err error) {
+	stream, err := b.API.streamNDJSON(ctx, "/api/bot/game/stream/"+gameID)
+	if err != nil {
+		b.logf("game %s: stream failed: %v", gameID, err)
+		return 0, false, err
+	}
+	defer stream.Close()
 
 	err = eachLine(stream, func(line []byte) error {
 		// Stamped before anything is parsed: the clock has been running
 		// since lichess registered the opponent's move, and everything from
 		// here to the move being posted is charged to it.
 		received := time.Now()
+		lines++
 		kind, err := parseKind(line)
 		if err != nil {
 			return nil
 		}
 		switch kind {
 		case "gameFull":
-			if err := json.Unmarshal(line, &full); err != nil {
+			if err := json.Unmarshal(line, full); err != nil {
 				return nil
 			}
-			haveFull = true
-			b.maybeMove(gameID, full, full.State, received, overhead)
+			*haveFull = true
+			over = over || gameOver(full.State.Status)
+			b.maybeMove(gameID, *full, full.State, received, overhead)
 		case "gameState":
-			if !haveFull {
+			if !*haveFull {
 				return nil
 			}
 			var st gameState
 			if err := json.Unmarshal(line, &st); err != nil {
 				return nil
 			}
-			b.maybeMove(gameID, full, st, received, overhead)
+			over = over || gameOver(st.Status)
+			b.maybeMove(gameID, *full, st, received, overhead)
 		}
 		return nil
 	})
-	if err != nil && err != io.EOF {
-		b.logf("game %s: stream ended: %v", gameID, err)
-	}
+	return lines, over, err
 }
 
 // effectivePlayer applies this move's own clock to the champion, when
