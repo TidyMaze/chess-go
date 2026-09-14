@@ -184,3 +184,113 @@ func appendFromBitboard(dst []Sq, bb uint64) []Sq {
 	}
 	return dst
 }
+
+// Ray attacks for the sliding pieces.
+//
+// rayAttacks[dir][sq] is every square along one compass direction from sq,
+// ignoring occupancy. To account for blockers, intersect the ray with the
+// occupied squares, find the nearest set bit, and subtract that square's own
+// ray: what remains is the ray truncated at the first man, with that man
+// included, which is exactly a capture.
+//
+// This is the classical method rather than magic bitboards. It replaces a
+// loop that stepped one square at a time through the padded cell array with
+// two table lookups and a bit scan per direction. Magic would be faster
+// still and needs a magic-number search and 800 KB of tables; PEXT is not an
+// option here at all, being x86 only, and this runs on arm64.
+const (
+	dirNorth = iota
+	dirSouth
+	dirEast
+	dirWest
+	dirNorthEast
+	dirNorthWest
+	dirSouthEast
+	dirSouthWest
+	numDirs
+)
+
+var rayAttacks [numDirs][64]uint64
+
+// positiveDir says whether a direction's squares have higher indices than
+// their origin, which decides whether the nearest blocker is the lowest set
+// bit or the highest.
+var positiveDir = [numDirs]bool{
+	dirNorth: true, dirEast: true, dirNorthEast: true, dirNorthWest: true,
+}
+
+func init() {
+	deltas := [numDirs][2]int{
+		dirNorth:     {0, 1},
+		dirSouth:     {0, -1},
+		dirEast:      {1, 0},
+		dirWest:      {-1, 0},
+		dirNorthEast: {1, 1},
+		dirNorthWest: {-1, 1},
+		dirSouthEast: {1, -1},
+		dirSouthWest: {-1, -1},
+	}
+	for d := 0; d < numDirs; d++ {
+		for sq := 0; sq < 64; sq++ {
+			f, r := sq%8, sq/8
+			var mask uint64
+			for {
+				f += deltas[d][0]
+				r += deltas[d][1]
+				if f < 0 || f > 7 || r < 0 || r > 7 {
+					break
+				}
+				mask |= 1 << (r*8 + f)
+			}
+			rayAttacks[d][sq] = mask
+		}
+	}
+}
+
+// rayFrom is the ray in direction d from sq, truncated at the first
+// occupied square and including it.
+func rayFrom(d int, sq uint8, occupied uint64) uint64 {
+	attacks := rayAttacks[d][sq]
+	blockers := attacks & occupied
+	if blockers == 0 {
+		return attacks
+	}
+	var first int
+	if positiveDir[d] {
+		first = bits.TrailingZeros64(blockers)
+	} else {
+		first = 63 - bits.LeadingZeros64(blockers)
+	}
+	return attacks &^ rayAttacks[d][first]
+}
+
+// BishopAttacks, RookAttacks and QueenAttacks are the squares each piece
+// bears on, blockers included and own pieces not yet removed.
+func BishopAttacks(sq uint8, occupied uint64) uint64 {
+	return rayFrom(dirNorthEast, sq, occupied) | rayFrom(dirNorthWest, sq, occupied) |
+		rayFrom(dirSouthEast, sq, occupied) | rayFrom(dirSouthWest, sq, occupied)
+}
+
+func RookAttacks(sq uint8, occupied uint64) uint64 {
+	return rayFrom(dirNorth, sq, occupied) | rayFrom(dirSouth, sq, occupied) |
+		rayFrom(dirEast, sq, occupied) | rayFrom(dirWest, sq, occupied)
+}
+
+func (b *Board) occupiedBB() uint64 { return b.colorBB[White] | b.colorBB[Black] }
+
+// Move generation deliberately still walks the rays through the cell array.
+// Measured here, replacing it was not worth it either way round:
+//
+// Emitting the union of the four rays in square-index order is about 1.7x
+// faster per queen and 7% faster over a depth-5 search, but it reorders the
+// move list, and alpha-beta prunes by a move's position in that list. Deep
+// late move pruning went from cutting 11% of nodes on the four correctness
+// positions to adding 13%, so the speed buys a worse-ordered search and the
+// net would need thousands of games to read.
+//
+// Emitting direction by direction instead keeps the order and the tree
+// identical, but then the per-direction bit-scan loops cost as much as the
+// walk they replace: 19.1-19.5 ns per queen against the walk's 19.3-20.1.
+//
+// So the tables earn their place in IsAttackedBy, which returns a bool and
+// has no order to preserve, and nowhere in move generation.

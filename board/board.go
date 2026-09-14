@@ -342,20 +342,17 @@ func (b *Board) IsAttackedBy(sq Sq, by Color) bool {
 		return true
 	}
 
-	baseIdx := index(sq)
-
-	// Sliders: Rook / Queen
-	for _, d := range rookDeltas {
-		if b.hitsSliderDelta(baseIdx, d, by, Rook, Queen) {
-			return true
-		}
+	// Sliders. The ray tables answer all four directions at once, where the
+	// walk stepped one square at a time through the padded array and paid a
+	// bounds check and a colour decode per step. This is the one place the
+	// tables are a pure win: the answer is a bool, so unlike move generation
+	// there is no order to preserve and the search sees the same tree.
+	occ := b.occupiedBB()
+	if RookAttacks(sqIdx, occ)&(b.pieces[by][Rook]|b.pieces[by][Queen]) != 0 {
+		return true
 	}
-
-	// Sliders: Bishop / Queen
-	for _, d := range bishopDeltas {
-		if b.hitsSliderDelta(baseIdx, d, by, Bishop, Queen) {
-			return true
-		}
+	if BishopAttacks(sqIdx, occ)&(b.pieces[by][Bishop]|b.pieces[by][Queen]) != 0 {
+		return true
 	}
 
 	return false
