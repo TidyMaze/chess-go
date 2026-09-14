@@ -3,6 +3,9 @@ package main
 import (
 	"strings"
 	"testing"
+	"time"
+
+	"chess/lichessbot"
 )
 
 func TestBaseAndIncrementReadsAPGNTimeControl(t *testing.T) {
@@ -212,5 +215,27 @@ func TestReportCountsLowAndFlaggedGames(t *testing.T) {
 	}
 	if !strings.Contains(out, "abcd1234") || !strings.Contains(out, "wxyz5678") {
 		t.Errorf("table is missing a game:\n%s", out)
+	}
+}
+
+// clockaudit links the budget rule it measures against, so a binary built
+// before a change to that rule scores every game against the old one and
+// reports the difference as overhead. A 1800+5 game read "budget 15.0s,
+// spent 31.2s, overhead 17.0s" from a two hour old build, and 30.7s /
+// 31.2s / 1.5s once rebuilt. The fingerprint exists so that is visible in
+// the first line of output rather than discovered in the numbers.
+func TestTheRuleFingerprintTracksTheRealRule(t *testing.T) {
+	// A slow control and a fast one, because the two halves of the rule
+	// move independently: the ceiling scales with the clock above 750s and
+	// is flat below it.
+	slow := lichessbot.MoveTimeBudget(1800000, 5000)
+	fast := lichessbot.MoveTimeBudget(120000, 1000)
+	if slow <= fast {
+		t.Errorf("a 1800s clock budgets %v and a 120s clock %v; the slow one must be larger or the fingerprint cannot show a rule change", slow, fast)
+	}
+	// The slow control must be past the old flat 15s ceiling, which is the
+	// specific staleness this catches.
+	if slow <= 15*time.Second {
+		t.Errorf("1800s+5s budgets %v, still at or below the old flat cap; either the rule regressed or this test is measuring nothing", slow)
 	}
 }

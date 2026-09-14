@@ -26,6 +26,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"chess/lichessbot"
 )
@@ -227,6 +228,16 @@ func main() {
 		defer f.Close()
 		in = f
 	}
+
+	// A fingerprint of the rule this binary carries, printed before any
+	// numbers. clockaudit links lichessbot.MoveTimeBudget, so a binary built
+	// before a change to that rule scores every game against the old one and
+	// reports the difference as overhead. That is not hypothetical: a
+	// 1800+5 game read "budget 15.0s, spent 31.2s, overhead 17.0s" from a
+	// two hour old build, and 30.7s / 31.2s / 1.5s once rebuilt.
+	fmt.Printf("budget rule in this binary: %v at 1800s+5s, %v at 120s+1s\n",
+		lichessbot.MoveTimeBudget(1800000, 5000).Round(100*time.Millisecond),
+		lichessbot.MoveTimeBudget(120000, 1000).Round(100*time.Millisecond))
 
 	games := parsePGN(in, *user)
 	if len(games) == 0 {
