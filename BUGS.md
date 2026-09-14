@@ -116,6 +116,22 @@ limit is how this started.
   moves none of the four ratings being chased, holds a game slot for days,
   and starves the games that count. Commit c6bbedd.
 
+- **Telling a deaf bot from an idle one, without guessing.** Both look
+  identical from outside: 0% CPU, an empty log, no games, and `lsof`
+  reporting the lichess socket as CLOSED, which on macOS it does even for a
+  perfectly healthy HTTP/2 connection. A `kill -QUIT` dumps the goroutines
+  and settles it in one line, at the cost of restarting the bot:
+
+  | state | goroutine 1 | read loop |
+  |---|---|---|
+  | healthy, idle | `http2.transportResponseBody.Read` under `bufio.Scanner.Scan` | `clientConnReadLoop.run` alive on `ReadFrameHeader` |
+  | deaf | `http2.(*pipe).Read` into `sync.(*Cond).Wait` | gone |
+
+  The second is the bug below. The first was measured on 2026-09-14 after
+  39 minutes of silence that looked exactly like a relapse and was not:
+  no challenges had arrived. Worth the ten seconds of downtime rather than
+  restarting on suspicion, which destroys the evidence either way.
+
 - **The bot went deaf and said nothing, for as long as it was left.**
   Its process was alive at 0% CPU with an empty log while its only
   connection to lichess sat in CLOSED, and a monitor saw no games in flight
