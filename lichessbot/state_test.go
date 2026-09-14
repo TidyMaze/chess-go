@@ -164,8 +164,8 @@ func TestMoveUCIForLichessLeavesANonPawnMoveAlone(t *testing.T) {
 // shallower in a fast one, instead of the fixed budget champion.json
 // carries for every measurement race.
 func TestMoveTimeBudgetScalesWithRemainingTime(t *testing.T) {
-	rapid := moveTimeBudget("white", gameState{WhiteTimeMS: 600000, WhiteIncMS: 5000})
-	bullet := moveTimeBudget("white", gameState{WhiteTimeMS: 60000, WhiteIncMS: 1000})
+	rapid := moveTimeBudget("white", gameState{WhiteTimeMS: 600000, WhiteIncMS: 5000}, newOverheadEstimate())
+	bullet := moveTimeBudget("white", gameState{WhiteTimeMS: 60000, WhiteIncMS: 1000}, newOverheadEstimate())
 	if rapid <= bullet {
 		t.Errorf("a 10 minute clock (%v) did not think longer than a 1 minute clock (%v)", rapid, bullet)
 	}
@@ -174,8 +174,8 @@ func TestMoveTimeBudgetScalesWithRemainingTime(t *testing.T) {
 // The increment must count too: a move played purely on increment (no
 // time pressure at all) should still get some budget from it, not zero.
 func TestMoveTimeBudgetCountsTheIncrement(t *testing.T) {
-	noInc := moveTimeBudget("white", gameState{WhiteTimeMS: 60000, WhiteIncMS: 0})
-	withInc := moveTimeBudget("white", gameState{WhiteTimeMS: 60000, WhiteIncMS: 10000})
+	noInc := moveTimeBudget("white", gameState{WhiteTimeMS: 60000, WhiteIncMS: 0}, newOverheadEstimate())
+	withInc := moveTimeBudget("white", gameState{WhiteTimeMS: 60000, WhiteIncMS: 10000}, newOverheadEstimate())
 	if withInc <= noInc {
 		t.Errorf("a 10s increment (%v) did not add thinking time over no increment (%v)", withInc, noInc)
 	}
@@ -186,8 +186,8 @@ func TestMoveTimeBudgetCountsTheIncrement(t *testing.T) {
 // black is nearly flagging must use black's own numbers.
 func TestMoveTimeBudgetReadsOurOwnColor(t *testing.T) {
 	st := gameState{WhiteTimeMS: 600000, WhiteIncMS: 5000, BlackTimeMS: 3000, BlackIncMS: 0}
-	white := moveTimeBudget("white", st)
-	black := moveTimeBudget("black", st)
+	white := moveTimeBudget("white", st, newOverheadEstimate())
+	black := moveTimeBudget("black", st, newOverheadEstimate())
 	if white <= black {
 		t.Errorf("white with plenty of time (%v) was not given more than black near flagging (%v)", white, black)
 	}
@@ -201,7 +201,7 @@ func TestMoveTimeBudgetNeverExceedsWhatIsLeft(t *testing.T) {
 	// increment) well past the 1 second actually left, so this only
 	// stays safe if the ceiling clamp is doing its job.
 	st := gameState{WhiteTimeMS: 1000, WhiteIncMS: 20000}
-	got := moveTimeBudget("white", st)
+	got := moveTimeBudget("white", st, newOverheadEstimate())
 	if got >= time.Duration(st.WhiteTimeMS)*time.Millisecond {
 		t.Errorf("budget %v does not leave any safety margin on a %dms clock", got, st.WhiteTimeMS)
 	}
@@ -215,7 +215,7 @@ func TestMoveTimeBudgetNeverExceedsWhatIsLeft(t *testing.T) {
 // 11.8 plies going from one to four threads at 1s, so there is no reason
 // to trust minutes of thinking on one move.
 func TestMoveTimeBudgetIsCappedOnASlowClock(t *testing.T) {
-	got := moveTimeBudget("white", gameState{WhiteTimeMS: 3600000, WhiteIncMS: 60000})
+	got := moveTimeBudget("white", gameState{WhiteTimeMS: 3600000, WhiteIncMS: 60000}, newOverheadEstimate())
 	if got > 15*time.Second {
 		t.Errorf("budget %v was not capped on a one hour clock", got)
 	}
@@ -225,7 +225,7 @@ func TestMoveTimeBudgetIsCappedOnASlowClock(t *testing.T) {
 // the caller to fall back to a fixed budget, not silently think for 0ms
 // and play whatever move happens to be ready first.
 func TestMoveTimeBudgetIsZeroWithNoClock(t *testing.T) {
-	if got := moveTimeBudget("white", gameState{}); got != 0 {
+	if got := moveTimeBudget("white", gameState{}, newOverheadEstimate()); got != 0 {
 		t.Errorf("got %v with no clock data at all, want 0 so the caller falls back", got)
 	}
 }
@@ -234,7 +234,7 @@ func TestMoveTimeBudgetIsZeroWithNoClock(t *testing.T) {
 // budget must still be a positive floor so the engine plays something
 // rather than nothing.
 func TestMoveTimeBudgetFloorsWhenAlmostOutOfTime(t *testing.T) {
-	got := moveTimeBudget("white", gameState{WhiteTimeMS: 100, WhiteIncMS: 0})
+	got := moveTimeBudget("white", gameState{WhiteTimeMS: 100, WhiteIncMS: 0}, newOverheadEstimate())
 	if got <= 0 {
 		t.Errorf("got %v, want a positive floor even at 100ms remaining", got)
 	}
@@ -284,7 +284,7 @@ func TestApplyMovesStringTracksRepetitionFromAnyStart(t *testing.T) {
 // zero and flag, and this one does not.
 func TestMoveTimeBudgetLeavesTheReserveAlone(t *testing.T) {
 	st := gameState{WhiteTimeMS: 60000, WhiteIncMS: 0}
-	got := moveTimeBudget("white", st)
+	got := moveTimeBudget("white", st, newOverheadEstimate())
 	reserve := 8 * time.Second
 	if got > time.Duration(st.WhiteTimeMS)*time.Millisecond-reserve {
 		t.Errorf("budget %v eats into the reserve on a %dms clock", got, st.WhiteTimeMS)
@@ -295,7 +295,7 @@ func TestMoveTimeBudgetLeavesTheReserveAlone(t *testing.T) {
 // stays positive and small rather than refusing or overrunning.
 func TestMoveTimeBudgetStillMovesBelowTheReserve(t *testing.T) {
 	st := gameState{WhiteTimeMS: 3000, WhiteIncMS: 0}
-	got := moveTimeBudget("white", st)
+	got := moveTimeBudget("white", st, newOverheadEstimate())
 	if got <= 0 {
 		t.Error("budget must stay positive below the reserve")
 	}
@@ -310,8 +310,8 @@ func TestMoveTimeBudgetStillMovesBelowTheReserve(t *testing.T) {
 // while a thirtieth ends with half a second in hand. The share must
 // therefore depend on whether there is an increment to lean on.
 func TestMoveTimeBudgetIsMoreCautiousWithoutAnIncrement(t *testing.T) {
-	withInc := moveTimeBudget("white", gameState{WhiteTimeMS: 60000, WhiteIncMS: 1000})
-	without := moveTimeBudget("white", gameState{WhiteTimeMS: 60000, WhiteIncMS: 0})
+	withInc := moveTimeBudget("white", gameState{WhiteTimeMS: 60000, WhiteIncMS: 1000}, newOverheadEstimate())
+	without := moveTimeBudget("white", gameState{WhiteTimeMS: 60000, WhiteIncMS: 0}, newOverheadEstimate())
 	if without >= withInc {
 		t.Errorf("no increment gave %v and an increment gave %v; the no-increment case must be the cautious one", without, withInc)
 	}
@@ -329,8 +329,8 @@ func TestMoveTimeBudgetIsMoreCautiousWithoutAnIncrement(t *testing.T) {
 // think less with an increment than without. It is capped as a share of
 // what is left.
 func TestMoveTimeBudgetReserveCannotSwallowTheClock(t *testing.T) {
-	big := moveTimeBudget("white", gameState{WhiteTimeMS: 60000, WhiteIncMS: 10000})
-	none := moveTimeBudget("white", gameState{WhiteTimeMS: 60000, WhiteIncMS: 0})
+	big := moveTimeBudget("white", gameState{WhiteTimeMS: 60000, WhiteIncMS: 10000}, newOverheadEstimate())
+	none := moveTimeBudget("white", gameState{WhiteTimeMS: 60000, WhiteIncMS: 0}, newOverheadEstimate())
 	if big <= none {
 		t.Errorf("a 10s increment gave %v, less than no increment at %v", big, none)
 	}
@@ -342,11 +342,11 @@ func TestMoveTimeBudgetReserveCannotSwallowTheClock(t *testing.T) {
 // that returns nothing here loses on time for certain.
 func TestMoveTimeBudgetScrambleBranches(t *testing.T) {
 	// Below the reserve but well above the floor.
-	if got := moveTimeBudget("white", gameState{WhiteTimeMS: 4000, WhiteIncMS: 0}); got <= 0 || got >= 4000*time.Millisecond {
+	if got := moveTimeBudget("white", gameState{WhiteTimeMS: 4000, WhiteIncMS: 0}, newOverheadEstimate()); got <= 0 || got >= 4000*time.Millisecond {
 		t.Errorf("scramble budget %v is not a sane slice of a 4s clock", got)
 	}
 	// Almost nothing left: the floor, and never more than the clock.
-	got := moveTimeBudget("white", gameState{WhiteTimeMS: 120, WhiteIncMS: 0})
+	got := moveTimeBudget("white", gameState{WhiteTimeMS: 120, WhiteIncMS: 0}, newOverheadEstimate())
 	if got <= 0 {
 		t.Error("a nearly flagged clock still has to produce a move")
 	}
@@ -359,7 +359,7 @@ func TestMoveTimeBudgetScrambleBranches(t *testing.T) {
 // before anything else, and 10.6 plies in a second already only buys
 // about a ply per further second.
 func TestMoveTimeBudgetCapAppliesOnAVeryLongClock(t *testing.T) {
-	got := moveTimeBudget("white", gameState{WhiteTimeMS: 3600000, WhiteIncMS: 60000})
+	got := moveTimeBudget("white", gameState{WhiteTimeMS: 3600000, WhiteIncMS: 60000}, newOverheadEstimate())
 	if got != 15*time.Second {
 		t.Errorf("got %v, want the 15s cap on a one hour clock", got)
 	}
@@ -371,7 +371,7 @@ func TestMoveTimeBudgetCapAppliesOnAVeryLongClock(t *testing.T) {
 // past the flag.
 func TestMoveTimeBudgetCeilingClampsABigIncrementOnATinyClock(t *testing.T) {
 	st := gameState{WhiteTimeMS: 600, WhiteIncMS: 10000}
-	got := moveTimeBudget("white", st)
+	got := moveTimeBudget("white", st, newOverheadEstimate())
 	if got >= time.Duration(st.WhiteTimeMS)*time.Millisecond {
 		t.Errorf("budget %v does not leave the safety margin on a 600ms clock", got)
 	}
@@ -385,7 +385,7 @@ func TestMoveTimeBudgetCeilingClampsABigIncrementOnATinyClock(t *testing.T) {
 // from a missing field alone, would hand a bullet game whose event simply
 // omitted the clock a fifteen second think and flag it.
 func TestNoClockDefersToTheCaller(t *testing.T) {
-	if got := moveTimeBudget("white", gameState{}); got != 0 {
+	if got := moveTimeBudget("white", gameState{}, newOverheadEstimate()); got != 0 {
 		t.Errorf("got %v with no clock, want 0 so the caller decides on the game's speed", got)
 	}
 }
@@ -413,7 +413,7 @@ func TestExportedMoveTimeBudgetMatchesTheRuleTheBotPlaysBy(t *testing.T) {
 	for _, c := range []struct{ remain, inc int64 }{
 		{300000, 3000}, {120000, 1000}, {60000, 0}, {15000, 3000}, {500, 1000},
 	} {
-		want := moveTimeBudget("white", gameState{WhiteTimeMS: c.remain, WhiteIncMS: c.inc})
+		want := moveTimeBudget("white", gameState{WhiteTimeMS: c.remain, WhiteIncMS: c.inc}, newOverheadEstimate())
 		if got := MoveTimeBudget(c.remain, c.inc); got != want {
 			t.Errorf("MoveTimeBudget(%d, %d) = %v, want %v", c.remain, c.inc, got, want)
 		}
@@ -428,5 +428,89 @@ func TestUnratedChallengesAreAccepted(t *testing.T) {
 		if !shouldAcceptChallenge(Challenge{Variant: "standard", SpeedTC: speed, Rated: false}) {
 			t.Errorf("an unrated %s challenge was declined", speed)
 		}
+	}
+}
+
+// The overhead is a property of the opponent, not of the engine. Measured
+// on 2026-09-14 in the same build minutes apart: a move posts in 15 ms to
+// 36 ms against a real bot and 543 ms to 736 ms against the lichess AI. A
+// constant cannot serve both, so it is measured per game.
+func TestOverheadEstimateRisesFastAndFallsSlowly(t *testing.T) {
+	o := newOverheadEstimate()
+	if got := o.reserve(); got != defaultOverheadMs {
+		t.Fatalf("a fresh estimate reserves %v, want the default %v", got, defaultOverheadMs)
+	}
+
+	// A game against the AI: the estimate has to get most of the way there
+	// within a couple of moves, because every move it lags costs clock.
+	for i := 0; i < 3; i++ {
+		o.observe(700 * time.Millisecond)
+	}
+	if o.reserve() < 500 {
+		t.Errorf("after three 700ms posts the estimate is %v, want most of the way to 700: a slow rise spends the clock it failed to reserve", o.reserve())
+	}
+
+	// Back to a real opponent: it must come down, but not so fast that one
+	// quick post undoes the protection.
+	high := o.reserve()
+	o.observe(20 * time.Millisecond)
+	if o.reserve() >= high {
+		t.Error("the estimate did not fall at all after a fast post")
+	}
+	if o.reserve() < high*0.5 {
+		t.Errorf("one fast post dropped the estimate from %v to %v; falling that fast makes it useless against an opponent whose posts vary", high, o.reserve())
+	}
+}
+
+func TestOverheadEstimateStaysWithinItsBounds(t *testing.T) {
+	o := newOverheadEstimate()
+	for i := 0; i < 50; i++ {
+		o.observe(0)
+	}
+	if got := o.reserve(); got != defaultOverheadMs {
+		t.Errorf("a stream of instant posts drove the reserve to %v, want a floor of %v", got, defaultOverheadMs)
+	}
+	for i := 0; i < 50; i++ {
+		o.observe(30 * time.Second)
+	}
+	if got := o.reserve(); got != maxOverheadMs {
+		t.Errorf("a stream of absurd posts drove the reserve to %v, want a cap of %v", got, maxOverheadMs)
+	}
+	// A nil estimate is what the exported wrapper passes, and it must not
+	// panic or reserve nothing.
+	var none *overheadEstimate
+	if got := none.reserve(); got != defaultOverheadMs {
+		t.Errorf("a nil estimate reserved %v, want %v", got, defaultOverheadMs)
+	}
+}
+
+// The whole point: a bigger measured overhead must leave less for the
+// search, since the clock pays for both.
+func TestABiggerMeasuredOverheadShrinksTheSearchBudget(t *testing.T) {
+	st := gameState{WhiteTimeMS: 120000, WhiteIncMS: 1000}
+	cheap := moveTimeBudget("white", st, newOverheadEstimate())
+
+	dear := newOverheadEstimate()
+	for i := 0; i < 5; i++ {
+		dear.observe(700 * time.Millisecond)
+	}
+	expensive := moveTimeBudget("white", st, dear)
+
+	if expensive >= cheap {
+		t.Errorf("budget with a 700ms overhead is %v against %v with the default; the clock pays for the post either way, so it has to come out of the search", expensive, cheap)
+	}
+	if diff := cheap - expensive; diff < 300*time.Millisecond {
+		t.Errorf("the budget only moved by %v for an overhead 550ms larger", diff)
+	}
+}
+
+// A negative duration cannot happen from a real timing, but it would poison
+// the estimate if it ever did, so it is ignored rather than folded in.
+func TestOverheadEstimateIgnoresANegativeMeasurement(t *testing.T) {
+	o := newOverheadEstimate()
+	before := o.reserve()
+	o.observe(-5 * time.Second)
+	if o.reserve() != before {
+		t.Errorf("a negative measurement moved the estimate from %v to %v", before, o.reserve())
 	}
 }

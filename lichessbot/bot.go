@@ -215,6 +215,10 @@ func (b *Bot) playGame(ctx context.Context, gameID string) {
 	defer func() {
 		b.logf("game %s: finished after %s", gameID, time.Since(started).Round(time.Second))
 	}()
+	// One estimate per game: the overhead is a property of who is on the
+	// other side, so it must not be shared between games or carried across
+	// them.
+	overhead := newOverheadEstimate()
 	gameCtx, dropGame := context.WithCancel(ctx)
 	defer dropGame()
 	stream, err := b.API.streamNDJSON(gameCtx, "/api/bot/game/stream/"+gameID)
@@ -242,7 +246,7 @@ func (b *Bot) playGame(ctx context.Context, gameID string) {
 				return nil
 			}
 			haveFull = true
-			b.maybeMove(gameID, full, full.State, received)
+			b.maybeMove(gameID, full, full.State, received, overhead)
 		case "gameState":
 			if !haveFull {
 				return nil
@@ -251,7 +255,7 @@ func (b *Bot) playGame(ctx context.Context, gameID string) {
 			if err := json.Unmarshal(line, &st); err != nil {
 				return nil
 			}
-			b.maybeMove(gameID, full, st, received)
+			b.maybeMove(gameID, full, st, received, overhead)
 		}
 		return nil
 	})
@@ -265,8 +269,8 @@ func (b *Bot) playGame(ctx context.Context, gameID string) {
 // not the fixed budget champion.json carries for a measurement race.
 // Depth, threads and the network are untouched; only how long the search
 // is allowed to run changes, per move, every move.
-func effectivePlayer(base engine.Player, ourColor string, st gameState, speed string) engine.Player {
-	if budget := moveTimeBudget(ourColor, st); budget > 0 {
+func effectivePlayer(base engine.Player, ourColor string, st gameState, speed string, overhead *overheadEstimate) engine.Player {
+	if budget := moveTimeBudget(ourColor, st, overhead); budget > 0 {
 		base.TimeBudget = budget
 		return base
 	}
@@ -279,7 +283,7 @@ func effectivePlayer(base engine.Player, ourColor string, st gameState, speed st
 	return base
 }
 
-func (b *Bot) maybeMove(gameID string, full gameFull, st gameState, received time.Time) {
+func (b *Bot) maybeMove(gameID string, full gameFull, st gameState, received time.Time, overhead *overheadEstimate) {
 	if gameOver(st.Status) {
 		return
 	}
@@ -300,7 +304,7 @@ func (b *Bot) maybeMove(gameID string, full gameFull, st gameState, received tim
 	if !isOurTurn(g, color) {
 		return
 	}
-	player := effectivePlayer(b.Player, color, st, full.Speed)
+	player := effectivePlayer(b.Player, color, st, full.Speed, overhead)
 	searchStart := time.Now()
 	m, ok := engine.PlayerPick(player, g)
 	searched := time.Since(searchStart)
@@ -312,6 +316,9 @@ func (b *Bot) maybeMove(gameID string, full gameFull, st gameState, received tim
 	postStart := time.Now()
 	err = b.API.postForm("/api/bot/game/"+gameID+"/move/"+url.PathEscape(uci), "")
 	posted := time.Since(postStart)
+	// Feed it back, so the next move of this game budgets for what this one
+	// actually cost rather than for what a constant guessed.
+	overhead.observe(posted)
 	if err != nil {
 		b.logf("game %s: move %s failed: %v", gameID, uci, err)
 		return

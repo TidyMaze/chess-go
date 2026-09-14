@@ -143,7 +143,62 @@ const unlimitedBudget = 15 * time.Second
 // Whole games at every control the bot accepts are simulated against this
 // function in clocksim_test.go, with the overrun and round trip a real game
 // pays, and the clock has to stay above a floor in all of them.
-func moveTimeBudget(ourColor string, st gameState) time.Duration {
+// overheadEstimate tracks what a move costs this game beyond its search,
+// because a single constant cannot serve both kinds of opponent. Measured
+// on 2026-09-14: posting a move takes 15 ms to 36 ms against a real bot and
+// 543 ms to 736 ms against the lichess AI, in the same build, minutes
+// apart. Reserving the small figure loses a game against the AI; reserving
+// the large one throws away a third of the thinking time in every rated
+// bullet game.
+//
+// So it is measured rather than assumed. The estimate rises quickly and
+// falls slowly: an overhead that turns out to be bigger than expected costs
+// clock immediately, while one that turns out smaller only costs a little
+// unused depth, so the two errors are not worth the same.
+type overheadEstimate struct {
+	ms float64
+}
+
+const (
+	defaultOverheadMs = 150.0
+	maxOverheadMs     = 1500.0
+)
+
+func newOverheadEstimate() *overheadEstimate {
+	return &overheadEstimate{ms: defaultOverheadMs}
+}
+
+// observe folds one measured post into the estimate.
+func (o *overheadEstimate) observe(d time.Duration) {
+	ms := float64(d.Milliseconds())
+	if ms < 0 {
+		return
+	}
+	const (
+		riseWeight = 0.6 // a surprise upward is taken seriously at once
+		fallWeight = 0.2 // a surprise downward is taken slowly
+	)
+	w := fallWeight
+	if ms > o.ms {
+		w = riseWeight
+	}
+	o.ms = (1-w)*o.ms + w*ms
+	if o.ms < defaultOverheadMs {
+		o.ms = defaultOverheadMs
+	}
+	if o.ms > maxOverheadMs {
+		o.ms = maxOverheadMs
+	}
+}
+
+func (o *overheadEstimate) reserve() float64 {
+	if o == nil {
+		return defaultOverheadMs
+	}
+	return o.ms
+}
+
+func moveTimeBudget(ourColor string, st gameState, overhead *overheadEstimate) time.Duration {
 	remainMs, incMs := st.WhiteTimeMS, st.WhiteIncMS
 	if ourColor == "black" {
 		remainMs, incMs = st.BlackTimeMS, st.BlackIncMS
@@ -179,23 +234,9 @@ func moveTimeBudget(ourColor string, st gameState) time.Duration {
 		reserveIncrements = 5
 		maxReserveShare   = 0.5
 
-		// What a move costs the clock beyond its search, measured against
-		// real opponents rather than against the lichess AI.
-		//
-		// This was 550 ms, taken from games against the AI where posting a
-		// move really did cost 530 ms to 680 ms. Against real opponents it
-		// does not: a rated blitz game posts in 15 ms to 36 ms even
-		// straight after a six second search, and over its 61 moves the
-		// clock audit put the median move 0.4 s *under* its budget rather
-		// than over. Reserving half a second there was taking thinking time
-		// away for an overhead that is not present, which matters most in
-		// exactly the games that can least afford it.
-		//
-		// 150 ms is several times the measured cost and still leaves room
-		// for the one thing not measured here, lichess reaching us, which
-		// happens before the search starts and so before anything this
-		// process can time.
-		moveOverheadMs = 150
+		// What a move costs beyond its search is no longer a constant: it
+		// is measured per game by overheadEstimate above, because it is 15 ms
+		// against a real opponent and 700 ms against the lichess AI.
 
 		safetyMarginMs = 200
 		minBudgetMs    = 50
@@ -213,7 +254,7 @@ func moveTimeBudget(ourColor string, st gameState) time.Duration {
 	if incMs <= 0 {
 		spread = movesToGoWithoutIncrement
 	}
-	budgetMs := float64(incMs)*incrementShare + spendable/spread - moveOverheadMs
+	budgetMs := float64(incMs)*incrementShare + spendable/spread - overhead.reserve()
 	if budgetMs > maxBudgetMs {
 		budgetMs = maxBudgetMs
 	}
@@ -238,5 +279,5 @@ func moveTimeBudget(ourColor string, st gameState) time.Duration {
 // of this rule was cleared: a hand written model of it said a 120 move game
 // ended with 0.3 s in hand, and the real function flagged.
 func MoveTimeBudget(remainingMS, incrementMS int64) time.Duration {
-	return moveTimeBudget("white", gameState{WhiteTimeMS: remainingMS, WhiteIncMS: incrementMS})
+	return moveTimeBudget("white", gameState{WhiteTimeMS: remainingMS, WhiteIncMS: incrementMS}, nil)
 }

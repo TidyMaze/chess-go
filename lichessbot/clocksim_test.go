@@ -82,7 +82,7 @@ func simulateClock(c control) (lowestMS, meanMS int64) {
 	lowest := remaining
 	var total int64
 	for i := 0; i < c.moves; i++ {
-		budget := moveTimeBudget("white", gameState{WhiteTimeMS: remaining, WhiteIncMS: c.inc}).Milliseconds()
+		budget := moveTimeBudget("white", gameState{WhiteTimeMS: remaining, WhiteIncMS: c.inc}, newOverheadEstimate()).Milliseconds()
 		used := budget*overrunPercent/100 + moveOverheadMS
 		if used > remaining {
 			used = remaining
@@ -133,7 +133,7 @@ func TestSpendingSettlesAboveAScrambleWhenThereIsAnIncrement(t *testing.T) {
 		}
 		// At the floor we want to hold, the budget must be inside the
 		// increment, otherwise the clock keeps falling through it.
-		budget := moveTimeBudget("white", gameState{WhiteTimeMS: c.floorMS, WhiteIncMS: c.inc}).Milliseconds()
+		budget := moveTimeBudget("white", gameState{WhiteTimeMS: c.floorMS, WhiteIncMS: c.inc}, newOverheadEstimate()).Milliseconds()
 		if budget > c.inc {
 			t.Errorf("%s: with %.1fs left the rule spends %dms against a %dms increment, so the clock keeps draining",
 				c.name, float64(c.floorMS)/1000, budget, c.inc)
