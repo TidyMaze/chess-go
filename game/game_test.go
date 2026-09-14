@@ -190,3 +190,24 @@ func TestAppendLegalMovesGivenCheckMatches(t *testing.T) {
 	}
 }
 
+func BenchmarkAppendLegalMoves(b *testing.B) {
+	g := New()
+	var buf [96]Move
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = g.AppendLegalMoves(buf[:0], board.White)
+	}
+}
+
+func BenchmarkAppendQuiescenceMoves(b *testing.B) {
+	g := New()
+	var buf [96]Move
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _, _ = g.AppendQuiescenceMoves(buf[:0], board.White)
+	}
+}
+
+
+
+

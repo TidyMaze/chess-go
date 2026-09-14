@@ -50,6 +50,8 @@ type Champion struct {
 	Syzygy string `json:"tablebases,omitempty"`
 	// Features, when set, is a comma-separated list of search features to enable.
 	Features string `json:"features,omitempty"`
+	// TTBits sizes the transposition table (2^TTBits entries).
+	TTBits int `json:"tt_bits,omitempty"`
 }
 
 // DefaultChampion is what the engine was before this campaign started:
@@ -116,6 +118,9 @@ func (c Champion) PlayerOrError() (Player, error) {
 		p.TimeBudget = time.Duration(c.TimeMS) * time.Millisecond
 	}
 	p.Threads = c.Threads
+	if c.TTBits > 0 {
+		p.TTBits = uint(c.TTBits)
+	}
 	if c.NetFile != "" {
 		n, err := LoadHalfKPNet(c.NetFile)
 		if err != nil {

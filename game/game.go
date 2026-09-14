@@ -267,12 +267,13 @@ func (g *Game) AppendQuiescenceMoves(dst []Move, color board.Color) ([]Move, boo
 	anyLegal := false
 	var targetBuf [28]board.Sq
 	epSquare, hasEP := g.Board.EPSquare()
+	enemyOcc := g.Board.ColorBitboard(color.Other())
 	for _, ps := range pieces {
 		needsCheckTest := ps.Type == board.King || pinned.Has(ps.Sq)
 		for _, target := range moves.AppendLegalTargets(targetBuf[:0], &g.Board, ps.Sq, color, ps.Type) {
 			epCapture := hasEP && ps.Type == board.Pawn &&
 				target == epSquare && ps.Sq.File != target.File
-			_, occupied := g.Board.PieceAt(target)
+			occupied := (enemyOcc & (uint64(1) << (target.Rank*8 + target.File))) != 0
 			// Pawns never move backwards, so either end of the board is
 			// the last rank for whichever colour is moving.
 			promotes := ps.Type == board.Pawn && (target.Rank == 0 || target.Rank == 7)

@@ -144,3 +144,13 @@ func BenchmarkAttackerOfType(b *testing.B) {
 		AttackerOfType(&bd, e4, board.White, board.Pawn)
 	}
 }
+
+func BenchmarkPawnMoves(b *testing.B) {
+	boardState := board.Initial()
+	var buf []board.Sq
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		buf = AppendLegalTargets(buf[:0], &boardState, board.Sq{File: 4, Rank: 1}, board.White, board.Pawn)
+	}
+}
+

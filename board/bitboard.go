@@ -173,7 +173,72 @@ func (b *Board) AppendKingMoves(dst []Sq, sq Sq, color Color) []Sq {
 	return appendFromBitboard(dst, KingAttacks[squareIndex(sq)]&^b.colorBB[color])
 }
 
+func (b *Board) AppendPawnMoves(dst []Sq, sq Sq, color Color) []Sq {
+	sqIdx := squareIndex(sq)
+	var targets uint64
+	occ := b.occupiedBB()
+
+	if color == White {
+		// Single push
+		single := uint64(1) << (sqIdx + 8)
+		if sqIdx < 56 && (single&occ) == 0 {
+			targets |= single
+			// Double push
+			if sq.Rank == 1 {
+				double := uint64(1) << (sqIdx + 16)
+				if (double & occ) == 0 {
+					targets |= double
+				}
+			}
+		}
+	} else {
+		// Single push
+		if sqIdx >= 8 {
+			single := uint64(1) << (sqIdx - 8)
+			if (single & occ) == 0 {
+				targets |= single
+				// Double push
+				if sq.Rank == 6 {
+					double := uint64(1) << (sqIdx - 16)
+					if (double & occ) == 0 {
+						targets |= double
+					}
+				}
+			}
+		}
+	}
+
+	// Captures & En Passant
+	capturable := b.colorBB[color.Other()]
+	if ep, ok := b.EPSquare(); ok {
+		capturable |= uint64(1) << squareIndex(ep)
+	}
+	targets |= PawnAttacks[color][sqIdx] & capturable
+
+	return appendFromBitboard(dst, targets)
+}
+
+func (b *Board) AppendBishopMoves(dst []Sq, sq Sq, color Color) []Sq {
+	sqIdx := squareIndex(sq)
+	targets := BishopAttacks(sqIdx, b.occupiedBB()) &^ b.colorBB[color]
+	return appendFromBitboard(dst, targets)
+}
+
+func (b *Board) AppendRookMoves(dst []Sq, sq Sq, color Color) []Sq {
+	sqIdx := squareIndex(sq)
+	targets := RookAttacks(sqIdx, b.occupiedBB()) &^ b.colorBB[color]
+	return appendFromBitboard(dst, targets)
+}
+
+func (b *Board) AppendQueenMoves(dst []Sq, sq Sq, color Color) []Sq {
+	sqIdx := squareIndex(sq)
+	occ := b.occupiedBB()
+	targets := (RookAttacks(sqIdx, occ) | BishopAttacks(sqIdx, occ)) &^ b.colorBB[color]
+	return appendFromBitboard(dst, targets)
+}
+
 // appendFromBitboard walks the set bits lowest first, clearing each with
+
 // the standard x&(x-1) so the loop runs once per target rather than once
 // per square.
 func appendFromBitboard(dst []Sq, bb uint64) []Sq {

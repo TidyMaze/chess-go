@@ -70,6 +70,22 @@ var decoded = func() (t [codePieceMin + 12]Piece) {
 	return t
 }()
 
+var cellColor = func() (t [codePieceMin + 12]Color) {
+	for c := codePieceMin; c < codePieceMin+12; c++ {
+		t[c] = decoded[c].Color
+	}
+	return t
+}()
+
+var cellToSq = func() (t [width * width]Sq) {
+	for r := 0; r < 8; r++ {
+		for f := 0; f < 8; f++ {
+			t[(r+pad)*width+(f+pad)] = Sq{File: f, Rank: r}
+		}
+	}
+	return t
+}()
+
 func decodePiece(c cellCode) Piece {
 	return decoded[c]
 }
@@ -370,22 +386,18 @@ func (b *Board) AppendSlideMoves(dst []Sq, sq Sq, color Color, dirs [][2]int) []
 	for _, d := range dirs {
 		delta := d[1]*width + d[0]
 		currIdx := baseIdx
-		f, r := sq.File, sq.Rank
 		for {
 			currIdx += delta
 			code := b.cells[currIdx]
 			if code == codeOffBoard {
 				break
 			}
-			f += d[0]
-			r += d[1]
-			target := Sq{File: f, Rank: r}
 			if code == codeEmpty {
-				moves = append(moves, target)
+				moves = append(moves, cellToSq[currIdx])
 				continue
 			}
-			if decodePiece(code).Color != color {
-				moves = append(moves, target)
+			if cellColor[code] != color {
+				moves = append(moves, cellToSq[currIdx])
 			}
 			break
 		}
@@ -403,8 +415,8 @@ func (b *Board) AppendStepMoves(dst []Sq, sq Sq, color Color, offsets [][2]int) 
 		if code == codeOffBoard {
 			continue
 		}
-		if code == codeEmpty || decodePiece(code).Color != color {
-			moves = append(moves, Sq{File: sq.File + d[0], Rank: sq.Rank + d[1]})
+		if code == codeEmpty || cellColor[code] != color {
+			moves = append(moves, cellToSq[idx])
 		}
 	}
 	return moves

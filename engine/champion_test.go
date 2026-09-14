@@ -132,13 +132,18 @@ func TestChampionAppliesFeatures(t *testing.T) {
 	c := Champion{
 		Label:    "test features",
 		Depth:    5,
-		Features: "lmp,rfp,scaledlmr,countermove,see,historymalus,iir",
+		TTBits:   22,
+		Features: "lmp,rfp,scaledlmr,countermove,see,historymalus,iir,lmrtwostep",
 	}
 	p, err := c.PlayerOrError()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !p.LMP || !p.DeepRFP || !p.ScaledLMR || !p.Countermoves || !p.MainSEE || !p.HistoryMalus || !p.IIR {
+	if !p.LMP || !p.DeepRFP || !p.ScaledLMR || !p.Countermoves || !p.MainSEE || !p.HistoryMalus || !p.IIR || !p.LMRTwoStep {
 		t.Errorf("features not enabled on player: %+v", p)
 	}
+	if p.TTBits != 22 {
+		t.Errorf("expected TTBits=22, got %d", p.TTBits)
+	}
 }
+

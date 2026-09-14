@@ -105,3 +105,8 @@ sprtcheck-bin
 uci-bin
 chess-go-uci
 *.pt
+deep_d*.json
+.env
+run_playwright_mcp.sh
+.gemini/
+

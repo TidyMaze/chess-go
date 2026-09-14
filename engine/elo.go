@@ -175,6 +175,8 @@ func (p *Player) ApplyFeatures(features string) {
 			p.HistoryMalus = true
 		case "historyaging":
 			p.HistoryAging = true
+		case "lmrtwostep":
+			p.LMRTwoStep = true
 		}
 	}
 }

@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"math/bits"
 	"math/rand"
 	"sync"
 
@@ -49,10 +50,16 @@ func zobristHash(g *game.Game) uint64 {
 // without a Game around them, can be hashed the same way.
 func zobristBoard(b *board.Board, turn board.Color) uint64 {
 	var h uint64
-	var buf [32]board.ColoredPiece
-	for _, p := range b.AppendAllPieces(buf[:0]) {
-		idx := int(p.Color)*6 + int(p.Type)
-		h ^= zobristPiece[idx][p.Sq.Rank*8+p.Sq.File]
+	for c := board.White; c <= board.Black; c++ {
+		for pt := board.Pawn; pt <= board.King; pt++ {
+			idx := int(c)*6 + int(pt)
+			bb := b.PieceBitboard(c, pt)
+			for bb != 0 {
+				sq := bits.TrailingZeros64(bb)
+				bb &= bb - 1
+				h ^= zobristPiece[idx][sq]
+			}
+		}
 	}
 	if turn == board.Black {
 		h ^= zobristBlackToMove

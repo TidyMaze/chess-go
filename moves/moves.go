@@ -27,41 +27,9 @@ func slideMoves(dst []board.Sq, b *board.Board, sq board.Sq, color board.Color, 
 }
 
 func pawnMoves(dst []board.Sq, b *board.Board, sq board.Sq, color board.Color) []board.Sq {
-	dir := direction[color]
-	moves := dst
-
-	// The off-board check matters: without it a pawn on the last rank
-	// generates a move into the padding (CellPiece reports padding as
-	// "not occupied"), silently corrupting the board and crashing several
-	// plies later when a probe from there runs past the array.
-	oneAhead := board.Sq{File: sq.File, Rank: sq.Rank + dir}
-	if _, occupied := b.CellPiece(oneAhead); !occupied && !b.CellOffBoard(oneAhead) {
-		moves = append(moves, oneAhead)
-		if sq.Rank == startRank[color] {
-			twoAhead := board.Sq{File: sq.File, Rank: sq.Rank + 2*dir}
-			if _, occ := b.CellPiece(twoAhead); !occ {
-				moves = append(moves, twoAhead)
-			}
-		}
-	}
-
-	for _, df := range [2]int{-1, 1} {
-		target := board.Sq{File: sq.File + df, Rank: sq.Rank + dir}
-		if b.CellOffBoard(target) {
-			continue
-		}
-		if piece, occupied := b.CellPiece(target); occupied && piece.Color != color {
-			moves = append(moves, target)
-			continue
-		}
-		// En passant: the target square is empty, but a pawn that has
-		// just stepped two squares can be taken as if it had stepped one.
-		if ep, ok := b.EPSquare(); ok && ep == target {
-			moves = append(moves, target)
-		}
-	}
-	return moves
+	return b.AppendPawnMoves(dst, sq, color)
 }
+
 
 // Precomputed once: these were being rebuilt on every LegalTargets call,
 // allocating a fresh slice per move-generation call purely to convert an
