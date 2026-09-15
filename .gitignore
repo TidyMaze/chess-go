@@ -110,3 +110,8 @@ deep_d*.json
 run_playwright_mcp.sh
 .gemini/
 
+.env.local
+.env*
+*-bin
+*-uci
+*.tmp

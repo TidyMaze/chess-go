@@ -208,6 +208,48 @@ func BenchmarkAppendQuiescenceMoves(b *testing.B) {
 	}
 }
 
+func TestIsLegalMoveMatchesAllLegalMoves(t *testing.T) {
+	testPositions := []string{
+		"rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+		"r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3",
+		"r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
+		"8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1",
+		"r3k2r/Pppp1ppp/1b3nbN/nP6/BBP1P3/q4N2/Pp1P2PP/R2Q1RK1 w kq - 0 1",
+	}
+	for _, fen := range testPositions {
+		g, err := ParseFEN(fen)
+		if err != nil {
+			t.Fatal(err)
+		}
+		legal := g.AllLegalMoves(g.Turn)
+		legalMap := make(map[Move]bool)
+		for _, m := range legal {
+			legalMap[m] = true
+			if !g.IsLegalMove(m) {
+				t.Errorf("expected move %v to be legal in FEN %s", m, fen)
+			}
+		}
+		// Test illegal moves: moving from empty squares or friendly piece destinations
+		for fromRank := 0; fromRank < 8; fromRank++ {
+			for fromFile := 0; fromFile < 8; fromFile++ {
+				for toRank := 0; toRank < 8; toRank++ {
+					for toFile := 0; toFile < 8; toFile++ {
+						m := Move{From: board.Sq{File: fromFile, Rank: fromRank}, To: board.Sq{File: toFile, Rank: toRank}}
+						if !legalMap[m] && g.IsLegalMove(m) {
+							t.Errorf("expected move %v to be illegal in FEN %s", m, fen)
+						}
+					}
+				}
+			}
+		}
+	}
+}
 
-
-
+func BenchmarkIsLegalMove(b *testing.B) {
+	g := New()
+	m := Move{From: board.Sq{File: 4, Rank: 1}, To: board.Sq{File: 4, Rank: 3}} // e2-e4
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = g.IsLegalMove(m)
+	}
+}

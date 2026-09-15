@@ -177,6 +177,10 @@ func (p *Player) ApplyFeatures(features string) {
 			p.HistoryAging = true
 		case "lmrtwostep":
 			p.LMRTwoStep = true
+		case "extensions":
+			p.Extensions = true
+		case "kingsafety":
+			p.KingSafety = 0.01
 		}
 	}
 }
@@ -190,6 +194,16 @@ func (p *Player) ApplyFeatures(features string) {
 // the search rediscovering them.
 func (p Player) pick(g *game.Game) (game.Move, bool) {
 	return p.pickWith(g, nil)
+}
+
+// ChooseMove picks the player's best move for the position.
+func (p Player) ChooseMove(g *game.Game) (game.Move, bool) {
+	return p.pick(g)
+}
+
+// ChooseMoveScored picks the player's best move and returns its search score.
+func (p Player) ChooseMoveScored(g *game.Game, reuse *TranspositionTable) (game.Move, float64, bool) {
+	return p.pickScored(g, reuse)
 }
 
 func (p Player) pickWith(g *game.Game, reuse *TranspositionTable) (game.Move, bool) {

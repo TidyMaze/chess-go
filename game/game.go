@@ -92,6 +92,35 @@ func (g *Game) AppendLegalMovesGivenCheck(dst []Move, color board.Color, inCheck
 	return g.appendLegalMoves(dst, color, inCheck)
 }
 
+// IsLegalMove reports whether m is legal for the current side to move.
+func (g *Game) IsLegalMove(m Move) bool {
+	p, ok := g.Board.PieceAt(m.From)
+	if !ok || p.Color != g.Turn {
+		return false
+	}
+	if dest, ok := g.Board.PieceAt(m.To); ok {
+		if dest.Color == g.Turn || dest.Type == board.King {
+			return false
+		}
+	}
+	var targetBuf [28]board.Sq
+	targets := moves.AppendLegalTargets(targetBuf[:0], &g.Board, m.From, g.Turn, p.Type)
+	found := false
+	for _, t := range targets {
+		if t == m.To {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return false
+	}
+	undo := g.Board.MakeMove(m.From, m.To)
+	inCheck := moves.IsInCheck(&g.Board, g.Turn)
+	g.Board.UnmakeMove(undo)
+	return !inCheck
+}
+
 
 func (g *Game) appendLegalMoves(dst []Move, color board.Color, inCheck bool) []Move {
 	pinned := moves.PinnedSquares(&g.Board, color)

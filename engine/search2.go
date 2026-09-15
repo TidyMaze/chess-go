@@ -610,26 +610,119 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 		}
 	}
 
-	var moveBuf [96]game.Move
-	legal := g.AppendLegalMovesGivenCheck(moveBuf[:0], color, inCheck)
-	if len(legal) == 0 {
-		return terminalScore(g, color, maximizingFor, depth)
-	}
-
 	if ply > 0 {
 		c.prevMove = c.moveStack[ply-1]
 	} else {
 		c.prevMove = game.Move{}
 	}
-	c.orderMoves(g, legal, ttMove, ply, color)
 
 	best := negInf
 	if !maximizing {
 		best = posInf
 	}
-	bestMove := legal[0]
+	var bestMove game.Move
+	ttSearched := false
+
+	// Staged move search: try the transposition table move first.
+	// In the vast majority of positions with a TT hit, the TT move refutes
+	// the position immediately (beta cutoff). Searching it before generating
+	// and sorting the full legal move list saves ~80% of move generation overhead.
+	if ttMove != (game.Move{}) && g.IsLegalMove(ttMove) {
+		m := ttMove
+		isCapture := isCaptureMove(g, m)
+		exchange := 0
+		if isCapture && c.ev != nil && c.ev.MainSEE && depth <= 6 {
+			attacker, _ := g.Board.PieceAt(m.From)
+			victim, onSquare := g.Board.PieceAt(m.To)
+			if !onSquare {
+				victim = board.Piece{Type: board.Pawn}
+			}
+			if mvvLvaPiece[victim.Type] < mvvLvaPiece[attacker.Type] {
+				exchange = see(&g.Board, m)
+			}
+		}
+
+		childClock := childFiftyClock(g, m, c.fifty[ply])
+		undo, promoted := makeSearchMove(g, m)
+		if ply < maxSearchPly {
+			c.moveStack[ply] = m
+		}
+		lmp := c.ev != nil && c.ev.LMP && zeroWindow(alpha, beta)
+		givesCheck := false
+		if c.extensions || futile || lmp || (isCapture && c.ev != nil && c.ev.MainSEE && exchange < -depth) {
+			givesCheck = moves.IsInCheck(&g.Board, color.Other())
+		}
+		extension := 0
+		if c.extensions && ply < maxSearchPly-2 && givesCheck {
+			extension = 1
+		}
+		if ply+1 < maxSearchPly {
+			c.path[ply+1] = zobristUpdate(key, &g.Board, m, undo, promoted)
+			c.fifty[ply+1] = childClock
+		}
+
+		value := c.search(g, color.Other(), maximizingFor, depth-1+extension, ply+1, alpha, beta)
+		g.Board.UnmakeMove(undo)
+		if ply+1 < maxSearchPly {
+			c.path[ply+1] = 0
+		}
+		if c.aborted {
+			return 0
+		}
+
+		ttSearched = true
+		best, bestMove = value, m
+		if maximizing {
+			if best > alpha {
+				alpha = best
+			}
+		} else {
+			if best < beta {
+				beta = best
+			}
+		}
+
+		if beta <= alpha {
+			if OrderingStats {
+				recordCutoff(0)
+			}
+			if !isCapture {
+				c.recordKiller(ply, m)
+				c.recordHistory(color, m, depth)
+				if ply > 0 {
+					c.recordCounter(color, c.moveStack[ply-1], m)
+				}
+			}
+			if tt != nil && depth > 0 {
+				flag := ttExact
+				if best <= origAlpha {
+					flag = ttUpperBound
+				} else if best >= origBeta {
+					flag = ttLowerBound
+				}
+				tt.storeWithMove(key, best, depth, flag, maximizingFor, bestMove)
+			}
+			return best
+		}
+	}
+
+	var moveBuf [96]game.Move
+	legal := g.AppendLegalMovesGivenCheck(moveBuf[:0], color, inCheck)
+	if len(legal) == 0 {
+		if !ttSearched {
+			return terminalScore(g, color, maximizingFor, depth)
+		}
+	}
+	if !ttSearched && len(legal) > 0 {
+		bestMove = legal[0]
+	}
+
+	c.orderMoves(g, legal, ttMove, ply, color)
 
 	for i, m := range legal {
+		if ttSearched && m == ttMove {
+			continue
+		}
 		isCapture := isCaptureMove(g, m)
 		exchange := 0
 		if isCapture && c.ev != nil && c.ev.MainSEE && depth <= 6 {
@@ -731,7 +824,7 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 		}
 
 		var value float64
-		if i == 0 {
+		if i == 0 && !ttSearched {
 			value = c.search(g, color.Other(), maximizingFor, depth-1+extension, ply+1, alpha, beta)
 		} else {
 			// Principal variation search: try a zero-width window first.

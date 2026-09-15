@@ -323,6 +323,31 @@ func kingSafetyPenalty(b *board.Board, pieces []board.ColoredPiece, color board.
 			weightSum += w * float64(hits)
 		}
 	}
+
+	enemyMajors := b.PieceBitboard(enemy, board.Rook) | b.PieceBitboard(enemy, board.Queen)
+	if enemyMajors != 0 {
+		ownPawns := b.PieceBitboard(color, board.Pawn)
+		enemyPawns := b.PieceBitboard(enemy, board.Pawn)
+		kingFileMask := board.FileMask[king.File]
+		if ownPawns&kingFileMask == 0 && (enemyMajors&kingFileMask != 0 || attackers > 0) {
+			if enemyPawns&kingFileMask == 0 {
+				openDanger := 15.0
+				if king.File == 3 || king.File == 4 {
+					openDanger = 25.0
+				}
+				weightSum += openDanger
+				attackers++
+			} else if enemyMajors&kingFileMask != 0 {
+				semiDanger := 8.0
+				if king.File == 3 || king.File == 4 {
+					semiDanger = 15.0
+				}
+				weightSum += semiDanger
+				attackers++
+			}
+		}
+	}
+
 	if attackers == 0 {
 		return 0
 	}
