@@ -22,6 +22,11 @@ export MODES="bullet,blitz"
 
 mkdir -p /tmp/chesslogs
 
+echo "=== Cleaning up existing bot processes ==="
+pkill -f lichessbot-bin || true
+pkill -f lichess_challenger.sh || true
+sleep 1
+
 echo "=== Building latest engine binaries ==="
 go build -o lichessbot-bin ./cmd/lichessbot
 go build -o play-bin ./play
