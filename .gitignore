@@ -115,3 +115,4 @@ run_playwright_mcp.sh
 *-bin
 *-uci
 *.tmp
+*.log
