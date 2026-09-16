@@ -78,7 +78,7 @@ func TestGenerationWithProgressAndStockfishTeacher(t *testing.T) {
 	trainProgress = func(done, total int, rate float64, eta time.Duration) { fired++ }
 	defer func() { trainProgress = old }()
 	// Games short enough to end in every way the loop handles.
-	samples := generate(champion, 4, 1, 1, 30, 0.8, 0.30, 0.35, false, nil, 1, 1, stats, nil, nil)
+	samples := generate(champion, 4, 1, 1, 30, 0.8, 0.30, 0.35, false, 0, nil, 1, 1, stats, nil, nil)
 	if len(samples) == 0 {
 		t.Error("no samples generated")
 	}
@@ -90,13 +90,13 @@ func TestGenerationWithProgressAndStockfishTeacher(t *testing.T) {
 		defer sf.Close()
 		teachers := make(chan *engine.UCIEngine, 1)
 		teachers <- sf
-		if s := generate(champion, 2, 1, 1, 20, 0.8, 0.30, 0.35, false, teachers, 1, 1, stats, nil, nil); len(s) == 0 {
+		if s := generate(champion, 2, 1, 1, 20, 0.8, 0.30, 0.35, false, 0, teachers, 1, 1, stats, nil, nil); len(s) == 0 {
 			t.Error("no samples from the Stockfish teacher")
 		}
 	}
 	// Sigmoid targets, and openings supplied.
 	openings := []string{"rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1"}
-	if s := generate(champion, 2, 1, 1, 20, 0.8, 0.30, 0.35, true, nil, 1, 1, stats, openings, nil); len(s) == 0 {
+	if s := generate(champion, 2, 1, 1, 20, 0.8, 0.30, 0.35, true, 0, nil, 1, 1, stats, openings, nil); len(s) == 0 {
 		t.Error("no samples with sigmoid targets")
 	}
 	if stats.games == 0 {

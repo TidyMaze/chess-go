@@ -499,6 +499,17 @@ func blendedTargetProb(score, result, lambda, k float64) float64 {
 	return t
 }
 
+// selfPlayTarget is the label a self-played position carries. A network
+// trained to output a win probability wants one directly; otherwise the
+// target is in pawns, blended in probability space when blendK is
+// positive and in pawn space when it is zero.
+func selfPlayTarget(score, result, lambda, blendK float64, useSigmoidTarget bool, k float64) float64 {
+	if useSigmoidTarget {
+		return lambda*sigmoid(score, k) + (1-lambda)*result
+	}
+	return blendTarget(score, result, lambda, blendK)
+}
+
 // blendTarget picks the space the blend happens in: probability when k is
 // positive, pawns otherwise.
 func blendTarget(score, result, lambda, k float64) float64 {
@@ -534,7 +545,7 @@ type genStats struct {
 // only when nothing tactical is pending, since a static network cannot
 // predict a capture sequence and training on those teaches noise.
 func generate(champion engine.Player, games, playDepth, labelDepth, maxPlies int,
-	lambda, k, quietTol float64, useSigmoidTarget bool, teachers chan *engine.UCIEngine, teacherDepth int,
+	lambda, k, quietTol float64, useSigmoidTarget bool, blendK float64, teachers chan *engine.UCIEngine, teacherDepth int,
 	gen int, stats *genStats, openings []string,
 	live func(*game.Game, int, board.Sq, board.Sq)) []sample {
 
@@ -669,13 +680,7 @@ func generate(champion engine.Player, games, playDepth, labelDepth, maxPlies int
 
 			local := make([]sample, 0, len(kept))
 			for _, p := range kept {
-				tgt := blendedTarget(p.score, result, lambda)
-				if useSigmoidTarget {
-					// Win probability: the search score through a sigmoid,
-					// blended with the game outcome, which is already a
-					// probability (0, 0.5 or 1).
-					tgt = lambda*sigmoid(p.score, k) + (1-lambda)*result
-				}
+				tgt := selfPlayTarget(p.score, result, lambda, blendK, useSigmoidTarget, k)
 				local = append(local, sample{
 					own: p.own, opp: p.opp, game: int32(gi), static: p.static,
 					target: tgt,
@@ -1061,7 +1066,7 @@ func run(args []string) int {
 		}()
 
 		freshSamples := generate(champion, *gamesPerGen, *playDepth, *labelDepth, *maxPlies,
-			*lambda, *k, *quietTol, useSigmoid, teachers, *teacherDepth, gen, stats, openings,
+			*lambda, *k, *quietTol, useSigmoid, *blendK, teachers, *teacherDepth, gen, stats, openings,
 			func(g *game.Game, ply int, from, to board.Sq) {
 				writeJSON("live_game.json", map[string]any{
 					"label": fmt.Sprintf("Generation %d self-play", gen), "move_no": ply,
