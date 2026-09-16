@@ -80,7 +80,13 @@ func (c *searchCtx) reset() {
 	c.fifty = [maxSearchPly]int{}
 	c.prevMove = game.Move{}
 	c.history = [2][64][64]int32{}
-	c.cont = [2][64][6][64]int32{}
+	// 196 KB, and only written when continuation history is on. Clearing it
+	// regardless showed up as memclr in the profile. The flag is on the
+	// context, not on ev, because reset runs before ev is assigned.
+	if c.contDirty {
+		c.cont = [2][64][6][64]int32{}
+		c.contDirty = false
+	}
 	c.staticKnown = [maxSearchPly]bool{}
 	c.path = [maxSearchPly]uint64{}
 	c.abortAtNodes = 0
@@ -176,6 +182,7 @@ type searchCtx struct {
 	cont [2][64][6][64]int32
 	// staticAt holds the static evaluation noted at each ply of the current
 	// line, when one was computed, for the improving test two plies later.
+	contDirty   bool
 	staticAt    [maxSearchPly]float64
 	staticKnown [maxSearchPly]bool
 	quiescence  bool
@@ -391,6 +398,7 @@ func (c *searchCtx) contSlot(color board.Color, g *game.Game, m game.Move) *int3
 	if !ok {
 		return nil
 	}
+	c.contDirty = true
 	return &c.cont[color][sqIndex(c.prevMove.To)][p.Type][sqIndex(m.To)]
 }
 

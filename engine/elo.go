@@ -272,6 +272,9 @@ func (p Player) pickScored(g *game.Game, reuse *TranspositionTable) (game.Move, 
 	case p.TTBits > 0:
 		ev.Table = NewTranspositionTable(p.TTBits)
 	}
+	// Age the table once per move: entries from earlier moves stay usable
+	// but stop outranking this search's on depth alone.
+	ev.Table.NewSearch()
 	if p.Iterative {
 		depth := p.Depth
 		if p.TimeBudget > 0 && depth < maxTimedDepth {

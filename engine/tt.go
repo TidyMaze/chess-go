@@ -175,6 +175,10 @@ type ttEntry struct {
 	// view, and reusing it for the other side would invert its meaning.
 	maximizingFor uint8
 	from, to      uint8 // square index, rank*8+file
+	// gen is the search this entry was written in. An entry from an older
+	// search is stale and may be replaced whatever its depth, which is what
+	// stops a depth-preferred table silting up and never accepting anything.
+	gen uint8
 }
 
 func sqToIndex(s board.Sq) uint8 { return uint8(s.Rank*8 + s.File) }
@@ -192,6 +196,9 @@ type TranspositionTable struct {
 	// search pays nothing for the possibility.
 	shared bool
 	locks  [ttStripes]sync.Mutex
+	// generation counts searches, so entries from earlier ones can be
+	// recycled whatever their depth.
+	generation uint8
 }
 
 // ttStripes is how many locks a shared table spreads its slots over. Ten
@@ -331,10 +338,26 @@ func (t *TranspositionTable) bestMove(key uint64) (game.Move, bool) {
 
 // put writes an entry unless the slot already holds a deeper one for the
 // same key.
+// put is depth-preferred within a search and always-replace across
+// searches. Quiescence stores at depth 0 and is about half the nodes, so
+// plain always-replace let a leaf evict a depth-12 entry it collided with,
+// and the subtree behind that entry had to be searched again.
 func (t *TranspositionTable) put(idx uint64, depth int, entry ttEntry) {
 	e := &t.entries[idx]
+	entry.gen = t.generation
 	if e.key32 == entry.key32 && int(e.depth) > depth {
 		return
 	}
+	if e.gen == t.generation && int(e.depth) > depth {
+		return
+	}
 	*e = entry
+}
+
+// NewSearch ages the table: every entry written before this point becomes
+// replaceable regardless of its depth.
+func (t *TranspositionTable) NewSearch() {
+	if t != nil {
+		t.generation++
+	}
 }

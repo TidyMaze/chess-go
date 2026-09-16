@@ -70,6 +70,31 @@ the cross-loss yardstick.
 **What follows:** the remaining Elo is in the search. Not in the network, not
 in its architecture, and not in its optimiser.
 
+**Corrected 2026-09-16, with a measurement this section never had.** Play
+both engines at the *same fixed depth*, no clock, so speed cannot enter:
+
+| depth | against Stockfish |
+|---|---|
+| 4 | -168 +/- 54 |
+| 6 | -215 +/- 58 |
+
+At equal nominal depth we are about 200 Elo behind and the gap widens with
+depth. Against the -343 +/- 33 measured at 10 ms a move, that splits the
+deficit into roughly 200 Elo of quality per node and 140 of plies not
+reached. The nine closed experiments above are still closed, but what they
+closed is *this way of training*: every one of them fits the network to the
+engine's own search score, so the teacher is the ceiling and a wider student
+cannot pass it. The quality per node is not a search problem.
+
+Supporting numbers, same position, one thread:
+
+    ours       2922605 nodes to depth 13, branching factor 3.14, ~4M nps
+    stockfish    76043 nodes to depth 14, branching factor 2.23, ~200k nps
+
+We are roughly twenty times faster per node and spend thirty-eight times
+more nodes to see no further. And ordering is not the cause: 90.3% of beta
+cutoffs already land on the first move searched, 96.9% by the second.
+
 ## What actually won Elo
 
 | change | measured | note |
@@ -112,6 +137,11 @@ generator's cost still outweighed what it found. The bitboard version,
 direct checks only from the king's attack set, was the second attempt;
 it read -24 +/- 24 over 800 games, SPRT "worse" again. At 10 ms nothing
 added at the quiescence root has paid; the feature was removed.
+
+**Continuation history, one ply (quiet moves ranked by how they did after
+the opponent's previous move): +3 +/- 15 over 2000 games at 10 ms, SPRT
+never settled.** Neutral. The flag stays off; a two-ply follow-up table is
+the only untested variant and the one-ply result makes it unlikely.
 
 ## The bugs, and what each one cost
 
