@@ -147,7 +147,6 @@ func structureScore(b *board.Board, color board.Color, own, enemy pawnFiles, pha
 	return score
 }
 
-
 func isPassed(file, rank int, enemy pawnFiles) bool {
 	for df := -1; df <= 1; df++ {
 		f := file + df
@@ -259,6 +258,13 @@ func mobilityScore(b *board.Board, pieces []board.ColoredPiece, color board.Colo
 		if w == 0 {
 			continue
 		}
+		// A count, not a list: the tables answer it without generating or
+		// ordering anything. Pawns keep the walk, their targets are not a
+		// function of occupancy alone.
+		if bb, ok := b.TargetBitboard(p.Sq, color, p.Type); ok {
+			score += w * float64(bits.OnesCount64(bb))
+			continue
+		}
 		score += w * float64(len(moves.AppendLegalTargets(buf[:0], b, p.Sq, color, p.Type)))
 	}
 	return score
@@ -300,8 +306,10 @@ func kingSafetyPenalty(b *board.Board, pieces []board.ColoredPiece, color board.
 	}
 	king := b.KingSquare(color)
 	enemy := color.Other()
+	// The king's square and its eight neighbours, which is what the walk
+	// below counts as a hit: a target within one step of the king.
+	zone := board.KingAttacks[sqIndex(king)] | 1<<sqIndex(king)
 
-	var buf [28]board.Sq
 	attackers, weightSum := 0, 0.0
 	for _, p := range pieces {
 		if p.Color != enemy {
@@ -311,13 +319,11 @@ func kingSafetyPenalty(b *board.Board, pieces []board.ColoredPiece, color board.
 		if w == 0 {
 			continue
 		}
-		hits := 0
-		for _, t := range moves.AppendLegalTargets(buf[:0], b, p.Sq, enemy, p.Type) {
-			df, dr := t.File-king.File, t.Rank-king.Rank
-			if df >= -1 && df <= 1 && dr >= -1 && dr <= 1 {
-				hits++
-			}
-		}
+		// Every weighted attacker is a knight, bishop, rook or queen, and
+		// those always have a target bitboard; a test pins that so a pawn
+		// weight cannot be added without this line being revisited.
+		bb, _ := b.TargetBitboard(p.Sq, enemy, p.Type)
+		hits := bits.OnesCount64(bb & zone)
 		if hits > 0 {
 			attackers++
 			weightSum += w * float64(hits)

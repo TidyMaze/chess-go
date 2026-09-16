@@ -30,7 +30,6 @@ func pawnMoves(dst []board.Sq, b *board.Board, sq board.Sq, color board.Color) [
 	return b.AppendPawnMoves(dst, sq, color)
 }
 
-
 // Precomputed once: these were being rebuilt on every LegalTargets call,
 // allocating a fresh slice per move-generation call purely to convert an
 // array to a slice.
@@ -128,9 +127,29 @@ func (p *PinnedSet) add(s board.Sq) {
 }
 
 func PinnedSquares(b *board.Board, color board.Color) PinnedSet {
+	// A pin needs an enemy slider on the king's line, blockers aside, and
+	// most positions have none on most lines. Two bitboard tests decide
+	// which of the eight walks can be skipped, and usually all of them can.
 	king := b.KingSquare(color)
+	rooks, bishops := b.AlignedSliders(king, color.Other())
+	return pinnedByWalk(b, color, king, rooks, bishops)
+}
+
+// PinnedSquaresUnfiltered is the unconditional eight-ray scan, kept as the
+// oracle the prefilter is tested against. It lives here because the test
+// needs real games to meet a pin, and the game package imports this one.
+func PinnedSquaresUnfiltered(b *board.Board, color board.Color) PinnedSet {
+	return pinnedByWalk(b, color, b.KingSquare(color), true, true)
+}
+
+// pinnedByWalk walks the rays whose slider kind is present. With both true
+// it is the full eight-ray scan.
+func pinnedByWalk(b *board.Board, color board.Color, king board.Sq, rooks, bishops bool) PinnedSet {
 	var pinned PinnedSet
 	for _, ry := range pinRays {
+		if (ry.slider == board.Rook && !rooks) || (ry.slider == board.Bishop && !bishops) {
+			continue
+		}
 		if ownSq, ok := b.FindPinnedPiece(king, ry.d[0], ry.d[1], color, ry.slider, ry.slider2); ok {
 			pinned.add(ownSq)
 		}

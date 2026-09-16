@@ -359,3 +359,40 @@ func (b *Board) occupiedBB() uint64 { return b.colorBB[White] | b.colorBB[Black]
 //
 // So the tables earn their place in IsAttackedBy, which returns a bool and
 // has no order to preserve, and nowhere in move generation.
+
+// TargetBitboard is the pseudo-legal target set of a knight, bishop, rook
+// or queen on sq, own pieces removed: the same squares AppendStepMoves and
+// AppendSlideMoves would append, as a set rather than a sequence. That is
+// enough for anything that only counts targets, and a count is where the
+// tables beat the walk without reordering a single move. Pawns and kings
+// return false: their targets depend on more than occupancy (double
+// pushes, en passant, castling) and stay on the walk.
+func (b *Board) TargetBitboard(sq Sq, color Color, pt PieceType) (uint64, bool) {
+	i := squareIndex(sq)
+	own := b.colorBB[color]
+	switch pt {
+	case Knight:
+		return KnightAttacks[i] &^ own, true
+	case Bishop:
+		return BishopAttacks(i, b.occupiedBB()) &^ own, true
+	case Rook:
+		return RookAttacks(i, b.occupiedBB()) &^ own, true
+	case Queen:
+		occ := b.occupiedBB()
+		return (BishopAttacks(i, occ) | RookAttacks(i, occ)) &^ own, true
+	}
+	return 0, false
+}
+
+// AlignedSliders says whether any enemy rook or queen shares a rank or
+// file with king, and whether any enemy bishop or queen shares a diagonal,
+// blockers ignored. A pin needs exactly that alignment, so when both are
+// false there is no pin to find and the eight ray walks can be skipped;
+// in most middlegame positions that is the common case.
+func (b *Board) AlignedSliders(king Sq, enemy Color) (rooks, bishops bool) {
+	i := squareIndex(king)
+	queens := b.pieces[enemy][Queen]
+	rooks = RookAttacks(i, 0)&(b.pieces[enemy][Rook]|queens) != 0
+	bishops = BishopAttacks(i, 0)&(b.pieces[enemy][Bishop]|queens) != 0
+	return rooks, bishops
+}
