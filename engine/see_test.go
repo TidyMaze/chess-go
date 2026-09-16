@@ -148,4 +148,3 @@ func TestDeltaPruningCutsNodes(t *testing.T) {
 		t.Errorf("delta pruning did not reduce nodes: without=%d, with=%d", without, with)
 	}
 }
-

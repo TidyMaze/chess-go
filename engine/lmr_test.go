@@ -111,4 +111,3 @@ func TestLMRTwoStepCutsNodes(t *testing.T) {
 		t.Errorf("two-step LMR re-search did not reduce nodes: single=%d, two=%d", oneStep, twoStep)
 	}
 }
-

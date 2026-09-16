@@ -133,7 +133,6 @@ func zobristUpdate(key uint64, b *board.Board, m game.Move, undo board.Undo, pro
 	return key
 }
 
-
 type ttFlag uint8
 
 const (
@@ -278,7 +277,6 @@ func (t *TranspositionTable) probeWithMove(key uint64, depth int, maximizingFor 
 	}
 	return 0, false, m, true
 }
-
 
 func (t *TranspositionTable) store(key uint64, score float64, depth int, flag ttFlag, maximizingFor board.Color) {
 	t.storeWithMove(key, score, depth, flag, maximizingFor, game.Move{})

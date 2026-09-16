@@ -80,6 +80,7 @@ func (c *searchCtx) reset() {
 	c.fifty = [maxSearchPly]int{}
 	c.prevMove = game.Move{}
 	c.history = [2][64][64]int32{}
+	c.cont = [2][64][6][64]int32{}
 	c.path = [maxSearchPly]uint64{}
 	c.abortAtNodes = 0
 	c.checkMask = 2047
@@ -165,9 +166,13 @@ var lastSearchNodes int64
 func LastSearchNodesValue() int { return int(atomic.LoadInt64(&lastSearchNodes)) }
 
 type searchCtx struct {
-	ev         *Eval
-	killers    [maxSearchPly][2]game.Move
-	history    [2][64][64]int32
+	ev      *Eval
+	killers [maxSearchPly][2]game.Move
+	history [2][64][64]int32
+	// cont is continuation history: how a quiet move of a piece type to a
+	// square did right after the opponent's move to a square. 196 KB,
+	// cleared per move like history.
+	cont       [2][64][6][64]int32
 	quiescence bool
 	nodes      int
 	extensions bool
@@ -268,8 +273,25 @@ func (c *searchCtx) recordKiller(ply int, m game.Move) {
 	c.killers[ply][0] = m
 }
 
-func (c *searchCtx) recordHistory(color board.Color, m game.Move, depth int) {
+func (c *searchCtx) recordHistory(color board.Color, g *game.Game, m game.Move, depth int) {
 	c.history[color][sqIndex(m.From)][sqIndex(m.To)] += int32(depth * depth)
+	if slot := c.contSlot(color, g, m); slot != nil {
+		*slot += int32(depth * depth)
+	}
+}
+
+// contSlot is the continuation-history cell for m as a reply to the
+// previous move, or nil when the feature is off or there is no previous
+// move (the root, or a null move).
+func (c *searchCtx) contSlot(color board.Color, g *game.Game, m game.Move) *int32 {
+	if c.ev == nil || !c.ev.ContHist || c.prevMove == (game.Move{}) {
+		return nil
+	}
+	p, ok := g.Board.PieceAt(m.From)
+	if !ok {
+		return nil
+	}
+	return &c.cont[color][sqIndex(c.prevMove.To)][p.Type][sqIndex(m.To)]
 }
 
 func (c *searchCtx) penalizeHistory(color board.Color, g *game.Game, failed []game.Move, depth int) {
@@ -280,6 +302,9 @@ func (c *searchCtx) penalizeHistory(color board.Color, g *game.Game, failed []ga
 			c.history[color][idxFrom][idxTo] -= malus
 			if c.history[color][idxFrom][idxTo] < -1<<16 {
 				c.history[color][idxFrom][idxTo] = -1 << 16
+			}
+			if slot := c.contSlot(color, g, m); slot != nil && *slot > -1<<16 {
+				*slot -= malus
 			}
 		}
 	}
@@ -336,7 +361,11 @@ func (c *searchCtx) scoreMove(g *game.Game, m game.Move, ttMove game.Move, ply i
 	if c.ev != nil && c.ev.Countermoves && m == c.counterFor(color, c.prevMove) {
 		return 1 << 18, 0
 	}
-	return int(c.history[color][sqIndex(m.From)][sqIndex(m.To)]), 0
+	score := int(c.history[color][sqIndex(m.From)][sqIndex(m.To)])
+	if slot := c.contSlot(color, g, m); slot != nil {
+		score += int(*slot)
+	}
+	return score, 0
 }
 
 func (c *searchCtx) orderMoves(g *game.Game, ms []game.Move, ttMove game.Move, ply int, color board.Color) {
@@ -688,7 +717,7 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 			}
 			if !isCapture {
 				c.recordKiller(ply, m)
-				c.recordHistory(color, m, depth)
+				c.recordHistory(color, g, m, depth)
 				if ply > 0 {
 					c.recordCounter(color, c.moveStack[ply-1], m)
 				}
@@ -882,7 +911,7 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 			}
 			if !isCapture {
 				c.recordKiller(ply, m)
-				c.recordHistory(color, m, depth)
+				c.recordHistory(color, g, m, depth)
 				if c.ev != nil && c.ev.HistoryMalus && i > 0 {
 					c.penalizeHistory(color, g, legal[:i], depth)
 				}

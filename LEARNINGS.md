@@ -104,6 +104,15 @@ A caveat that has not been settled: a 200-game screen at 10 ms resolves about
 +/- 48, so none of those five was measured well enough to be called worthless.
 They were measured well enough to be called "not worth more games yet".
 
+**Quiet checks at the quiescence root, made and unmade from the full legal
+list: -113 +/- 51 at 10 ms, SPRT settled "worse" after 200 games.** The
+loss audit pointed straight at it (261 of 267 decided games lost to a
+tactic one ply past the horizon, mostly after a quiet move), and the
+generator's cost still outweighed what it found. The bitboard version,
+direct checks only from the king's attack set, was the second attempt;
+it read -24 +/- 24 over 800 games, SPRT "worse" again. At 10 ms nothing
+added at the quiescence root has paid; the feature was removed.
+
 ## The bugs, and what each one cost
 
 These are the ones worth never repeating.

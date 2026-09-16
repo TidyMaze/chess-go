@@ -44,4 +44,3 @@ func TestBaselineChampionDepthAt1s(t *testing.T) {
 		m, ok, time.Since(t0), LastSearchDepth(), TotalNodes(),
 		float64(TotalNodes())/time.Since(t0).Seconds()/1000)
 }
-

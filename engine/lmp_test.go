@@ -80,7 +80,6 @@ func TestDeepLateMovePruning(t *testing.T) {
 	}
 }
 
-
 // Wired in, the rule must actually remove nodes.
 func TestLateMovePruningCutsNodes(t *testing.T) {
 	var with, without int
@@ -122,4 +121,3 @@ func TestDeepLateMovePruningCutsNodes(t *testing.T) {
 		t.Errorf("deep late move pruning removed no nodes: %d with, %d without", with, without)
 	}
 }
-

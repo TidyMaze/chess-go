@@ -62,4 +62,3 @@ func TestRootCheckExtension(t *testing.T) {
 	_ = mWith
 	_ = mWithout
 }
-

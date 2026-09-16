@@ -24,4 +24,3 @@ func BenchmarkZobristIncremental(b *testing.B) {
 		_ = zobristUpdate(key, &g.Board, m, undo, prom)
 	}
 }
-

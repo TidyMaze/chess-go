@@ -146,4 +146,3 @@ func TestChampionAppliesFeatures(t *testing.T) {
 		t.Errorf("expected TTBits=22, got %d", p.TTBits)
 	}
 }
-
