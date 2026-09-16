@@ -212,6 +212,50 @@ command line contains the pattern, so `pgrep -f 'train.py --pool x'` never
 returns empty and the wait never ends. Write `train[.]py`, or wait on a log
 line.
 
+## The two rulers disagree, and the strong one has no resolution
+
+This session's search and evaluation work, measured three ways on the same
+binaries:
+
+| against | gain |
+|---|---|
+| the engine as it stood before the session, head to head at 100 ms | +110 +/- 42 |
+| Stockfish limited to 2800, 100 ms | +3 +/- 45 |
+| Stockfish limited to 2800, 10 ms | +58 +/- 50 |
+
+The head to head is SPRT settled better over 300 games, 165-62-73. The
+individual A/Bs that make it up sum to about +80, so they are consistent
+with each other and not with the Stockfish number.
+
+Elo is supposed to be transitive, so this is worth stating plainly rather
+than averaging away. Against a reference we score 0.13 against, a real
++110 should move the score to about 0.25; it moved from 0.131 to 0.133.
+Two things are true at once and both matter:
+
+  - a ruler where the score is 0.13 has almost no resolution, because
+    improvements have to change the result of games that are lost to
+    tactics far past our horizon, and they do not.
+  - gains measured against a near-identical opponent are partly specific
+    to that opponent: the same evaluation, the same book, the same blind
+    spots on both sides.
+
+**What follows for measurement.** A change is adopted on a head-to-head
+A/B, which is sensitive. But the *absolute* claim must come from a
+reference near our own strength, where the score sits near 0.5, and
+"how far from Stockfish at 2800" is a progress report, not an instrument.
+Quoting a sum of A/B wins as though it were absolute Elo is what this
+section exists to stop.
+
+Two harness mistakes cost real machine time proving that:
+
+  - racing champion_bot.json against a copy of itself to test a *code*
+    change, which is a null control and reads noise.
+  - a wrapper script written by a careless `sd` substitution that left
+    literal backslashes in `cd dir \&\& exec binary`, so the reference
+    never started. The harness scored 300 games as 298 draws and reported
+    +2 +/- 39 rather than failing. A reference that never moves must look
+    like an error, not like a drawn match.
+
 ## How to measure anything here
 
 This section is the expensive part. Ignore it and the numbers lie.
