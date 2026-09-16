@@ -34,7 +34,13 @@ func benchTimedMove(b *testing.B, ttBits uint, budget time.Duration, fens []stri
 		b.Fatal(err)
 	}
 	defer os.Chdir(wd)
-	c := ReadChampion("champion_bot.json")
+	// CHESS_BENCH_CHAMPION races a variant against the deployed champion
+	// without editing the deployed file.
+	file := "champion_bot.json"
+	if v := os.Getenv("CHESS_BENCH_CHAMPION"); v != "" {
+		file = v
+	}
+	c := ReadChampion(file)
 	p := c.Player()
 	if p.HalfKP == nil {
 		b.Skip("champion network did not load")
