@@ -143,6 +143,23 @@ the opponent's previous move): +3 +/- 15 over 2000 games at 10 ms, SPRT
 never settled.** Neutral. The flag stays off; a two-ply follow-up table is
 the only untested variant and the one-ply result makes it unlikely.
 
+**Depth-preferred transposition table with aging: +35 +/- 23 at 100 ms a
+move, SPRT settled better over 900 games.** put was always-replace, and
+quiescence stores at depth 0 while being about half the nodes searched, so
+any leaf colliding with a deep entry threw it away. The table is now
+depth-preferred within a search and always-replace across searches, aged
+by a generation counter that advances once per move.
+
+This also explains a null result recorded earlier: shrinking the table to
+2^18 and 2^16 read -5 and +1, which looked like "table size does not
+matter". The cost was never the size, it was the policy, and a smaller
+table with a broken policy is broken at both ends.
+
+Measured as two binaries, current against a build of the parent commit.
+An earlier attempt raced champion_bot.json against a copy of itself, which
+is a null control and reads whatever the noise is: a configuration file
+cannot A/B a code change.
+
 ## The bugs, and what each one cost
 
 These are the ones worth never repeating.
