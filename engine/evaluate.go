@@ -181,6 +181,8 @@ type Eval struct {
 	HistoryMalus bool
 	// ContHist orders quiet moves by how they did against the previous move.
 	ContHist bool
+	// Improving feeds the static-evaluation trend to late move pruning.
+	Improving bool
 	// NoCastle is a measurement instrument, never a playing mode. Castling
 	// is a rule of chess and is implemented; this flag exists only so one
 	// side of an A/B can decline it, which is the only way to price the

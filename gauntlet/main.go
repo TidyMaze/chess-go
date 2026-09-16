@@ -97,6 +97,8 @@ func (s referenceSwitches) applyTo(p engine.Player) (engine.Player, error) {
 			p.HistoryMalus = true
 		case "conthist":
 			p.ContHist = true
+		case "improving":
+			p.Improving = true
 		default:
 			return p, fmt.Errorf("unknown feature %q", f)
 		}
@@ -199,6 +201,8 @@ func main() {
 			challenger.HistoryMalus = true
 		case "conthist":
 			challenger.ContHist = true
+		case "improving":
+			challenger.Improving = true
 		default:
 			fmt.Printf("unknown feature %q\n", f)
 			return

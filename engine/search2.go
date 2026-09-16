@@ -81,6 +81,7 @@ func (c *searchCtx) reset() {
 	c.prevMove = game.Move{}
 	c.history = [2][64][64]int32{}
 	c.cont = [2][64][6][64]int32{}
+	c.staticKnown = [maxSearchPly]bool{}
 	c.path = [maxSearchPly]uint64{}
 	c.abortAtNodes = 0
 	c.checkMask = 2047
@@ -172,10 +173,14 @@ type searchCtx struct {
 	// cont is continuation history: how a quiet move of a piece type to a
 	// square did right after the opponent's move to a square. 196 KB,
 	// cleared per move like history.
-	cont       [2][64][6][64]int32
-	quiescence bool
-	nodes      int
-	extensions bool
+	cont [2][64][6][64]int32
+	// staticAt holds the static evaluation noted at each ply of the current
+	// line, when one was computed, for the improving test two plies later.
+	staticAt    [maxSearchPly]float64
+	staticKnown [maxSearchPly]bool
+	quiescence  bool
+	nodes       int
+	extensions  bool
 	// path holds the Zobrist key of every position on the line currently
 	// being searched, so a repetition can be recognised as a draw.
 	//
@@ -283,6 +288,27 @@ func (c *searchCtx) recordHistory(color board.Color, g *game.Game, m game.Move, 
 // contSlot is the continuation-history cell for m as a reply to the
 // previous move, or nil when the feature is off or there is no previous
 // move (the root, or a null move).
+// noteStatic records the static evaluation computed at ply, so the node
+// two plies down can ask whether the side to move is improving.
+func (c *searchCtx) noteStatic(ply int, static float64) {
+	if ply >= 0 && ply < maxSearchPly {
+		c.staticAt[ply], c.staticKnown[ply] = static, true
+	}
+}
+
+// improving says whether the side to move stands better by static
+// evaluation than it did two plies ago. Without a static score here or
+// there it says no, which is what the pruning rule assumed before.
+func (c *searchCtx) improving(ply int, static float64, haveStatic, maximizing bool) bool {
+	if c.ev == nil || !c.ev.Improving || !haveStatic || ply < 2 || !c.staticKnown[ply-2] {
+		return false
+	}
+	if maximizing {
+		return static > c.staticAt[ply-2]
+	}
+	return static < c.staticAt[ply-2]
+}
+
 func (c *searchCtx) contSlot(color board.Color, g *game.Game, m game.Move) *int32 {
 	if c.ev == nil || !c.ev.ContHist || c.prevMove == (game.Move{}) {
 		return nil
@@ -644,6 +670,14 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 	} else {
 		c.prevMove = game.Move{}
 	}
+	// The pruning paths above may have priced the position; if so, keep the
+	// number for the node two plies down and ask it about this one.
+	if haveStatic {
+		c.noteStatic(ply, staticEval)
+	} else if ply < maxSearchPly {
+		c.staticKnown[ply] = false
+	}
+	improvingHere := c.improving(ply, staticEval, haveStatic, maximizing)
 
 	best := negInf
 	if !maximizing {
@@ -799,7 +833,7 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 		if c.ev != nil && c.ev.DeepLMP {
 			maxLMP = 8
 		}
-		if lmp && i > 0 && lateMovePrunedMax(depth, i, false, inCheck, isCapture, promoted, givesCheck, c.isKiller(ply, m), maxLMP) {
+		if lmp && i > 0 && lateMovePrunedMax(depth, i, improvingHere, inCheck, isCapture, promoted, givesCheck, c.isKiller(ply, m), maxLMP) {
 			g.Board.UnmakeMove(undo)
 			continue
 		}
