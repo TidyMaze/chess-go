@@ -104,6 +104,8 @@ type Player struct {
 	HistoryAging bool
 	// HistoryMalus penalizes quiet moves searched before a quiet beta cutoff.
 	HistoryMalus bool
+	// QChecks searches quiet checking moves at the first quiescence ply.
+	QChecks bool
 	// NoRepetition disables repetition detection. Measurement only.
 	NoRepetition bool
 	// NullReduction and NullScale tune null-move pruning. 0 means 3.
@@ -174,6 +176,8 @@ func (p *Player) ApplyFeatures(features string) {
 			p.MainSEE = true
 		case "historymalus":
 			p.HistoryMalus = true
+		case "qchecks":
+			p.QChecks = true
 		case "historyaging":
 			p.HistoryAging = true
 		case "lmrtwostep":
@@ -709,7 +713,7 @@ func evalForPlayer(p Player) *Eval {
 		DeepRFP: p.DeepRFP, NullGate: p.NullGate, Countermoves: p.Countermoves, IIR: p.IIR, MainSEE: p.MainSEE,
 		NoRepetition: p.NoRepetition, KeepNullMoveEP: p.KeepNullMoveEP,
 		DeltaPruning: p.DeltaPruning, LMRTwoStep: p.LMRTwoStep,
-		HistoryAging: p.HistoryAging, HistoryMalus: p.HistoryMalus,
+		HistoryAging: p.HistoryAging, HistoryMalus: p.HistoryMalus, QChecks: p.QChecks,
 		NullReduction: p.NullReduction, NullScale: p.NullScale,
 		Extras: p.Extras, Shape: p.Shape, ShapeW: p.ShapeW,
 		PSTScale: p.PSTScale, MobilityW: p.MobilityW, StructureW: p.StructureW,

@@ -276,6 +276,13 @@ func quiesceWithKey(g *game.Game, key uint64, color, maximizingFor board.Color, 
 	// search uses; here it decides which capture fails high before the
 	// rest are looked at.
 	orderInPlace(g, legal)
+	// Quiet checks, at the quiescence root only. A captures-only
+	// quiescence never sees the fork or the mating check one ply past the
+	// horizon, which is where the loss audit found most games go; deeper
+	// than the first ply the tree would explode, so captures again.
+	if ev.QChecks && !inCheck && ply == 0 {
+		legal = appendQuietChecks(g, legal, color)
+	}
 	for _, m := range legal {
 		isCapture := isCaptureMove(g, m)
 		promotes := pawnReachesLastRank(g, m)
@@ -396,4 +403,21 @@ func chooseMoveOpts(g *game.Game, color board.Color, depth int, ev *Eval, useQui
 		}
 	}
 	return best[randIntn(len(best))], true
+}
+
+// appendQuietChecks adds the side's legal non-capturing, non-promoting
+// moves that give check, after the captures already in dst.
+func appendQuietChecks(g *game.Game, dst []game.Move, color board.Color) []game.Move {
+	for _, m := range g.AllLegalMoves(color) {
+		if isCaptureMove(g, m) || pawnReachesLastRank(g, m) {
+			continue
+		}
+		undo, _ := makeSearchMove(g, m)
+		check := moves.IsInCheck(&g.Board, color.Other())
+		g.Board.UnmakeMove(undo)
+		if check {
+			dst = append(dst, m)
+		}
+	}
+	return dst
 }

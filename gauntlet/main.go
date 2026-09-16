@@ -95,6 +95,8 @@ func (s referenceSwitches) applyTo(p engine.Player) (engine.Player, error) {
 			p.HistoryAging = true
 		case "historymalus":
 			p.HistoryMalus = true
+		case "qchecks":
+			p.QChecks = true
 		default:
 			return p, fmt.Errorf("unknown feature %q", f)
 		}
@@ -195,6 +197,8 @@ func main() {
 			challenger.HistoryAging = true
 		case "historymalus":
 			challenger.HistoryMalus = true
+		case "qchecks":
+			challenger.QChecks = true
 		default:
 			fmt.Printf("unknown feature %q\n", f)
 			return
