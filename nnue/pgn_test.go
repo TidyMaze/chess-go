@@ -65,7 +65,7 @@ func TestPGNImportIgnoresEmbeddedEvaluations(t *testing.T) {
 		{operaGamePGN, plain},
 		{operaGameWithEvals, annotated},
 	} {
-		if err := ImportPGN(strings.NewReader(c.text), c.path, 0, 2, 6, 0.8, 0.35, 0, false, engine.Strong(2)); err != nil {
+		if err := ImportPGN(strings.NewReader(c.text), c.path, 0, 2, 6, 0.8, 0.35, 0, false, engine.Strong(2), 0); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -131,7 +131,7 @@ func TestPGNSkipsGamesThatWillNotReplay(t *testing.T) {
 1.e4 e5 2.Nf3 Nc6 3.Bb5 a6 4.Qxz9 Nf6 5.O-O Be7 6.Re1 b5 1-0
 `
 	path := filepath.Join(t.TempDir(), "pool.bin")
-	if err := ImportPGN(strings.NewReader(bad), path, 0, 2, 4, 0.8, 0.35, 0, false, engine.Strong(2)); err != nil {
+	if err := ImportPGN(strings.NewReader(bad), path, 0, 2, 4, 0.8, 0.35, 0, false, engine.Strong(2), 0); err != nil {
 		t.Fatal(err)
 	}
 	if got, _ := loadPool(path, 0); len(got) != 0 {
@@ -147,7 +147,7 @@ func TestPGNImportResumesRatherThanRepeating(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "pool.bin")
 
 	// First pass takes one game's worth and stops.
-	if err := ImportPGN(strings.NewReader(two), path, 1, 2, 6, 0.8, 0.35, 0, false, engine.Strong(2)); err != nil {
+	if err := ImportPGN(strings.NewReader(two), path, 1, 2, 6, 0.8, 0.35, 0, false, engine.Strong(2), 0); err != nil {
 		t.Fatal(err)
 	}
 	first, _ := loadPool(path, 0)
@@ -156,7 +156,7 @@ func TestPGNImportResumesRatherThanRepeating(t *testing.T) {
 	}
 
 	// Second pass over the same input resumes instead of repeating.
-	if err := ImportPGN(strings.NewReader(two), path, 0, 2, 6, 0.8, 0.35, 0, true, engine.Strong(2)); err != nil {
+	if err := ImportPGN(strings.NewReader(two), path, 0, 2, 6, 0.8, 0.35, 0, true, engine.Strong(2), 0); err != nil {
 		t.Fatal(err)
 	}
 	all, _ := loadPool(path, 0)
@@ -179,11 +179,11 @@ func TestPGNLabellerChangesTheLabels(t *testing.T) {
 	deep := filepath.Join(dir, "deep.bin")
 
 	if err := ImportPGN(strings.NewReader(operaGamePGN), shallow, 0, 1, 6,
-		0.8, 0.35, 0, false, engine.Strong(1)); err != nil {
+		0.8, 0.35, 0, false, engine.Strong(1), 0); err != nil {
 		t.Fatal(err)
 	}
 	if err := ImportPGN(strings.NewReader(operaGamePGN), deep, 0, 5, 6,
-		0.8, 0.35, 0, false, engine.Strong(5)); err != nil {
+		0.8, 0.35, 0, false, engine.Strong(5), 0); err != nil {
 		t.Fatal(err)
 	}
 
@@ -230,11 +230,11 @@ func TestPGNLabelDepthAloneChangesTheLabels(t *testing.T) {
 	// identical pools rather than accidentally matching one of them.
 	labeller := engine.Strong(3)
 	if err := ImportPGN(strings.NewReader(operaGamePGN), shallow, 0, 1, 6,
-		0.8, 0.35, 0, false, labeller); err != nil {
+		0.8, 0.35, 0, false, labeller, 0); err != nil {
 		t.Fatal(err)
 	}
 	if err := ImportPGN(strings.NewReader(operaGamePGN), deep, 0, 6, 6,
-		0.8, 0.35, 0, false, labeller); err != nil {
+		0.8, 0.35, 0, false, labeller, 0); err != nil {
 		t.Fatal(err)
 	}
 
@@ -265,11 +265,11 @@ func TestPGNLabelDepthKeepsTheSamePositions(t *testing.T) {
 	deep := filepath.Join(dir, "b.bin")
 	labeller := engine.Strong(3)
 	if err := ImportPGN(strings.NewReader(operaGamePGN), shallow, 0, 1, 6,
-		0.8, 0.35, 0, false, labeller); err != nil {
+		0.8, 0.35, 0, false, labeller, 0); err != nil {
 		t.Fatal(err)
 	}
 	if err := ImportPGN(strings.NewReader(operaGamePGN), deep, 0, 6, 6,
-		0.8, 0.35, 0, false, labeller); err != nil {
+		0.8, 0.35, 0, false, labeller, 0); err != nil {
 		t.Fatal(err)
 	}
 	a, _ := loadPool(shallow, 0)
@@ -349,11 +349,11 @@ func TestPGNGameOutcomeReachesTheLabel(t *testing.T) {
 	labeller := engine.Strong(3)
 	const lambda = 0.2
 	if err := ImportPGN(strings.NewReader(operaGamePGN), pure, 0, 3, 6,
-		1.0, 0.35, 0, false, labeller); err != nil {
+		1.0, 0.35, 0, false, labeller, 0); err != nil {
 		t.Fatal(err)
 	}
 	if err := ImportPGN(strings.NewReader(operaGamePGN), mixed, 0, 3, 6,
-		lambda, 0.35, 0, false, labeller); err != nil {
+		lambda, 0.35, 0, false, labeller, 0); err != nil {
 		t.Fatal(err)
 	}
 

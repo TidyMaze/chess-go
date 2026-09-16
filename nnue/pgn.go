@@ -215,7 +215,7 @@ func readPGN(r io.Reader, out chan<- pgnGame) {
 // has to pick up whatever was adopted last.
 func ImportPGN(r io.Reader, poolPath string, maxKeep, labelDepth, skipPlies int,
 	lambda, quietTol float64, progressEvery time.Duration, resume bool,
-	labeller engine.Player) error {
+	labeller engine.Player, blendK float64) error {
 
 	// Resume marker, in games consumed.
 	//
@@ -313,7 +313,9 @@ func ImportPGN(r io.Reader, poolPath string, maxKeep, labelDepth, skipPlies int,
 					opp = engine.AppendHalfKPFeatures(opp, &g.Board, board.Black)
 					kept = append(kept, sample{
 						own: own, opp: opp, static: static,
-						target: blendedTarget(score, pg.result, lambda),
+						// blendK > 0 blends in probability space, where a game
+						// outcome belongs; 0 keeps the pawn-space blend.
+						target: blendTarget(score, pg.result, lambda, blendK),
 						game:   int32(gi),
 					})
 				}

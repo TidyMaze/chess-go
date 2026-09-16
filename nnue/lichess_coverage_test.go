@@ -184,22 +184,22 @@ func TestImportPGNEdges(t *testing.T) {
 	labeller := engine.Strong(1)
 	// Positions are clamped to +/-12 pawns: label from a hopeless position.
 	lopsided := "[Result \"1-0\"]\n\n1. e4 e5 2. Qh5 Nc6 3. Bc4 Nf6 4. Qxf7# 1-0\n"
-	if err := ImportPGN(strings.NewReader(lopsided), pool, 0, 1, 0, 0.8, 5.0, 0, false, labeller); err != nil {
+	if err := ImportPGN(strings.NewReader(lopsided), pool, 0, 1, 0, 0.8, 5.0, 0, false, labeller, 0); err != nil {
 		t.Fatal(err)
 	}
 	// Progress reporting and the keep cap.
-	if err := ImportPGN(strings.NewReader(operaGamePGN), pool, 3, 1, 0, 0.8, 0.35, time.Nanosecond, false, labeller); err != nil {
+	if err := ImportPGN(strings.NewReader(operaGamePGN), pool, 3, 1, 0, 0.8, 0.35, time.Nanosecond, false, labeller, 0); err != nil {
 		t.Fatal(err)
 	}
 	// Resume from the marker.
-	if err := ImportPGN(strings.NewReader(operaGamePGN), pool, 0, 1, 0, 0.8, 0.35, 0, true, labeller); err != nil {
+	if err := ImportPGN(strings.NewReader(operaGamePGN), pool, 0, 1, 0, 0.8, 0.35, 0, true, labeller, 0); err != nil {
 		t.Fatal(err)
 	}
 	// A game whose moves do not replay is counted, not fatal.
-	if err := ImportPGN(strings.NewReader("[Result \"1-0\"]\n\n1. e4 Qh8 1-0\n"), pool, 0, 1, 0, 0.8, 0.35, 0, false, labeller); err != nil {
+	if err := ImportPGN(strings.NewReader("[Result \"1-0\"]\n\n1. e4 Qh8 1-0\n"), pool, 0, 1, 0, 0.8, 0.35, 0, false, labeller, 0); err != nil {
 		t.Fatal(err)
 	}
-	if err := ImportPGN(strings.NewReader(operaGamePGN), filepath.Join(dir, "no", "dir", "p.bin"), 0, 1, 0, 0.8, 0.35, 0, false, labeller); err == nil {
+	if err := ImportPGN(strings.NewReader(operaGamePGN), filepath.Join(dir, "no", "dir", "p.bin"), 0, 1, 0, 0.8, 0.35, 0, false, labeller, 0); err == nil {
 		t.Error("an unwritable pool succeeded")
 	}
 }

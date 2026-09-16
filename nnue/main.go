@@ -472,6 +472,42 @@ func sigmoid(pawns, k float64) float64 { return 1 / (1 + math.Exp(-k*pawns)) }
 // positions the search has already judged sharply.
 func resultPawns(result float64) float64 { return (result - 0.5) * 8 }
 
+// blendedTargetProb blends in probability space, which is what a game
+// outcome is: the search score goes through the same sigmoid the trainer
+// uses, the outcome is already a probability of 0, 0.5 or 1, and the
+// blend is inverted back to pawns.
+//
+// blendedTarget below does it in pawns instead, where an outcome is a flat
+// +/-4 whatever the position, so every position of a won game is pulled
+// toward +4 regardless of how clear it was. That is the version the lambda
+// sweep measured, and it lost Elo at every setting tried.
+func blendedTargetProb(score, result, lambda, k float64) float64 {
+	p := lambda*sigmoid(score, k) + (1-lambda)*result
+	const eps = 1e-6
+	if p < eps {
+		p = eps
+	} else if p > 1-eps {
+		p = 1 - eps
+	}
+	t := math.Log(p/(1-p)) / k
+	if t > 12 {
+		return 12
+	}
+	if t < -12 {
+		return -12
+	}
+	return t
+}
+
+// blendTarget picks the space the blend happens in: probability when k is
+// positive, pawns otherwise.
+func blendTarget(score, result, lambda, k float64) float64 {
+	if k > 0 {
+		return blendedTargetProb(score, result, lambda, k)
+	}
+	return blendedTarget(score, result, lambda)
+}
+
 // blendedTarget is lambda parts search score to one part game outcome,
 // both in pawns and clamped to the range the network can represent.
 func blendedTarget(score, result, lambda float64) float64 {
@@ -745,6 +781,7 @@ func run(args []string) int {
 	fresh := fs.Bool("fresh", false, "ignore any checkpoint and start over")
 	freshPool := fs.Bool("fresh-pool", false, "discard stored positions too (fresh resets only the network)")
 	lambda := fs.Float64("lambda", 0.8, "weight on the search score against the game result")
+	blendK := fs.Float64("blend-k", 0, "blend the game outcome in probability space with this sigmoid steepness; 0 keeps the pawn-space blend, which caps a win at +4 pawns and so drags winning positions down")
 	k := fs.Float64("k", 0.30, "pawns-to-win-probability scale")
 	hidden := fs.Int("hidden", 32, "hidden units per perspective")
 	poolCap := fs.Int("pool", 3000000, "maximum positions kept")
@@ -872,7 +909,7 @@ func run(args []string) int {
 				time.Now().Format("15:04:05"), c.Label)
 		}
 		if err := ImportPGN(src, *poolFile, *importMax, *labelDepth, *pgnSkipPlies,
-			*lambda, *quietTol, 10*time.Second, *importResume, labeller); err != nil {
+			*lambda, *quietTol, 10*time.Second, *importResume, labeller, *blendK); err != nil {
 			fmt.Println("import-pgn:", err)
 		}
 		return 0
