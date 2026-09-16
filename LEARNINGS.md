@@ -212,6 +212,27 @@ command line contains the pattern, so `pgrep -f 'train.py --pool x'` never
 returns empty and the wait never ends. Write `train[.]py`, or wait on a log
 line.
 
+## The gap to Stockfish narrows with the clock
+
+Same binaries, same reference, one thread, 2026-09-17:
+
+| control | gap to Stockfish at 2800 | games |
+|---|---|---|
+| 10 ms | -354 +/- 34 | 1000 |
+| 100 ms | -326 +/- 32 | 1000 |
+| 1 s | -216 +/- 41 | 400 |
+
+Roughly +70 Elo for every tenfold increase in the clock, so this engine
+converts time into strength faster than Stockfish does when its strength
+is capped by UCI_LimitStrength. That limiter is not time-independent, as
+the 10 ms to 100 ms pair alone might suggest, but it does flatten.
+
+Two consequences. Any absolute claim has to name its control, since the
+same engine reads 2446 and 2584 depending on it. And a measurement taken
+at 10 ms understates what a change is worth at the controls the bot
+actually plays, which makes 10 ms a screening instrument and not a
+verdict.
+
 ## The two rulers disagree, and the strong one has no resolution
 
 This session's search and evaluation work, measured three ways on the same
