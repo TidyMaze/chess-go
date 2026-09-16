@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 	"math/rand"
@@ -502,7 +503,32 @@ func randomOpening(rnd *rand.Rand, plies int) *game.Game {
 	return g
 }
 
-func playFrom(g *game.Game, white, black Player, maxMoves int, live LiveHook) (board.Color, bool) {
+// GameRecord is one finished match game: the start position, every move
+// in UCI, the mover's reported score per ply (NaN when it had none: book,
+// random, an external engine), the players and the result.
+type GameRecord struct {
+	StartFEN string      `json:"start_fen"`
+	Moves    []string    `json:"moves"`
+	Scores   []float64   `json:"scores"`
+	White    string      `json:"white"`
+	Black    string      `json:"black"`
+	Winner   board.Color `json:"winner"`
+	Decisive bool        `json:"decisive"`
+}
+
+// GameSink, when set, receives every game playFrom finishes. It is called
+// from the match workers concurrently, so the sink serialises itself.
+var GameSink func(GameRecord)
+
+func playFrom(g *game.Game, white, black Player, maxMoves int, live LiveHook) (winner board.Color, decisive bool) {
+	var rec *GameRecord
+	if GameSink != nil {
+		rec = &GameRecord{StartFEN: g.FEN(), White: white.Name, Black: black.Name}
+		defer func() {
+			rec.Winner, rec.Decisive = winner, decisive
+			GameSink(*rec)
+		}()
+	}
 	// One table per player per game, not one per move. They must not be
 	// shared between the two players: a stored score is from one side's
 	// point of view, and the entries also encode each engine's own
@@ -525,6 +551,10 @@ func playFrom(g *game.Game, white, black Player, maxMoves int, live LiveHook) (b
 			break
 		}
 		g.ApplyMove(move.From, move.To)
+		if rec != nil {
+			rec.Moves = append(rec.Moves, move.UCI())
+			rec.Scores = append(rec.Scores, score)
+		}
 		if live != nil {
 			live(g, plies+1, move.From, move.To)
 		}
@@ -796,4 +826,46 @@ func Strong(depth int) Player {
 		Extensions: true, Aspiration: true, SEEPruning: true, Futility: true,
 		Mobility: true, KingSafety: 0.01, DeltaPruning: true,
 	}
+}
+
+// gameRecordJSON is GameRecord's wire form. JSON has no NaN and
+// encoding/json fails the whole document on one, so a missing score
+// travels as null and comes back as NaN.
+type gameRecordJSON struct {
+	StartFEN string      `json:"start_fen"`
+	Moves    []string    `json:"moves"`
+	Scores   []*float64  `json:"scores"`
+	White    string      `json:"white"`
+	Black    string      `json:"black"`
+	Winner   board.Color `json:"winner"`
+	Decisive bool        `json:"decisive"`
+}
+
+func (r GameRecord) MarshalJSON() ([]byte, error) {
+	w := gameRecordJSON{StartFEN: r.StartFEN, Moves: r.Moves, White: r.White, Black: r.Black, Winner: r.Winner, Decisive: r.Decisive}
+	w.Scores = make([]*float64, len(r.Scores))
+	for i, s := range r.Scores {
+		if !math.IsNaN(s) {
+			v := s
+			w.Scores[i] = &v
+		}
+	}
+	return json.Marshal(w)
+}
+
+func (r *GameRecord) UnmarshalJSON(b []byte) error {
+	var w gameRecordJSON
+	if err := json.Unmarshal(b, &w); err != nil {
+		return err
+	}
+	*r = GameRecord{StartFEN: w.StartFEN, Moves: w.Moves, White: w.White, Black: w.Black, Winner: w.Winner, Decisive: w.Decisive}
+	r.Scores = make([]float64, len(w.Scores))
+	for i, s := range w.Scores {
+		if s == nil {
+			r.Scores[i] = math.NaN()
+		} else {
+			r.Scores[i] = *s
+		}
+	}
+	return nil
 }

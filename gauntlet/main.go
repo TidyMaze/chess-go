@@ -153,6 +153,7 @@ func main() {
 	openingOffset := flag.Int("opening-offset", 0, "shift the openings used, so chunked matches do not repeat games")
 	tbPath := flag.String("tablebases", "", "challenger probes this generated endgame tablebase")
 	refTBPath := flag.String("ref-tablebases", "", "reference probes it too")
+	gamesOut := flag.String("games-out", "", "append every game as one JSON line to this file, for a loss audit")
 	flag.Parse()
 	engine.OpeningPlies = *openingPlies
 
@@ -416,6 +417,16 @@ func main() {
 	}
 
 	engine.MatchOpeningOffset = *openingOffset
+
+	if *gamesOut != "" {
+		f, err := os.OpenFile(*gamesOut, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "games-out:", err)
+			os.Exit(1)
+		}
+		defer f.Close()
+		engine.GameSink = jsonlSink(f)
+	}
 
 	res := engine.PlayMatch(challenger, reference, *games, *maxMoves)
 	fmt.Printf("challenger (depth %d) vs reference (depth %d), %d games\n", cd, *depth, *games)
