@@ -1,0 +1,98 @@
+{
+  "points": [
+    {
+      "depth": 1,
+      "cum": 0.0,
+      "cumMargin": 0.0,
+      "perPly": null,
+      "margin": null,
+      "games": null,
+      "w": null,
+      "d": null,
+      "l": null,
+      "score": null,
+      "seconds": null
+    },
+    {
+      "depth": 2,
+      "cum": 188.0,
+      "cumMargin": 45.0,
+      "perPly": 188.0,
+      "margin": 45.0,
+      "games": 300,
+      "w": 196,
+      "d": 56,
+      "l": 48,
+      "score": 0.747,
+      "seconds": 2
+    },
+    {
+      "depth": 3,
+      "cum": 416.0,
+      "cumMargin": 65.8,
+      "perPly": 228.0,
+      "margin": 48.0,
+      "games": 300,
+      "w": 214,
+      "d": 45,
+      "l": 41,
+      "score": 0.788,
+      "seconds": 5
+    },
+    {
+      "depth": 4,
+      "cum": 639.0,
+      "cumMargin": 81.4,
+      "perPly": 223.0,
+      "margin": 48.0,
+      "games": 300,
+      "w": 201,
+      "d": 68,
+      "l": 31,
+      "score": 0.783,
+      "seconds": 12
+    },
+    {
+      "depth": 5,
+      "cum": 790.0,
+      "cumMargin": 92.1,
+      "perPly": 151.0,
+      "margin": 43.0,
+      "games": 300,
+      "w": 171,
+      "d": 81,
+      "l": 48,
+      "score": 0.705,
+      "seconds": 25
+    },
+    {
+      "depth": 6,
+      "cum": 912.0,
+      "cumMargin": 101.2,
+      "perPly": 122.0,
+      "margin": 42.0,
+      "games": 300,
+      "w": 156,
+      "d": 89,
+      "l": 55,
+      "score": 0.668,
+      "seconds": 65
+    },
+    {
+      "depth": 7,
+      "cum": 1070.0,
+      "cumMargin": 110.4,
+      "perPly": 158.0,
+      "margin": 44.0,
+      "games": 300,
+      "w": 166,
+      "d": 96,
+      "l": 38,
+      "score": 0.713,
+      "seconds": 187
+    }
+  ],
+  "generated": "2026-09-16",
+  "games_per_rung": 300,
+  "method": "champion_bot.json at fixed depth d vs the same file at depth d-1, one thread, no clock, 300 games per rung, 6 random opening plies"
+}

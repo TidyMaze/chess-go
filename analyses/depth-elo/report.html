@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Elo vs search depth</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+:root {
+  --surface-0: #f6f6f4; --surface-1: #fcfcfb; --border: #dcdcd6;
+  --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #85847e;
+  --series-1: #2a78d6; --series-1-soft: rgba(42,120,214,.16);
+  --series-2: #eb6834;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --surface-0: #111110; --surface-1: #1a1a19; --border: #33332f;
+    --text-primary: #ffffff; --text-secondary: #c3c2b7; --text-muted: #8a8a80;
+    --series-1: #3987e5; --series-1-soft: rgba(57,135,229,.20);
+    --series-2: #d95926;
+  }
+}
+:root[data-theme="dark"] {
+  --surface-0: #111110; --surface-1: #1a1a19; --border: #33332f;
+  --text-primary: #ffffff; --text-secondary: #c3c2b7; --text-muted: #8a8a80;
+  --series-1: #3987e5; --series-1-soft: rgba(57,135,229,.20);
+  --series-2: #d95926;
+}
+* { box-sizing: border-box; }
+body { margin:0; padding:32px 24px 64px; background:var(--surface-0); color:var(--text-primary);
+  font:14px/1.55 ui-sans-serif,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
+.wrap { max-width:960px; margin:0 auto; }
+h1 { font-size:24px; margin:0 0 4px; letter-spacing:-.01em; }
+.sub { color:var(--text-secondary); margin:0 0 28px; }
+.tiles { display:flex; flex-wrap:wrap; gap:12px; margin-bottom:28px; }
+.tile { flex:1 1 180px; background:var(--surface-1); border:1px solid var(--border); border-radius:10px; padding:14px 16px; }
+.tile .k { color:var(--text-muted); font-size:12px; text-transform:uppercase; letter-spacing:.04em; }
+.tile .v { font-size:26px; font-weight:600; margin-top:2px; letter-spacing:-.02em; }
+.tile .n { color:var(--text-secondary); font-size:12px; margin-top:2px; }
+figure { margin:0 0 30px; background:var(--surface-1); border:1px solid var(--border); border-radius:10px; padding:18px 18px 12px; }
+figcaption { color:var(--text-secondary); font-size:13px; margin-top:10px; }
+figcaption b { color:var(--text-primary); font-weight:600; }
+.chart { position:relative; height:330px; }
+h2 { font-size:15px; margin:0 0 14px; font-weight:600; }
+table { border-collapse:collapse; width:100%; font-variant-numeric:tabular-nums; }
+th,td { text-align:right; padding:7px 10px; border-bottom:1px solid var(--border); }
+th:first-child,td:first-child { text-align:left; }
+th { color:var(--text-secondary); font-weight:600; font-size:12px; text-transform:uppercase; letter-spacing:.04em;
+  cursor:pointer; user-select:none; white-space:nowrap; }
+th:hover { color:var(--text-primary); }
+tbody tr:hover { background:var(--surface-0); }
+.method { color:var(--text-secondary); font-size:13px; margin-top:26px; padding-top:18px; border-top:1px solid var(--border); }
+code { background:var(--surface-0); border:1px solid var(--border); border-radius:4px; padding:1px 5px; font-size:12px; }
+</style>
+</head>
+<body data-palette="#2a78d6,#eb6834">
+<div class="wrap">
+  <h1>More depth is more Elo, with a falling return per ply</h1>
+  <p class="sub">The champion at a fixed depth against the same champion one ply shallower. No clock, so machine load cannot tilt a rung.</p>
+
+  <div class="tiles" id="tiles"></div>
+
+  <figure>
+    <h2>Cumulative Elo above depth 1</h2>
+    <div class="chart"><canvas id="cum"></canvas></div>
+    <figcaption id="capCum"></figcaption>
+  </figure>
+
+  <figure>
+    <h2>Elo gained by each extra ply</h2>
+    <div class="chart"><canvas id="per"></canvas></div>
+    <figcaption id="capPer"></figcaption>
+  </figure>
+
+  <figure>
+    <h2>Every rung</h2>
+    <table id="tbl">
+      <thead><tr>
+        <th data-k="depth">Depth</th><th data-k="perPly">Elo / ply</th><th data-k="margin">±95%</th>
+        <th data-k="cum">Cumulative</th><th data-k="score">Score</th>
+        <th data-k="w">W</th><th data-k="d">D</th><th data-k="l">L</th><th data-k="seconds">Match (s)</th>
+      </tr></thead>
+      <tbody></tbody>
+    </table>
+    <figcaption>Click a column to sort. 300 games per rung, 6 random opening plies, colours alternating.</figcaption>
+  </figure>
+
+  <p class="method" id="method"></p>
+</div>
+<script>
+const P = {"points": [{"depth": 1, "cum": 0.0, "cumMargin": 0.0, "perPly": null, "margin": null, "games": null, "w": null, "d": null, "l": null, "score": null, "seconds": null}, {"depth": 2, "cum": 188.0, "cumMargin": 45.0, "perPly": 188.0, "margin": 45.0, "games": 300, "w": 196, "d": 56, "l": 48, "score": 0.747, "seconds": 2}, {"depth": 3, "cum": 416.0, "cumMargin": 65.8, "perPly": 228.0, "margin": 48.0, "games": 300, "w": 214, "d": 45, "l": 41, "score": 0.788, "seconds": 5}, {"depth": 4, "cum": 639.0, "cumMargin": 81.4, "perPly": 223.0, "margin": 48.0, "games": 300, "w": 201, "d": 68, "l": 31, "score": 0.783, "seconds": 12}, {"depth": 5, "cum": 790.0, "cumMargin": 92.1, "perPly": 151.0, "margin": 43.0, "games": 300, "w": 171, "d": 81, "l": 48, "score": 0.705, "seconds": 25}, {"depth": 6, "cum": 912.0, "cumMargin": 101.2, "perPly": 122.0, "margin": 42.0, "games": 300, "w": 156, "d": 89, "l": 55, "score": 0.668, "seconds": 65}, {"depth": 7, "cum": 1070.0, "cumMargin": 110.4, "perPly": 158.0, "margin": 44.0, "games": 300, "w": 166, "d": 96, "l": 38, "score": 0.713, "seconds": 187}], "generated": "2026-09-16", "games_per_rung": 300, "method": "champion_bot.json at fixed depth d vs the same file at depth d-1, one thread, no clock, 300 games per rung, 6 random opening plies"};
+Chart.defaults.animation = false;
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const rungs = P.points.filter(p => p.perPly !== null);
+const fmt = n => (n > 0 ? "+" : "") + n.toFixed(0);
+
+// Stat tiles: the headline numbers, which are not a chart's job.
+const last = P.points[P.points.length - 1];
+const best = rungs.reduce((a, b) => (b.perPly > a.perPly ? b : a));
+const worst = rungs.reduce((a, b) => (b.perPly < a.perPly ? b : a));
+const costPerPly = last.seconds / P.points[P.points.length - 2].seconds;
+document.getElementById("tiles").innerHTML = [
+  ["Depth 1 to " + last.depth, fmt(last.cum) + " Elo", "±" + last.cumMargin.toFixed(0) + ", errors added in quadrature"],
+  ["Best single ply", fmt(best.perPly), "depth " + (best.depth - 1) + " to " + best.depth],
+  ["Weakest single ply", fmt(worst.perPly), "depth " + (worst.depth - 1) + " to " + worst.depth],
+  ["Cost of the last ply", "×" + costPerPly.toFixed(1), "match seconds, depth " + last.depth + " vs " + (last.depth - 1)],
+].map(([k, v, n]) => `<div class="tile"><div class="k">${k}</div><div class="v">${v}</div><div class="n">${n}</div></div>`).join("");
+
+const grid = () => ({ color: css("--border"), drawTicks: false });
+const ticks = () => ({ color: css("--text-secondary") });
+const titleFont = { weight: "600" };
+
+// Cumulative: a line, because the question is a trend over an ordered axis.
+// The band is the 95% interval, errors added in quadrature along the chain.
+new Chart(document.getElementById("cum"), {
+  type: "line",
+  data: {
+    labels: P.points.map(p => p.depth),
+    datasets: [
+      { label: "upper", data: P.points.map(p => p.cum + p.cumMargin), borderWidth: 0,
+        pointRadius: 0, fill: "+1", backgroundColor: css("--series-1-soft"), order: 3 },
+      { label: "lower", data: P.points.map(p => p.cum - p.cumMargin), borderWidth: 0,
+        pointRadius: 0, fill: false, order: 3 },
+      { label: "Cumulative Elo", data: P.points.map(p => p.cum),
+        borderColor: css("--series-1"), backgroundColor: css("--series-1"),
+        borderWidth: 2, pointRadius: 5, pointHoverRadius: 8,
+        pointBorderColor: css("--surface-1"), pointBorderWidth: 2, tension: .25, order: 1 },
+    ],
+  },
+  options: {
+    maintainAspectRatio: false,
+    interaction: { mode: "index", intersect: false },
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        filter: i => i.datasetIndex === 2,
+        callbacks: {
+          title: i => "Depth " + i[0].label,
+          label: i => {
+            const p = P.points[i.dataIndex];
+            return p.perPly === null ? "reference, 0 Elo"
+              : fmt(p.cum) + " Elo cumulative  (this ply " + fmt(p.perPly) + " ± " + p.margin + ")";
+          },
+        },
+      },
+    },
+    scales: {
+      x: { title: { display: true, text: "Search depth (plies)", color: css("--text-secondary"), font: titleFont },
+           grid: { display: false }, ticks: ticks() },
+      y: { title: { display: true, text: "Elo above depth 1", color: css("--text-secondary"), font: titleFont },
+           grid: grid(), ticks: ticks(), border: { display: false } },
+    },
+  },
+});
+
+// Per ply: bars, because each value is an independent magnitude, and the
+// point is that they shrink. Direct labels, so no value is read off the axis.
+const valueLabels = {
+  id: "valueLabels",
+  afterDatasetsDraw(c) {
+    const { ctx } = c;
+    ctx.save();
+    ctx.fillStyle = css("--text-primary");
+    ctx.font = "600 12px ui-sans-serif, -apple-system, sans-serif";
+    ctx.textAlign = "center";
+    c.getDatasetMeta(0).data.forEach((bar, i) => {
+      ctx.fillText(fmt(rungs[i].perPly), bar.x, bar.y - 8);
+    });
+    ctx.restore();
+  },
+};
+new Chart(document.getElementById("per"), {
+  type: "bar",
+  data: {
+    labels: rungs.map(p => (p.depth - 1) + " to " + p.depth),
+    datasets: [{
+      label: "Elo gained",
+      data: rungs.map(p => p.perPly),
+      backgroundColor: css("--series-2"),
+      borderRadius: 4,
+      borderSkipped: "start",
+      maxBarThickness: 52,
+    }],
+  },
+  options: {
+    maintainAspectRatio: false,
+    layout: { padding: { top: 22 } },
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        callbacks: {
+          title: i => "Depth " + rungs[i[0].dataIndex].depth,
+          label: i => {
+            const p = rungs[i.dataIndex];
+            return [fmt(p.perPly) + " ± " + p.margin + " Elo",
+                    "W-D-L " + p.w + "-" + p.d + "-" + p.l + ", score " + p.score.toFixed(3),
+                    "match took " + p.seconds + " s"];
+          },
+        },
+      },
+    },
+    scales: {
+      x: { title: { display: true, text: "Ply added", color: css("--text-secondary"), font: titleFont },
+           grid: { display: false }, ticks: ticks() },
+      y: { beginAtZero: true, title: { display: true, text: "Elo gained", color: css("--text-secondary"), font: titleFont },
+           grid: grid(), ticks: ticks(), border: { display: false } },
+    },
+  },
+  plugins: [valueLabels],
+});
+
+document.getElementById("capCum").innerHTML =
+  "Every rung is positive, so <b>more depth is more Elo</b> over the whole range tested. The band is the 95% interval.";
+document.getElementById("capPer").innerHTML =
+  "The return per ply falls from <b>" + fmt(best.perPly) + "</b> to around <b>+120 to +160</b>, while the cost of buying a ply keeps doubling.";
+document.getElementById("method").innerHTML =
+  "Method: " + P.method + ". Each rung is an independent match, so the cumulative curve adds independent errors in quadrature.";
+
+// Sortable table.
+(function () {
+  let sortKey = "depth", sortDir = 1;
+  const body = document.querySelector("#tbl tbody");
+  function render() {
+    const rows = rungs.slice().sort((a, b) => (a[sortKey] - b[sortKey]) * sortDir);
+    body.innerHTML = rows.map(p => `<tr>
+      <td>${p.depth}</td><td>${fmt(p.perPly)}</td><td>±${p.margin}</td><td>${fmt(p.cum)}</td>
+      <td>${p.score.toFixed(3)}</td><td>${p.w}</td><td>${p.d}</td><td>${p.l}</td><td>${p.seconds}</td></tr>`).join("");
+  }
+  document.querySelectorAll("#tbl th").forEach(th => th.addEventListener("click", () => {
+    const k = th.dataset.k;
+    sortDir = k === sortKey ? -sortDir : 1;
+    sortKey = k;
+    render();
+  }));
+  render();
+})();
+</script>
+</body>
+</html>
