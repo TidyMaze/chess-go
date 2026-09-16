@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"math/bits"
 	"os"
 	"sync"
 
@@ -456,69 +457,102 @@ func (n *HalfKPNet) Save(path string) error {
 // every row per node was 21% of the engine's CPU.
 type halfKPAcc struct {
 	valid bool
-	nfeat [2]int
-	feat  [2][32]int32
-	acc   [2][maxHalfKPHidden]float32
+	// The position this accumulator describes, as the twelve piece
+	// bitboards and the two king squares. A child derives its feature
+	// changes from the XOR against its parent's snapshot: the set bits are
+	// exactly the pieces that appeared or vanished, two to four per move.
+	pieces [2][6]uint64
+	kings  [2]board.Sq
+	acc    [2][maxHalfKPHidden]float32
 }
 
-// halfKPAccStats counts how the accumulator was obtained.
+// halfKPAccStats counts how each perspective's accumulator was obtained,
+// so two per node.
 type halfKPAccStats struct{ incremental, full int }
 
 // accSlots is one per search ply plus room for quiescence below it.
 const accSlots = maxSearchPly + 48
 
-// refresh makes self valid for b: derived from parent by applying only
-// the rows whose feature changed when parent is valid, else in full.
-// Networks wider than the stack bound leave self invalid and evaluate
-// the slow way.
+// refresh makes self valid for b. Each perspective is derived from the
+// parent by applying only the rows whose feature changed, when the parent
+// is valid and that perspective's king slot is unchanged; otherwise it is
+// rebuilt in full from the bias.
+//
+// The change set comes from XORing parent and child piece bitboards, not
+// from re-extracting the feature list: that extraction, plus the sort the
+// merge-diff needed, was a fifth of the engine's CPU at both 10 ms and
+// 1 s a move. A null move leaves every bitboard equal and costs one copy.
+// Networks wider than the stack bound leave self invalid and evaluate the
+// slow way.
 func (n *HalfKPNet) refresh(b *board.Board, self, parent *halfKPAcc, st *halfKPAccStats) {
 	self.valid = false
 	if n == nil || n.H == 0 || n.H > maxHalfKPHidden || len(n.W1) != HalfKPInputsFor(n.buckets())*n.H {
 		return
 	}
 	h := n.H
-	for side, persp := range [2]board.Color{board.White, board.Black} {
-		fs := AppendHalfKPFeaturesN(self.feat[side][:0], b, persp, n.buckets())
-		self.nfeat[side] = len(fs)
-		sortInt32(fs)
+	buckets := n.buckets()
+	for c := 0; c < 2; c++ {
+		for t := board.Pawn; t <= board.King; t++ {
+			self.pieces[c][t] = b.PieceBitboard(board.Color(c), t)
+		}
 	}
-	if parent != nil && parent.valid {
-		for side := 0; side < 2; side++ {
-			a := self.acc[side][:h]
+	self.kings = [2]board.Sq{b.KingSquare(board.White), b.KingSquare(board.Black)}
+	for side, persp := range [2]board.Color{board.White, board.Black} {
+		a := self.acc[side][:h]
+		if parent != nil && parent.valid &&
+			perspectiveKingSlot(parent.kings[side], persp, buckets) == perspectiveKingSlot(self.kings[side], persp, buckets) {
 			copy(a, parent.acc[side][:h])
-			pf := parent.feat[side][:parent.nfeat[side]]
-			cf := self.feat[side][:self.nfeat[side]]
-			i, j := 0, 0
-			for i < len(pf) || j < len(cf) {
-				switch {
-				case j >= len(cf) || (i < len(pf) && pf[i] < cf[j]):
-					n.addRow(a, pf[i], -1)
-					i++
-				case i >= len(pf) || cf[j] < pf[i]:
-					n.addRow(a, cf[j], 1)
-					j++
-				default:
-					i++
-					j++
-				}
+			n.applyDelta(a, parent, self, persp, buckets)
+			if st != nil {
+				st.incremental++
 			}
+			continue
 		}
-		if st != nil {
-			st.incremental++
-		}
-	} else {
-		for side := 0; side < 2; side++ {
-			a := self.acc[side][:h]
-			copy(a, n.B1)
-			for _, f := range self.feat[side][:self.nfeat[side]] {
-				n.addRow(a, f, 1)
-			}
+		copy(a, n.B1)
+		var buf [32]int32
+		for _, f := range AppendHalfKPFeaturesN(buf[:0], b, persp, buckets) {
+			n.addRow(a, f, 1)
 		}
 		if st != nil {
 			st.full++
 		}
 	}
 	self.valid = true
+}
+
+// applyDelta adds the rows of the pieces present in self but not in
+// parent, and subtracts those present in parent but not in self, for one
+// perspective. Kings are the conditioning variable and have no row.
+func (n *HalfKPNet) applyDelta(a []float32, parent, self *halfKPAcc, persp board.Color, buckets int) {
+	king := self.kings[persp]
+	for c := 0; c < 2; c++ {
+		owner := board.Color(c)
+		for t := board.Pawn; t < board.King; t++ {
+			changed := parent.pieces[c][t] ^ self.pieces[c][t]
+			for changed != 0 {
+				i := bits.TrailingZeros64(changed)
+				changed &= changed - 1
+				sq := board.Sq{File: i % 8, Rank: i / 8}
+				// Never !ok: the loop stops short of the king, the only
+				// piece halfKPIndex refuses.
+				f, _ := halfKPIndex(king, t, owner, sq, persp, buckets)
+				sign := float32(-1)
+				if self.pieces[c][t]&(1<<uint(i)) != 0 {
+					sign = 1
+				}
+				n.addRow(a, int32(f), sign)
+			}
+		}
+	}
+}
+
+// perspectiveKingSlot is the king slot halfKPIndex conditions on, with
+// the rank mirrored for Black the way halfKPIndex mirrors it.
+func perspectiveKingSlot(king board.Sq, persp board.Color, buckets int) int {
+	if persp == board.Black {
+		king = board.Sq{File: king.File, Rank: 7 - king.Rank}
+	}
+	return kingSlot(king, buckets)
 }
 
 // addRow adds (sign +1) or subtracts (sign -1) one feature's first-layer
@@ -566,16 +600,4 @@ func (n *HalfKPNet) EvaluateWith(b *board.Board, self, parent *halfKPAcc, st *ha
 		return n.Evaluate(b)
 	}
 	return n.output(self)
-}
-
-func sortInt32(a []int32) {
-	for i := 1; i < len(a); i++ {
-		v := a[i]
-		j := i - 1
-		for j >= 0 && a[j] > v {
-			a[j+1] = a[j]
-			j--
-		}
-		a[j+1] = v
-	}
 }
