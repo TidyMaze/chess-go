@@ -212,6 +212,42 @@ command line contains the pattern, so `pgrep -f 'train.py --pool x'` never
 returns empty and the wait never ends. Write `train[.]py`, or wait on a log
 line.
 
+## Probability-space outcome blending is worse, not better
+
+Claimed here earlier the same day, and wrong. The argument was that
+blendedTarget caps a win at +/-4 pawns through resultPawns, so a position
+the search calls +8 in a won game is labelled +6.8, and that this scale
+error was why the lambda sweep read negative rather than the technique
+failing. blendedTargetProb blends in probability space instead, where a
+win can only raise a target.
+
+Two fresh networks, identical settings, 900 self-play games per
+generation, lambda 0.6, differing only in the blend space:
+
+| target | generations | pool | explains | head to head at 100 ms |
+|---|---|---|---|---|
+| pawn space (blend-k 0) | 29 | 1392460 | 92.1% | reference |
+| probability space (blend-k 0.30) | 20 | 1565660 | 87.9% | **-124 +/- 42** |
+
+SPRT settled worse after 300 games. The mechanism is visible in the
+numbers the fix itself printed: a position scored +0.3 in a won game
+becomes +1.41 in pawn space and +2.30 in probability space. Probability
+space moves targets *more*, not less, because at k 0.30 an outcome of 1.0
+is an enormous statement, equivalent to a score far past anything the
+search reports. At lambda 0.6 that puts 40% weight on a near-saturated
+target, and the +/-4 cap that looked like the bug was doing useful work as
+a regulariser.
+
+"Explains" also is not comparable across the two: the pawn-space target is
+lower variance and easier to fit, which is most of the 92.1% against
+87.9%. Only the head to head settles it.
+
+**What stands.** The lambda sweep's conclusion is unchanged and was not
+closed on a scale bug: more outcome weight is worse here, in either space.
+The -blend-k flag stays at its default of 0, so nothing shipped on the
+wrong side of this. What is genuinely still untried is outcome learning
+that does not blend a per-game constant into every position at all.
+
 ## The gap to Stockfish narrows with the clock
 
 Same binaries, same reference, one thread, 2026-09-17:
