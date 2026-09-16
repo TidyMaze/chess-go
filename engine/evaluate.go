@@ -183,6 +183,10 @@ type Eval struct {
 	ContHist bool
 	// Improving feeds the static-evaluation trend to late move pruning.
 	Improving bool
+	// HistLMR adjusts the late move reduction by the move's history score.
+	HistLMR bool
+	// HistGravity bounds the history tables so they keep discriminating.
+	HistGravity bool
 	// NoCastle is a measurement instrument, never a playing mode. Castling
 	// is a rule of chess and is implemented; this flag exists only so one
 	// side of an A/B can decline it, which is the only way to price the

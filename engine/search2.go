@@ -278,10 +278,42 @@ func (c *searchCtx) recordKiller(ply int, m game.Move) {
 	c.killers[ply][0] = m
 }
 
+// maxHistory is the ceiling a history entry approaches but never passes,
+// under the gravity update below.
+const maxHistory = 16384
+
+// applyHistory moves an entry toward the ceiling by a bonus, scaled down
+// the closer it already is: the standard gravity form. A plain running sum
+// grows without limit, so every move that has ever caused a cutoff ends up
+// at the same large number and the table stops telling them apart, which
+// is why a reduction keyed on history read the same for nearly every quiet
+// move here.
+func applyHistory(entry *int32, bonus int32) {
+	b := bonus
+	if b > maxHistory {
+		b = maxHistory
+	} else if b < -maxHistory {
+		b = -maxHistory
+	}
+	abs := b
+	if abs < 0 {
+		abs = -abs
+	}
+	*entry += b - int32(int64(*entry)*int64(abs)/maxHistory)
+}
+
 func (c *searchCtx) recordHistory(color board.Color, g *game.Game, m game.Move, depth int) {
-	c.history[color][sqIndex(m.From)][sqIndex(m.To)] += int32(depth * depth)
+	bonus := int32(depth * depth)
+	if c.ev != nil && c.ev.HistGravity {
+		applyHistory(&c.history[color][sqIndex(m.From)][sqIndex(m.To)], bonus)
+		if slot := c.contSlot(color, g, m); slot != nil {
+			applyHistory(slot, bonus)
+		}
+		return
+	}
+	c.history[color][sqIndex(m.From)][sqIndex(m.To)] += bonus
 	if slot := c.contSlot(color, g, m); slot != nil {
-		*slot += int32(depth * depth)
+		*slot += bonus
 	}
 }
 
@@ -309,6 +341,48 @@ func (c *searchCtx) improving(ply int, static float64, haveStatic, maximizing bo
 	return static < c.staticAt[ply-2]
 }
 
+// histLMRDivisor turns a history score into plies of reduction. History
+// accumulates depth*depth per cutoff and is halved between iterations, so
+// the scale is thousands for a move that keeps refuting; the divisor is
+// fitted so an ordinary good quiet move moves the reduction by one ply and
+// only a persistent refutation moves it by two.
+var histLMRDivisor = 16384
+
+// maxHistLMRShift bounds the adjustment either way, so a stale table can
+// never turn a reduction into an extension or bury a move entirely.
+const maxHistLMRShift = 2
+
+// historyAdjustedReduction shifts a late move reduction by what the
+// history tables think of the move: less for a move that keeps causing
+// cutoffs, more for one that never does. Bounded by the same rules the
+// plain reduction respects, so it stays within [0, depth-2].
+func (c *searchCtx) historyAdjustedReduction(reduction int, color board.Color, g *game.Game, m game.Move, depth int) int {
+	if c.ev == nil || !c.ev.HistLMR {
+		return reduction
+	}
+	h := int(c.history[color][sqIndex(m.From)][sqIndex(m.To)])
+	if slot := c.contSlot(color, g, m); slot != nil {
+		h += int(*slot)
+	}
+	shift := h / histLMRDivisor
+	if shift > maxHistLMRShift {
+		shift = maxHistLMRShift
+	} else if shift < -maxHistLMRShift {
+		shift = -maxHistLMRShift
+	}
+	r := reduction - shift
+	if r < 0 {
+		r = 0
+	}
+	if max := depth - 2; r > max {
+		r = max
+		if r < 0 {
+			r = 0
+		}
+	}
+	return r
+}
+
 func (c *searchCtx) contSlot(color board.Color, g *game.Game, m game.Move) *int32 {
 	if c.ev == nil || !c.ev.ContHist || c.prevMove == (game.Move{}) {
 		return nil
@@ -322,9 +396,17 @@ func (c *searchCtx) contSlot(color board.Color, g *game.Game, m game.Move) *int3
 
 func (c *searchCtx) penalizeHistory(color board.Color, g *game.Game, failed []game.Move, depth int) {
 	malus := int32(depth * depth)
+	gravity := c.ev != nil && c.ev.HistGravity
 	for _, m := range failed {
 		if !isCaptureMove(g, m) {
 			idxFrom, idxTo := sqIndex(m.From), sqIndex(m.To)
+			if gravity {
+				applyHistory(&c.history[color][idxFrom][idxTo], -malus)
+				if slot := c.contSlot(color, g, m); slot != nil {
+					applyHistory(slot, -malus)
+				}
+				continue
+			}
 			c.history[color][idxFrom][idxTo] -= malus
 			if c.history[color][idxFrom][idxTo] < -1<<16 {
 				c.history[color][idxFrom][idxTo] = -1 << 16
@@ -869,6 +951,7 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 				// catches the cases where it was wrong.
 				reduction = lmrReduction(depth, i, !zeroWindow(alpha, beta), c.isKiller(ply, m), promoted)
 			}
+			reduction = c.historyAdjustedReduction(reduction, color, g, m, depth)
 		}
 
 		// Check extension: a forced sequence should not be cut off

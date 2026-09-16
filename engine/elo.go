@@ -109,6 +109,10 @@ type Player struct {
 	// Improving lets late move pruning keep more moves at nodes whose static
 	// evaluation rose since two plies ago.
 	Improving bool
+	// HistLMR adjusts the late move reduction by the move's history score.
+	HistLMR bool
+	// HistGravity bounds the history tables so they keep discriminating.
+	HistGravity bool
 	// NoRepetition disables repetition detection. Measurement only.
 	NoRepetition bool
 	// NullReduction and NullScale tune null-move pruning. 0 means 3.
@@ -183,6 +187,10 @@ func (p *Player) ApplyFeatures(features string) {
 			p.ContHist = true
 		case "improving":
 			p.Improving = true
+		case "histlmr":
+			p.HistLMR = true
+		case "histgravity":
+			p.HistGravity = true
 		case "historyaging":
 			p.HistoryAging = true
 		case "lmrtwostep":
@@ -718,7 +726,7 @@ func evalForPlayer(p Player) *Eval {
 		DeepRFP: p.DeepRFP, NullGate: p.NullGate, Countermoves: p.Countermoves, IIR: p.IIR, MainSEE: p.MainSEE,
 		NoRepetition: p.NoRepetition, KeepNullMoveEP: p.KeepNullMoveEP,
 		DeltaPruning: p.DeltaPruning, LMRTwoStep: p.LMRTwoStep,
-		HistoryAging: p.HistoryAging, HistoryMalus: p.HistoryMalus, ContHist: p.ContHist, Improving: p.Improving,
+		HistoryAging: p.HistoryAging, HistoryMalus: p.HistoryMalus, ContHist: p.ContHist, Improving: p.Improving, HistLMR: p.HistLMR, HistGravity: p.HistGravity,
 		NullReduction: p.NullReduction, NullScale: p.NullScale,
 		Extras: p.Extras, Shape: p.Shape, ShapeW: p.ShapeW,
 		PSTScale: p.PSTScale, MobilityW: p.MobilityW, StructureW: p.StructureW,
