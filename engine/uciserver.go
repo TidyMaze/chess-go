@@ -58,7 +58,10 @@ func ServeUCI(in io.Reader, out io.Writer, p Player) {
 					q.Depth = n
 				}
 			}
+			ResetNodes()
+			started := time.Now()
 			m, score, ok := q.pickScored(g, tt)
+			elapsed := time.Since(started)
 			if !ok {
 				fmt.Fprintln(out, "bestmove (none)")
 				continue
@@ -66,7 +69,17 @@ func ServeUCI(in io.Reader, out io.Writer, p Player) {
 			// The score travels with the move so the harness on the other
 			// side can adjudicate on it; without it, it would see zero.
 			if !math.IsNaN(score) {
-				fmt.Fprintf(out, "info depth %d score cp %d\n", LastSearchDepth(), int(math.Round(score*100)))
+				// nodes, nps and time are what make a search comparable with
+				// another engine's on the same position: depth alone says
+				// nothing about how large a tree was spent reaching it.
+				nodes := TotalNodes()
+				ms := elapsed.Milliseconds()
+				nps := int64(0)
+				if s := elapsed.Seconds(); s > 0 {
+					nps = int64(float64(nodes) / s)
+				}
+				fmt.Fprintf(out, "info depth %d score cp %d nodes %d nps %d time %d\n",
+					LastSearchDepth(), int(math.Round(score*100)), nodes, nps, ms)
 			}
 			fmt.Fprintln(out, "bestmove "+m.UCI())
 		case "quit":

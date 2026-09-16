@@ -6,10 +6,10 @@
   "net_file": "champion_net.json",
   "hand_blend": 0.0,
   "adopted": "2026-09-13T11:10:00+0200",
-  "elo_note": "Calibrated with 8 threads and 1000 ms time budget. Depth reach at 1s doubled from depth 6-8 to depth 12-13 through direct 1D array ray stepping, zero-alloc SEE, single-probe TT, DeepLMP, quiescence TT probing/storing, and deferred move generation. Hand evaluation dropped 2026-09-16: blending it at 0.45 cost 18% of nodes per second (611-639 knps against 719-749 paired) and +33 +/- 22 Elo over 1000 games at 10 ms a move, SPRT settled better. A 0.20 blend read -18 +/- 24, which is the same finding: at any positive weight the full PositionScoreEval still runs, so only dropping it outright buys the time back.",
+  "elo_note": "Calibrated with 8 threads and 1000 ms time budget. Depth reach at 1s doubled from depth 6-8 to depth 12-13 through direct 1D array ray stepping, zero-alloc SEE, single-probe TT, DeepLMP, quiescence TT probing/storing, and deferred move generation. Hand evaluation dropped 2026-09-16: blending it at 0.45 cost 18% of nodes per second (611-639 knps against 719-749 paired) and +33 +/- 22 Elo over 1000 games at 10 ms a move, SPRT settled better. A 0.20 blend read -18 +/- 24, which is the same finding: at any positive weight the full PositionScoreEval still runs, so only dropping it outright buys the time back. The improving flag was adopted the same day: late move pruning had taken its improving argument as a hardwired false since it was written, and the real two-ply static trend read +12 +/- 15 twice independently, +12 +/- 11 pooled over 4000 games at 10 ms.",
   "time_ms": 1000,
   "threads": 4,
   "tt_bits": 22,
-  "features": "lmp,deeplmp,rfp,scaledlmr,countermove,see,historymalus,lmrtwostep,nullgate,iir",
+  "features": "lmp,deeplmp,rfp,scaledlmr,countermove,see,historymalus,lmrtwostep,nullgate,iir,improving",
   "book": "games_book_v5.txt"
 }
