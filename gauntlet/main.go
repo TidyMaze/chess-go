@@ -103,6 +103,8 @@ func (s referenceSwitches) applyTo(p engine.Player) (engine.Player, error) {
 			p.HistLMR = true
 		case "histgravity":
 			p.HistGravity = true
+		case "singular":
+			p.Singular = true
 		default:
 			return p, fmt.Errorf("unknown feature %q", f)
 		}
@@ -221,6 +223,8 @@ func main() {
 			challenger.HistLMR = true
 		case "histgravity":
 			challenger.HistGravity = true
+		case "singular":
+			challenger.Singular = true
 		default:
 			fmt.Printf("unknown feature %q\n", f)
 			return

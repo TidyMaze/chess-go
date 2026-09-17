@@ -338,6 +338,29 @@ func (t *TranspositionTable) bestMove(key uint64) (game.Move, bool) {
 
 // put writes an entry unless the slot already holds a deeper one for the
 // same key.
+// entryFor returns the stored depth, flag and score for a key, for the
+// singular test, which needs to know how much the table actually knows
+// about a move rather than just what the move is.
+func (t *TranspositionTable) entryFor(key uint64) (score float64, depth int, flag ttFlag, ok bool) {
+	if t == nil {
+		return 0, 0, 0, false
+	}
+	idx := key & t.mask
+	var e ttEntry
+	if t.shared {
+		l := &t.locks[idx&(ttStripes-1)]
+		l.Lock()
+		e = t.entries[idx]
+		l.Unlock()
+	} else {
+		e = t.entries[idx]
+	}
+	if e.key32 != keyUpper(key) {
+		return 0, 0, 0, false
+	}
+	return e.score, int(e.depth), e.flag, true
+}
+
 // put is depth-preferred within a search and always-replace across
 // searches. Quiescence stores at depth 0 and is about half the nodes, so
 // plain always-replace let a leaf evict a depth-12 entry it collided with,

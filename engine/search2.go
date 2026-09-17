@@ -88,6 +88,7 @@ func (c *searchCtx) reset() {
 		c.contDirty = false
 	}
 	c.staticKnown = [maxSearchPly]bool{}
+	c.excluded = [maxSearchPly]game.Move{}
 	c.path = [maxSearchPly]uint64{}
 	c.abortAtNodes = 0
 	c.checkMask = 2047
@@ -182,7 +183,11 @@ type searchCtx struct {
 	cont [2][64][6][64]int32
 	// staticAt holds the static evaluation noted at each ply of the current
 	// line, when one was computed, for the improving test two plies later.
-	contDirty   bool
+	contDirty bool
+	// excluded[ply] is a move the search at that ply must not play. It is
+	// how a singular check asks "how good is this position without the
+	// move the table likes?" without a second search stack.
+	excluded    [maxSearchPly]game.Move
 	staticAt    [maxSearchPly]float64
 	staticKnown [maxSearchPly]bool
 	quiescence  bool
@@ -388,6 +393,70 @@ func (c *searchCtx) historyAdjustedReduction(reduction int, color board.Color, g
 		}
 	}
 	return r
+}
+
+// singularMinDepth is the shallowest node worth a singular test. Strong
+// engines use six to eight, inside searches that reach depth 20 and more.
+// This engine reaches 6 to 13, and instrumenting the gates showed why that
+// matters: at a threshold of 7, only 31 of 8619 live nodes were deep
+// enough and the test never once fired. At 4 it fires, with a two-ply
+// exclusion search behind it, which is as much depth as there is to spend.
+const singularMinDepth = 4
+
+// singularMargin is how far below the stored score the exclusion window
+// sits, in pawns, scaled by depth. A move is singular when nothing else
+// comes within this of it.
+func singularMargin(depth int) float64 { return 0.02 * float64(depth) }
+
+// singularExtension reports the extra plies the table's move has earned.
+//
+// The question is whether this move is the only one that holds the
+// position. It is asked by searching the same node with that move barred,
+// to a reduced depth, against a null window a margin below what the table
+// says the move is worth. If every alternative fails below that window,
+// nothing else comes close and the move is worth one more ply.
+//
+// Requires a table entry deep enough to be worth trusting and a lower
+// bound or exact score: an upper bound says only that the move was not
+// good enough, which is not an opinion about the alternatives. Never
+// recurses, since the exclusion search has a move barred at this ply and
+// the guard refuses to start another.
+func (c *searchCtx) singularExtension(g *game.Game, tt *TranspositionTable, key uint64, m game.Move, depth, ply int, maximizingFor board.Color) int {
+	if c.ev == nil || !c.ev.Singular || tt == nil {
+		return 0
+	}
+	if depth < singularMinDepth || ply == 0 || ply >= maxSearchPly-2 {
+		return 0
+	}
+	if c.excludedAt(ply) != (game.Move{}) {
+		return 0
+	}
+	score, ttDepth, flag, ok := tt.entryFor(key)
+	if !ok || ttDepth < depth-3 || (flag != ttLowerBound && flag != ttExact) {
+		return 0
+	}
+	if score >= mateScore-maxSearchPly || score <= -mateScore+maxSearchPly {
+		return 0
+	}
+	target := score - singularMargin(depth)
+	c.excluded[ply] = m
+	v := c.search(g, g.Turn, maximizingFor, depth/2, ply, target-1e-6, target)
+	c.excluded[ply] = game.Move{}
+	if c.aborted {
+		return 0
+	}
+	if v < target {
+		return 1
+	}
+	return 0
+}
+
+// excludedAt is the move barred at this ply, if any.
+func (c *searchCtx) excludedAt(ply int) game.Move {
+	if ply < 0 || ply >= maxSearchPly {
+		return game.Move{}
+	}
+	return c.excluded[ply]
 }
 
 func (c *searchCtx) contSlot(color board.Color, g *game.Game, m game.Move) *int32 {
@@ -780,8 +849,9 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 	// In the vast majority of positions with a TT hit, the TT move refutes
 	// the position immediately (beta cutoff). Searching it before generating
 	// and sorting the full legal move list saves ~80% of move generation overhead.
-	if ttMove != (game.Move{}) && g.IsLegalMove(ttMove) {
+	if ttMove != (game.Move{}) && ttMove != c.excludedAt(ply) && g.IsLegalMove(ttMove) {
 		m := ttMove
+		ttExtension := c.singularExtension(g, tt, key, m, depth, ply, maximizingFor)
 		isCapture := isCaptureMove(g, m)
 		exchange := 0
 		if isCapture && c.ev != nil && c.ev.MainSEE && depth <= 6 {
@@ -814,6 +884,9 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 			c.fifty[ply+1] = childClock
 		}
 
+		if ttExtension > extension {
+			extension = ttExtension
+		}
 		value := c.search(g, color.Other(), maximizingFor, depth-1+extension, ply+1, alpha, beta)
 		g.Board.UnmakeMove(undo)
 		if ply+1 < maxSearchPly {
@@ -873,6 +946,9 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 	c.orderMoves(g, legal, ttMove, ply, color)
 
 	for i, m := range legal {
+		if m == c.excludedAt(ply) {
+			continue
+		}
 		if ttSearched && m == ttMove {
 			continue
 		}

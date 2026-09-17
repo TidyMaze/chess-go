@@ -187,6 +187,9 @@ type Eval struct {
 	HistLMR bool
 	// HistGravity bounds the history tables so they keep discriminating.
 	HistGravity bool
+	// Singular extends a transposition-table move that beats every
+	// alternative by a margin on a reduced-depth search.
+	Singular bool
 	// NoCastle is a measurement instrument, never a playing mode. Castling
 	// is a rule of chess and is implemented; this flag exists only so one
 	// side of an A/B can decline it, which is the only way to price the
