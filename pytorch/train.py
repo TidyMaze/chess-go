@@ -427,6 +427,21 @@ def main():
         if args.limit and remaining == 0:
             break
         o, p_, t_, g_ = load_pool(Path(path), remaining)
+        # A pool records feature indices under the king-bucket scheme it was
+        # generated with, so mixing an 8-bucket pool with a 32-bucket one
+        # silently trains on nonsense until an index runs off the embedding.
+        # On an accelerator that surfaces as "index N is out of bounds for
+        # dimension with size 5121" from inside evaluate(), forty minutes in,
+        # naming neither the pool nor the cause.
+        worst = max((max(row) for row in o if len(row)), default=-1)
+        worst = max(worst, max((max(row) for row in p_ if len(row)), default=-1))
+        if worst >= inputs_for(args.buckets):
+            slots = worst // PER_KING + 1
+            raise SystemExit(
+                "%s holds feature indices up to %d, which needs %d king slots, "
+                "but --buckets %d allows %d. That pool was generated under a "
+                "different scheme and cannot be mixed with these."
+                % (path, worst, slots, args.buckets, inputs_for(args.buckets)))
         # Game ids restart from a low number in every pool, so without an
         # offset a self-play game and a real game share an id and the
         # by-game split puts one in training and the other in held-out
