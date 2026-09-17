@@ -611,6 +611,15 @@ func (c *searchCtx) search(g *game.Game, color, maximizingFor board.Color, depth
 // boundary with the same evaluation on both sides, depth 6 lost to depth 5
 // by 125 +/- 36 Elo, when a ply is normally worth 50 to 100 the other way.
 func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, depth, ply int, alpha, beta float64, afterNull bool) float64 {
+	// A hard ceiling on depth of recursion. Extensions keep the depth from
+	// decreasing, so a long enough forcing line walks past the end of every
+	// per-ply array. Each write was guarded individually and one read of
+	// c.fifty was not, which is a crash waiting for a feature that extends
+	// often enough to reach it. There is nothing worth searching at ply 64,
+	// so this is a leaf like any other.
+	if ply >= maxSearchPly {
+		return evalPositionFor(g, color, maximizingFor, c.ev)
+	}
 	// Publish this node's halfmove clock so the evaluation can fade a
 	// score toward the draw as the fifty move rule closes in. Without it
 	// every node evaluated at the root's clock and a shuffle looked

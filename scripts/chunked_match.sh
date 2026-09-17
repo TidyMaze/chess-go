@@ -36,10 +36,16 @@ while [ "$done_games" -lt "$total" ]; do
   n=$chunk
   if [ $((done_games + n)) -gt "$total" ]; then n=$((total - done_games)); fi
 
-  out=$(./gauntlet-bin -games "$n" -opening-offset "$offset" "$@" 2>&1 | tail -20)
+  # Full output, not a tail: a crashing chunk prints its panic line first
+  # and a goroutine dump after, so tail -20 threw away the one line that
+  # said what went wrong and kept the stack that did not.
+  out=$(./gauntlet-bin -games "$n" -opening-offset "$offset" "$@" 2>&1)
   line=$(echo "$out" | grep "W-D-L" || true)
   if [ -z "$line" ]; then
-    echo "chunk failed:"; echo "$out"; exit 1
+    echo "chunk failed:"
+    echo "$out" | grep -E "panic|fatal error|index out of range|nil pointer" | head -5
+    echo "$out" | tail -20
+    exit 1
   fi
   cw=$(echo "$line" | sed -E 's/.*W-D-L ([0-9]+)-([0-9]+)-([0-9]+).*/\1/')
   cd=$(echo "$line" | sed -E 's/.*W-D-L ([0-9]+)-([0-9]+)-([0-9]+).*/\2/')
