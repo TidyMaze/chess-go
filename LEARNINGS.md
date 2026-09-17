@@ -48,7 +48,7 @@ second rung landed level, from nine different directions:
 | warm start from rung 1 | keep what rung 1 knew | -2 +/- 14 |
 | blend 0.15 / 0.30 / 0.60 | hand evaluation damping | -33 / -6 / -3 |
 | depth-5 labels | teacher quality | level |
-| 128 hidden units | width | level |
+| 128 hidden units | width | level (re-tested 2026-09-17, -28 +/- 20) |
 | 32 king buckets | input resolution | level |
 | averaging two nets | noise reduction | -0 |
 | second hidden layer, 128 to 32 to 1 | function class | -90 +/- 46 |
@@ -281,6 +281,24 @@ second slot mostly delays eviction of entries that were not worth keeping
 while costing a bit of index. Reverted rather than raced: a deterministic
 instrument that says worse does not need twenty minutes of games to
 confirm it.
+
+**Width re-tested in the net-only era, and still dead: -28 +/- 20 over
+1200 games.** The original "128 hidden units: level" was measured when the
+network carried 55% of the evaluation and the hand terms carried the rest,
+so it was worth asking again now that the network carries all of it.
+
+Two nets trained on the same pool, clean_r9.bin, 8000203 positions, 14
+epochs, same everything but width:
+
+| width | held-out MSE | explains | head to head at 100 ms |
+|---|---|---|---|
+| 64 | 1.0785 | 89.1% | reference |
+| 128 | 1.0844 | 89.0% | **-28 +/- 20**, SPRT settled worse |
+
+The wider net does not even fit better, which is the part worth keeping:
+the network is not capacity-limited, so the residual is not something more
+parameters can absorb. It then pays double the accumulator cost per node
+for that non-improvement, and the race charges it.
 
 ## The two rulers disagree, and the strong one has no resolution
 
