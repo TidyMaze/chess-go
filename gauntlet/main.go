@@ -110,6 +110,16 @@ func (s referenceSwitches) applyTo(p engine.Player) (engine.Player, error) {
 	return p, nil
 }
 
+// clockNote describes what the reference actually plays to, and is emitted
+// after every override has been applied. An external UCI reference is
+// handed the challenger's movetime; the in-process one keeps its depth.
+func clockNote(timeMS, depth int, refIsUCI bool) string {
+	if refIsUCI {
+		return fmt.Sprintf("both sides play to %d ms per move", timeMS)
+	}
+	return fmt.Sprintf("challenger plays to %d ms per move; the reference stays at depth %d", timeMS, depth)
+}
+
 func main() {
 	games := flag.Int("games", 40, "games in the match")
 	maxMoves := flag.Int("max-moves", 250, "ply cap")
@@ -291,8 +301,6 @@ func main() {
 
 	if *timeMS > 0 {
 		challenger.TimeBudget = time.Duration(*timeMS) * time.Millisecond
-		fmt.Printf("challenger plays to %d ms per move; the reference stays at depth %d\n",
-			*timeMS, *depth)
 	}
 
 	// The reference is the plain hand-written evaluation unless told
@@ -430,6 +438,10 @@ func main() {
 		}
 		spec.p.Tablebases = tb
 		fmt.Printf("%s tablebases: %d exact positions\n", spec.who, tb.Len())
+	}
+
+	if *timeMS > 0 {
+		fmt.Println(clockNote(*timeMS, *depth, *refUCI != ""))
 	}
 
 	engine.MatchOpeningOffset = *openingOffset
