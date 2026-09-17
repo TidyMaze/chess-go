@@ -10,22 +10,33 @@ import (
 
 func main() {
 	limit := flag.Int("limit", 0, "stop after this many positions; 0 reads the file")
+	combined := flag.Bool("combined", false, "also report every pool pooled together, which is what training actually sees")
 	flag.Parse()
 	if flag.NArg() == 0 {
 		fmt.Fprintln(os.Stderr, "usage: poolaudit [-limit N] pool.bin ...")
 		os.Exit(1)
 	}
+	var all stats
 	for _, path := range flag.Args() {
 		data, err := os.ReadFile(path)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			continue
 		}
-		auditOne(path, data, *limit)
+		st := auditOne(path, data, *limit)
+		if *combined {
+			all.merge(st)
+		}
+	}
+	if *combined {
+		// Game ids restart in every pool, so they are namespaced by file
+		// before merging; without that two pools sharing an id would look
+		// like one game with twice the positions.
+		all.report("ALL POOLS COMBINED (what training sees)")
 	}
 }
 
-func auditOne(path string, data []byte, limit int) {
+func auditOne(path string, data []byte, limit int) stats {
 	var (
 		total     int
 		bands     = map[string]int{}
@@ -67,7 +78,13 @@ func auditOne(path string, data []byte, limit int) {
 	})
 	if total == 0 {
 		fmt.Printf("%s: empty\n", path)
-		return
+		return stats{}
+	}
+	st := stats{total: total, bands: bands, phases: phases, seen: seen, menCount: menCount,
+		positive: positive, negative: negative, targetSum: targetSum, targetAbs: targetAbs,
+		best: best, worst: worst, perGame: map[string]int{}}
+	for g, n := range perGame {
+		st.perGame[fmt.Sprintf("%s#%d", path, g)] = n
 	}
 
 	unique := len(seen)
@@ -111,6 +128,86 @@ func auditOne(path string, data []byte, limit int) {
 		}
 		fmt.Printf("    %2d men %11d  %5.1f%%  %s\n", k, menCount[k], share(menCount[k], total),
 			bar(share(menCount[k], total)))
+	}
+	return st
+}
+
+// stats is one pool's tally, kept so several can be merged and reported as
+// the single corpus a training run actually sees.
+type stats struct {
+	total                int
+	bands, phases        map[string]int
+	seen                 map[uint64]int
+	menCount             map[int]int
+	perGame              map[string]int
+	positive, negative   int
+	targetSum, targetAbs float64
+	best, worst          float64
+}
+
+func (s *stats) merge(o stats) {
+	if o.total == 0 {
+		return
+	}
+	if s.total == 0 {
+		s.bands, s.phases, s.seen = map[string]int{}, map[string]int{}, map[uint64]int{}
+		s.menCount, s.perGame = map[int]int{}, map[string]int{}
+		s.best, s.worst = math.Inf(1), math.Inf(-1)
+	}
+	s.total += o.total
+	s.positive += o.positive
+	s.negative += o.negative
+	s.targetSum += o.targetSum
+	s.targetAbs += o.targetAbs
+	if o.best < s.best {
+		s.best = o.best
+	}
+	if o.worst > s.worst {
+		s.worst = o.worst
+	}
+	for k, v := range o.bands {
+		s.bands[k] += v
+	}
+	for k, v := range o.phases {
+		s.phases[k] += v
+	}
+	for k, v := range o.menCount {
+		s.menCount[k] += v
+	}
+	for k, v := range o.perGame {
+		s.perGame[k] += v
+	}
+	// Positions repeated across pools are the point of this: two pools can
+	// each look varied and still be the same positions twice.
+	for k, v := range o.seen {
+		s.seen[k] += v
+	}
+}
+
+func (s *stats) report(title string) {
+	if s.total == 0 {
+		return
+	}
+	repeats := 0
+	for _, n := range s.seen {
+		if n > 1 {
+			repeats += n - 1
+		}
+	}
+	fmt.Printf("\n%s\n", title)
+	fmt.Printf("  %d positions, %d distinct (%.1f%% repeats), %d games, %.1f positions per game\n",
+		s.total, len(s.seen), share(repeats, s.total), len(s.perGame),
+		float64(s.total)/float64(len(s.perGame)))
+	fmt.Printf("  label: mean %+.3f, mean magnitude %.3f, range %+.2f to %+.2f, %.1f%% favour the mover\n",
+		s.targetSum/float64(s.total), s.targetAbs/float64(s.total), s.best, s.worst,
+		share(s.positive, s.positive+s.negative))
+	fmt.Printf("  by label\n")
+	for _, k := range []string{"level (<0.3)", "slight (0.3-1)", "clear (1-3)", "winning (3-6)", "decisive (6+)"} {
+		fmt.Printf("    %-16s %9d  %5.1f%%\n", k, s.bands[k], share(s.bands[k], s.total))
+	}
+	fmt.Printf("  by phase\n")
+	for _, k := range []string{"opening", "middlegame", "endgame"} {
+		fmt.Printf("    %-16s %9d  %5.1f%%  %s\n", k, s.phases[k], share(s.phases[k], s.total), bar(share(s.phases[k], s.total)))
 	}
 }
 
