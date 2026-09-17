@@ -269,6 +269,19 @@ at 10 ms understates what a change is worth at the controls the bot
 actually plays, which makes 10 ms a screening instrument and not a
 verdict.
 
+**Two-entry transposition buckets: rejected on tree size, 833367 nodes
+against 733290.** A probe pays a cache miss for a 64-byte line and reads
+24 bytes of it, so pairing the slots looked free: the same miss brings two
+candidates, and depth-preferred picks which a third evicts. Built it, and
+the deterministic fixed-depth tree grew 13.6%.
+
+Halving the number of sets to double the associativity is not free here.
+The single-slot depth-preferred table already keeps what matters, and the
+second slot mostly delays eviction of entries that were not worth keeping
+while costing a bit of index. Reverted rather than raced: a deterministic
+instrument that says worse does not need twenty minutes of games to
+confirm it.
+
 ## The two rulers disagree, and the strong one has no resolution
 
 This session's search and evaluation work, measured three ways on the same
