@@ -102,6 +102,19 @@ func auditOne(path string, data []byte, limit int) stats {
 	sort.Ints(counts)
 
 	fmt.Printf("\n%s\n", path)
+	if pv, ok := ReadProvenance(path); ok {
+		fmt.Printf("  provenance: %s positions from %s, labelled by %s",
+			pv.Positions, orUnknown(pv.Source), pv.Labeller)
+		if pv.LabelDepth > 0 {
+			fmt.Printf(" at depth %d", pv.LabelDepth)
+		}
+		fmt.Printf(", %d king buckets\n", pv.Buckets)
+		if pv.Note != "" {
+			fmt.Printf("              %s\n", pv.Note)
+		}
+	} else {
+		fmt.Printf("  provenance: UNKNOWN, no %s beside it\n", metaPath(path))
+	}
 	fmt.Printf("  %d positions, %d distinct (%.1f%% repeats), %d games, %.1f positions per game\n",
 		total, unique, share(repeats, total), games, float64(total)/float64(games))
 	fmt.Printf("  median %d positions per game, widest %d\n", counts[len(counts)/2], counts[len(counts)-1])
@@ -209,6 +222,13 @@ func (s *stats) report(title string) {
 	for _, k := range []string{"opening", "middlegame", "endgame"} {
 		fmt.Printf("    %-16s %9d  %5.1f%%  %s\n", k, s.phases[k], share(s.phases[k], s.total), bar(share(s.phases[k], s.total)))
 	}
+}
+
+func orUnknown(s string) string {
+	if s == "" {
+		return "an unrecorded source"
+	}
+	return s
 }
 
 func bar(pct float64) string {

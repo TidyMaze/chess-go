@@ -1,0 +1,7 @@
+{
+  "positions": "pgn",
+  "source": "lichess PGN",
+  "labeller": "self",
+  "buckets": 8,
+  "note": "56472 game ids. Backfilled 2026-09-17."
+}

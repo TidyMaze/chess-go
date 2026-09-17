@@ -1,0 +1,9 @@
+{
+  "positions": "pgn",
+  "source": "lichess_games_2015-01.pgn.zst",
+  "labeller": "self",
+  "label_depth": 3,
+  "buckets": 8,
+  "note": "256121 game ids, one per real game (pgn.go:278 global counter). Backfilled 2026-09-17 from game-id analysis, not from a record written at generation time.",
+  "lambda": 0.8
+}

@@ -1,0 +1,7 @@
+{
+  "positions": "selfplay",
+  "source": "nnue gen loop",
+  "labeller": "self",
+  "buckets": 8,
+  "note": "1200 game ids, which restart every generation (main.go:557). Backfilled 2026-09-17."
+}

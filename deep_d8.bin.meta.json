@@ -1,0 +1,8 @@
+{
+  "positions": "pgn",
+  "source": "lichess PGN",
+  "labeller": "self",
+  "label_depth": 8,
+  "buckets": 8,
+  "note": "12726 game ids. 99% of it is already in clean_r9."
+}

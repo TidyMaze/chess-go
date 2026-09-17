@@ -1,0 +1,7 @@
+{
+  "positions": "pgn",
+  "source": "lichess PGN",
+  "labeller": "self",
+  "buckets": 32,
+  "note": "32 king buckets: cannot be mixed with the 8-bucket pools. The trainer refuses it by name."
+}

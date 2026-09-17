@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"strings"
 )
 
 func main() {
@@ -79,6 +80,50 @@ func main() {
 	}
 	fmt.Printf("\n%d read, %d written, %d duplicates dropped (%.1f%%), %d outside the material range\n",
 		read, written, dupes, 100*float64(dupes)/math.Max(1, float64(read)), filtered)
+
+	// A merged pool inherits its sources' provenance, and says so, so the
+	// next reader does not have to work out what went into it.
+	if err := WriteProvenance(*out, mergedProvenance(flag.Args(), read, written, dupes)); err != nil {
+		fmt.Fprintln(os.Stderr, "provenance:", err)
+	}
+}
+
+// mergedProvenance summarises what went in. Positions are "mixed" unless
+// every source agrees, and the labeller is only "self" if every source
+// says so: one pool labelled by anything else taints the merge, and that
+// has to be visible rather than averaged away.
+func mergedProvenance(sources []string, read, written, dupes int) Provenance {
+	out := Provenance{Positions: "", Labeller: "", Buckets: 0}
+	var notes []string
+	for _, src := range sources {
+		pv, ok := ReadProvenance(src)
+		if !ok {
+			notes = append(notes, src+" had no provenance")
+			out.Positions, out.Labeller = "mixed", "unknown"
+			continue
+		}
+		switch {
+		case out.Positions == "":
+			out.Positions = pv.Positions
+		case out.Positions != pv.Positions:
+			out.Positions = "mixed"
+		}
+		switch {
+		case out.Labeller == "":
+			out.Labeller = pv.Labeller
+		case out.Labeller != pv.Labeller:
+			out.Labeller = "mixed"
+		}
+		if out.Buckets == 0 {
+			out.Buckets = pv.Buckets
+		}
+	}
+	out.Source = strings.Join(sources, " + ")
+	out.Note = fmt.Sprintf("merged %d read, %d written, %d duplicates dropped", read, written, dupes)
+	if len(notes) > 0 {
+		out.Note += "; " + strings.Join(notes, "; ")
+	}
+	return out
 }
 
 func writeRecord(w *bufio.Writer, r record) {
