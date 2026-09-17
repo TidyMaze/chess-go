@@ -300,6 +300,43 @@ the network is not capacity-limited, so the residual is not something more
 parameters can absorb. It then pays double the accumulator cost per node
 for that non-improvement, and the race charges it.
 
+## Speed wins vanish as the clock grows, and do not transfer to a stronger opponent
+
+The complete before and after for one session of search and evaluation
+work, same reference, both sides on the same clock, one thread:
+
+| control | before | after | gain |
+|---|---|---|---|
+| 10 ms | -401 +/- 38 | -343 +/- 33 | +58 |
+| 100 ms | -329 +/- 32 | -326 +/- 32 | +3 |
+| 1 s | -216 +/- 41 | -216 +/- 41 | 0 |
+
+The 1 s pair is 50-79-271 against 51-77-272 over 400 games each: the same
+games. And the same two binaries, head to head at 100 ms, read +110 +/- 42
+with SPRT settling better.
+
+Two things are being measured and neither is wrong.
+
+**Every win this session was a speed win.** Bitboard feature deltas,
+dropping the hand evaluation, a transposition table that stops re-searching
+what it threw away: all of them buy nodes, and nodes buy depth. Depth is
+worth most when the engine is depth-starved, which at 10 ms it is, reaching
+about 6 plies. At 1 s it reaches 13 and another 15% of nodes is worth a
+fraction of a ply. So a speed win decays as the clock grows, and this one
+decayed to nothing by 1 s.
+
+**Elo is not transitive across dissimilar opponents.** +110 against our own
+previous build and +3 against Stockfish, at the same control, on the same
+binaries. The games we lose to Stockfish are lost to tactics several plies
+past our horizon, and none of these changes moved that horizon far enough
+to change their outcome. Against an opponent that shares our blind spots,
+the same changes decide many games.
+
+**What follows.** A speed optimisation must be priced at the control it is
+meant for, and a head-to-head A/B is an adoption test, not a strength
+claim. Anything aimed at closing the distance to a stronger engine has to
+change what a node is worth, not how many there are.
+
 ## The two rulers disagree, and the strong one has no resolution
 
 This session's search and evaluation work, measured three ways on the same
