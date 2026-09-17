@@ -300,6 +300,13 @@ the network is not capacity-limited, so the residual is not something more
 parameters can absorb. It then pays double the accumulator cost per node
 for that non-improvement, and the race charges it.
 
+**Check extensions: -2 +/- 16 over 1800 games at 100 ms, neutral.** The
+flag existed and had never been in the champion's feature list, and it was
+the right shape of thing by the finding below: it spends nodes to see
+further along forcing lines rather than making nodes cheaper. It still
+reads zero. Extending on every check is too blunt a criterion; what strong
+engines extend on is singularity, which this engine does not implement.
+
 ## Speed wins vanish as the clock grows, and do not transfer to a stronger opponent
 
 The complete before and after for one session of search and evaluation
