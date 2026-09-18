@@ -1161,3 +1161,20 @@ any other quiet move. What remains is that history is self-reinforcing, and a
 move kind that rarely causes early cutoffs stays ranked low, where late move
 reduction cuts it hardest. Testing that needs the rank of the best move recorded
 by piece type, which is instrumentation this session did not build.
+
+### Exempting advanced pawn pushes from reduction is inert here
+
+The standard fix for an engine that under-plays pawn moves is to stop reducing
+and pruning pawn pushes near promotion, which strong engines all do. Implemented
+behind `pawnpush` and measured before racing it: over four pawn-heavy positions
+at depth 8 with the champion's own feature set, the exemption changed the search
+by 16 nodes out of 64,438, or 0.02%.
+
+So move ordering already places an advanced push early enough that late move
+reduction and pruning seldom reach it. A race would have spent an hour
+confirming zero. The flag and its test stay, off, so the technique is not
+implemented a second time by someone reading the same chessprogramming page.
+
+The cost of knowing this was one unit test comparing node counts, which is the
+check worth running before every feature race: if a feature cannot move the node
+count on positions chosen to favour it, it cannot move the Elo.
