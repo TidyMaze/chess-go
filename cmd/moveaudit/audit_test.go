@@ -125,3 +125,21 @@ func TestCostComparesTwoChildrenNotParentAndChild(t *testing.T) {
 		}
 	}
 }
+
+func TestScoreErrorSeparatesBiasFromNoise(t *testing.T) {
+	// Optimistic every time: the mean and the mean absolute agree.
+	var biased scoreError
+	for _, d := range []float64{1.0, 1.0, 1.0} {
+		biased.add(d, 0)
+	}
+	if got := biased.report(); !strings.Contains(got, "mean +1.00") || !strings.Contains(got, "absolute 1.00") {
+		t.Errorf("a consistent overestimate must show as bias:\n%s", got)
+	}
+	// Wrong by the same amount either way: no bias, but the error is real.
+	var noisy scoreError
+	noisy.add(1.0, 0)
+	noisy.add(-1.0, 0)
+	if got := noisy.report(); !strings.Contains(got, "mean +0.00") || !strings.Contains(got, "absolute 1.00") {
+		t.Errorf("symmetric error must show as noise, not bias:\n%s", got)
+	}
+}

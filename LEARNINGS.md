@@ -1194,3 +1194,29 @@ worth running after all.
 
 Run `go test ./...` and read `echo $?`, never a pipeline whose last stage is
 `tail`, `head` or `grep`.
+
+## The evaluation is within a pawn of the oracle, and four explanations are dead
+
+The audit now also records the signed difference between this engine's search
+score and the judge's on the same position. Over 285 positions at depth 10:
+mean **-0.28 pawns**, mean absolute **0.92**. So the evaluation is not
+systematically optimistic; if anything it is slightly pessimistic, and its
+typical error against a depth-10 Stockfish is under a pawn.
+
+That came from chasing one position where the engine gave up 6.89 pawns:
+`8/1p4kp/pN4n1/P7/8/1P5R/2r1rp1P/5R1K w - - 0 1`, where it plays h3f3 and holds
+a score of -2.00 unchanged from depth 5 to 12 while the judge says -4.37, and
+-8.23 after the move. Four candidate explanations, all refuted by measurement:
+
+- the network cannot see pawn structure: it scores that position -4.67, close to
+  the judge, and adds 2.3 pawns as a pawn walks from f4 to f2;
+- move ordering penalises pawn moves: `scoreMove` has no piece-type term;
+- late move reduction buries advanced pushes: exempting them moves 0.02% of nodes;
+- quiescence cannot see promotions: `AppendQuiescenceMoves` generates them.
+
+What survives is that the search believes rescue lines the oracle refutes, which
+is weakness rather than a bug, and one reproducible asymmetry: across two
+independent runs the oracle plays roughly twice as many pawn moves as this
+engine does (24 against 11, and 51 against 24), and this engine takes pieces off
+the back rank noticeably more often (23 against 16, and 28 against 11). Checks
+and king moves stay symmetric in both runs, which is the control.

@@ -64,6 +64,7 @@ func main() {
 
 	tl := newTally(*keep)
 	gap := newKindGap()
+	var serr scoreError
 	judged, ply := 0, 0
 	g := game.New()
 	for judged < *positions {
@@ -77,7 +78,7 @@ func main() {
 			continue
 		}
 		if ply%*sampleEvery == 0 {
-			deep, _, okDeep := deepPlayer.ChooseMoveScored(g, tt)
+			deep, ourScore, okDeep := deepPlayer.ChooseMoveScored(g, tt)
 			theirs, score, okJudge := judge.BestMoveScored(g, *depth, 0)
 			if okDeep && okJudge && !math.IsNaN(score) && worthJudging(score, *maxScore) {
 				agreed := deep.UCI() == theirs.UCI()
@@ -101,6 +102,9 @@ func main() {
 					}
 					cost = costOfOurMove(ourAfter, theirAfter)
 				}
+				if !math.IsNaN(ourScore) {
+					serr.add(ourScore, score)
+				}
 				if !agreed {
 					gap.add(g.FEN(), deep, theirs)
 				}
@@ -117,6 +121,7 @@ func main() {
 	}
 
 	fmt.Print("\n", tl.report())
+	fmt.Print("\n", serr.report())
 	fmt.Println("\nWhat the judge plays that we do not, over the disagreements:")
 	fmt.Printf("%-20s %10s %10s\n", "kind", "judge only", "ours only")
 	for _, kind := range moveKinds {

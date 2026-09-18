@@ -106,3 +106,35 @@ func worthJudging(score, limit float64) bool {
 func costOfOurMove(afterOurs, afterTheirs float64) float64 {
 	return afterOurs - afterTheirs
 }
+
+// scoreError accumulates how far this engine's search score sits from the
+// judge's on the same position, both from the side to move.
+//
+// A single disagreement says the engines prefer different moves. The mean
+// signed error says something stronger: whether this engine is
+// systematically optimistic about its own position, which would explain
+// bad decisions that have nothing to do with move choice, such as
+// accepting a losing simplification or declining a draw.
+type scoreError struct {
+	n      int
+	sum    float64
+	sumAbs float64
+}
+
+func (s *scoreError) add(ours, judge float64) {
+	s.n++
+	d := ours - judge
+	s.sum += d
+	if d < 0 {
+		d = -d
+	}
+	s.sumAbs += d
+}
+
+func (s *scoreError) report() string {
+	if s.n == 0 {
+		return "no positions scored by both\n"
+	}
+	return fmt.Sprintf("score against the judge over %d positions: mean %+.2f pawns, mean absolute %.2f\n",
+		s.n, s.sum/float64(s.n), s.sumAbs/float64(s.n))
+}
