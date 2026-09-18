@@ -1331,3 +1331,27 @@ plies with an evaluation within a pawn of the oracle ought to be stronger than
 exactly the under-promotions: the generator makes queens only. That is worth a
 few Elo in rare endings, not hundreds, and it is deliberate and marked
 `knownGap` in the test.
+
+## A fresh transposition table distorts every short-budget measurement
+
+The clock sweep read 2,026 nodes at 10 ms against 50,858 at 100 ms, twenty-five
+times the nodes for ten times the time, which looks exactly like a fixed
+per-move cost eating a short budget. It is not. Each measurement allocated its
+own 4M entry table, and the page faults of first-touching 100 MB are charged to
+whichever search runs first.
+
+With one table, warmed once, as real play has it:
+
+| budget | nodes | knps |
+| --- | --- | --- |
+| 10 ms | 3,968 | 373 |
+| 40 ms | 13,120 | 311 |
+| 320 ms | 92,160 | 270 |
+
+Throughput at 10 ms is the best of the three, so short budgets carry no
+handicap. `TestShortBudgetsAreNotHandicapped` keeps that, and fails if the 10 ms
+rate ever falls below half the 320 ms rate, which at a 10 ms control would be
+worth hundreds of Elo.
+
+Any measurement at a short budget must reuse a warmed table, or it measures
+`mmap` rather than the engine.
