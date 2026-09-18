@@ -1,0 +1,44 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Elo calibration at 10 ms</title>
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+<style>
+ body{font:15px/1.5 -apple-system,system-ui,sans-serif;margin:2rem auto;max-width:880px;color:#111}
+ table{border-collapse:collapse;margin:1rem 0}
+ th,td{border:1px solid #ccc;padding:.35rem .7rem;text-align:right}
+ th:first-child,td:first-child{text-align:left}
+ .note{color:#555}
+</style>
+<h1>What the engine is actually rated at 10 ms</h1>
+<p>Every rung is the same champion, 400 games each (600 at 2800), one thread,
+10 ms a move, idle machine, 2026-09-18. "Implied" is the opponent's nominal
+rating plus the measured difference.</p>
+<div id="curve" style="height:420px"></div>
+<div id="implied" style="height:420px"></div>
+<table id="t"><thead><tr><th>Opponent</th><th>W</th><th>D</th><th>L</th>
+<th>Elo diff</th><th>95%</th><th>Implied rating</th></tr></thead><tbody></tbody></table>
+<p class="note">A consistent ruler returns the same implied rating from every
+rung. This one climbs by 508 points across the range, so Stockfish's
+<code>UCI_Elo</code> spacing is compressed: 800 nominal points of opponent cost
+only 292 points of measured result. The engine scores 47.9% against the 2000
+rung, which is the only rung where a rating can be read off directly.</p>
+<script>
+const rows=[[2000,162,59,179,-15,34,1985],[2200,105,67,228,-110,36,2090],
+[2400,69,53,278,-201,40,2199],[2600,49,48,303,-260,45,2340],
+[2800,64,47,489,-307,40,2493]];
+const tb=document.querySelector('#t tbody');
+for(const r of rows){const tr=document.createElement('tr');
+ tr.innerHTML=`<td>SF@${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td><td>${r[3]}</td>
+ <td>${r[4]>0?'+':''}${r[4]}</td><td>&plusmn;${r[5]}</td><td>${r[6]}</td>`;
+ tb.appendChild(tr);}
+const nom=rows.map(r=>r[0]);
+Plotly.newPlot('curve',[{x:nom,y:rows.map(r=>r[4]),
+  error_y:{type:'data',array:rows.map(r=>r[5])},mode:'lines+markers',name:'measured'},
+ {x:nom,y:nom.map(n=>-(n-1985)),mode:'lines',line:{dash:'dot'},name:'if the scale were true'}],
+ {title:'Result against each rung, and what a true scale would give',
+  xaxis:{title:'Stockfish UCI_Elo'},yaxis:{title:'Elo difference'},margin:{t:50}});
+Plotly.newPlot('implied',[{x:nom,y:rows.map(r=>r[6]),mode:'lines+markers',name:'implied rating'},
+ {x:nom,y:nom.map(()=>1985),mode:'lines',line:{dash:'dot'},name:'one consistent answer'}],
+ {title:'The rating each rung implies for the same engine',
+  xaxis:{title:'Stockfish UCI_Elo'},yaxis:{title:'Implied rating'},margin:{t:50}});
+</script>

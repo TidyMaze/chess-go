@@ -1045,3 +1045,34 @@ meaningless without saying at what time control it was measured.
 
 TestDepthReachedAcrossClocks keeps the measurement, and fails if a tenfold clock
 increase ever buys less than two plies.
+
+## The engine is rated about 1,985 at 10 ms, not 2,493
+
+Every absolute rating this project has quoted was read off a single Stockfish
+rung at `UCI_Elo 2800`. Measured against five rungs, the same champion, 400
+games each at 10 ms on an idle machine:
+
+| opponent | W-D-L | Elo difference | implied rating |
+| --- | --- | --- | --- |
+| SF@2000 | 162-59-179 | -15 +/- 34 | 1,985 |
+| SF@2200 | 105-67-228 | -110 +/- 36 | 2,090 |
+| SF@2400 | 69-53-278 | -201 +/- 40 | 2,199 |
+| SF@2600 | 49-48-303 | -260 +/- 45 | 2,340 |
+| SF@2800 | 64-47-489 | -307 +/- 40 | 2,493 |
+
+A consistent ruler gives the same answer from every rung. This one climbs 508
+points across the range: 800 nominal points of opponent strength cost only 292
+points of measured result, so `UCI_Elo` spacing is compressed by about 2.7x at
+this clock. Reading a rating off a rung 800 points away therefore inflates it by
+roughly 500.
+
+The only rung where a rating can be read directly is the one where the engine
+scores near 50%, and that is SF@2000: 47.9%, so the engine is about 1,985 +/- 34
+at 10 ms. Chart and numbers: `analyses/elo-calibration/report.html`.
+
+This does not change any A/B result in this file. Those are all head to head
+against the previous champion at a fixed clock, which is a difference and needs
+no absolute scale. It does invalidate every absolute claim, including the 2,710
+carried in `champion.json` and the 2,281 lichess calibration, and it means a
+target expressed as a percentage of rating was resting on a number 500 points
+too high.
