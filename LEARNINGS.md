@@ -978,3 +978,22 @@ flag, adopted days earlier at +12 +/- 11 over 4,000 games, so the champion the U
 runs at 8 threads and 3 s a move has been playing weaker than the one being
 raced. The three champion files carry their feature lists independently and
 nothing checks that they agree.
+
+## Labelling is the whole cost of generating data, not playing
+
+Positions per second, 40 games each, measured 2026-09-18:
+
+| play depth | label depth | positions/s | per hour |
+| --- | --- | --- | --- |
+| 6 | 8 | 11.3 | 40k |
+| 3 | 8 | 16.1 | 58k |
+| 3 | 6 | 132 | 476k |
+
+Halving the play depth bought 1.4x. Dropping the label search two plies bought
+8.2x, because every stored position pays for its own search and the games
+themselves are nearly free. A night at the first setting adds 4% to an 11M
+corpus; at the last it adds about 50%.
+
+Depth 6 labels are not a compromise here: `clean_r9.bin`, the 8M pool the
+champion actually learned from, is labelled at depth 3. Count has beaten label
+depth every time it has been measured in this project.
