@@ -1,6 +1,7 @@
 package main
 
 import (
+	"chess/pool"
 	"flag"
 	"fmt"
 	"math"
@@ -102,7 +103,7 @@ func auditOne(path string, data []byte, limit int) stats {
 	sort.Ints(counts)
 
 	fmt.Printf("\n%s\n", path)
-	if pv, ok := ReadProvenance(path); ok {
+	if pv, ok := pool.ReadProvenance(path); ok {
 		fmt.Printf("  provenance: %s positions from %s, labelled by %s",
 			pv.Positions, orUnknown(pv.Source), pv.Labeller)
 		if pv.LabelDepth > 0 {
@@ -113,7 +114,7 @@ func auditOne(path string, data []byte, limit int) stats {
 			fmt.Printf("              %s\n", pv.Note)
 		}
 	} else {
-		fmt.Printf("  provenance: UNKNOWN, no %s beside it\n", metaPath(path))
+		fmt.Printf("  provenance: UNKNOWN, no %s beside it\n", pool.MetaPath(path))
 	}
 	fmt.Printf("  %d positions, %d distinct (%.1f%% repeats), %d games, %.1f positions per game\n",
 		total, unique, share(repeats, total), games, float64(total)/float64(games))

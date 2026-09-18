@@ -1083,6 +1083,13 @@ func run(args []string) int {
 		if err := appendPool(*poolFile, freshSamples); err != nil {
 			fmt.Println("append pool:", err)
 		}
+		// Rewritten every generation rather than once: a run that is
+		// killed before its first sidecar lands leaves a pool nobody
+		// can date, which is the whole failure this records against.
+		if err := recordSelfPlayProvenance(*poolFile, *playDepth, *labelDepth,
+			*lambda, *kingBuckets, *quietTol); err != nil {
+			fmt.Println("pool provenance:", err)
+		}
 		pool = append(pool, freshSamples...)
 		if len(pool) > *poolCap {
 			pool = pool[len(pool)-*poolCap:]

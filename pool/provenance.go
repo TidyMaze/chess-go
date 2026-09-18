@@ -1,4 +1,4 @@
-package main
+package pool
 
 import (
 	"encoding/json"
@@ -39,7 +39,8 @@ type Provenance struct {
 }
 
 // metaPath is where a pool's provenance lives.
-func metaPath(pool string) string { return pool + ".meta.json" }
+// MetaPath is where a pool's provenance lives.
+func MetaPath(pool string) string { return pool + ".meta.json" }
 
 // WriteProvenance saves a pool's provenance beside it.
 func WriteProvenance(pool string, p Provenance) error {
@@ -47,12 +48,12 @@ func WriteProvenance(pool string, p Provenance) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(metaPath(pool), append(b, '\n'), 0o644)
+	return os.WriteFile(MetaPath(pool), append(b, '\n'), 0o644)
 }
 
 // ReadProvenance loads a pool's provenance, reporting whether there was any.
 func ReadProvenance(pool string) (Provenance, bool) {
-	b, err := os.ReadFile(metaPath(pool))
+	b, err := os.ReadFile(MetaPath(pool))
 	if err != nil {
 		return Provenance{}, false
 	}

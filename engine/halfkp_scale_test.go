@@ -24,7 +24,10 @@ import (
 // this project: the engine was told that being a rook down was slightly
 // good. The network was not wrong, it was being read in the wrong units.
 func TestHalfKPEvaluatesInPawnsNotProbability(t *testing.T) {
-	n, err := LoadHalfKPNet("../halfkp_latest.json")
+	// The shipped network, not halfkp_latest.json: the generator rewrites
+	// that one every generation, so an eight-game smoke run turned this
+	// test red while nothing in the engine had changed.
+	n, err := LoadHalfKPNet("../champion_net.json")
 	if err != nil {
 		t.Skip("no trained network available")
 	}

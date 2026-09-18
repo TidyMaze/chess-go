@@ -11,6 +11,7 @@ package main
 
 import (
 	"bufio"
+	"chess/pool"
 	"encoding/binary"
 	"flag"
 	"fmt"
@@ -83,7 +84,7 @@ func main() {
 
 	// A merged pool inherits its sources' provenance, and says so, so the
 	// next reader does not have to work out what went into it.
-	if err := WriteProvenance(*out, mergedProvenance(flag.Args(), read, written, dupes)); err != nil {
+	if err := pool.WriteProvenance(*out, mergedProvenance(flag.Args(), read, written, dupes)); err != nil {
 		fmt.Fprintln(os.Stderr, "provenance:", err)
 	}
 }
@@ -92,11 +93,11 @@ func main() {
 // every source agrees, and the labeller is only "self" if every source
 // says so: one pool labelled by anything else taints the merge, and that
 // has to be visible rather than averaged away.
-func mergedProvenance(sources []string, read, written, dupes int) Provenance {
-	out := Provenance{Positions: "", Labeller: "", Buckets: 0}
+func mergedProvenance(sources []string, read, written, dupes int) pool.Provenance {
+	out := pool.Provenance{Positions: "", Labeller: "", Buckets: 0}
 	var notes []string
 	for _, src := range sources {
-		pv, ok := ReadProvenance(src)
+		pv, ok := pool.ReadProvenance(src)
 		if !ok {
 			notes = append(notes, src+" had no provenance")
 			out.Positions, out.Labeller = "mixed", "unknown"

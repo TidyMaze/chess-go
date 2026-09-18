@@ -927,3 +927,17 @@ pages, and the gauntlet's own 2.8 GB (tt_bits 22, ten workers, two engines each)
 was what tipped it. The sixth chunk ran 25 minutes against 8 for each clean one.
 Pooled over 3,600 games across three blocks at different openings the answer settled
 at +15 +/- 11, so check `vm.swapusage` before believing a single block.
+
+## The generator rewrites a file the test suite reads
+
+`nnue/main.go:1249` saves `halfkp_latest.json` after every generation, and
+`TestHalfKPEvaluatesInPawnsNotProbability` asserted on whatever it found there.
+An eight-game smoke run of the generator therefore turned the suite red while
+nothing in the engine had changed: the test was reading a network trained on 743
+positions. It now reads `champion_net.json`, which is tracked and does not move
+under it.
+
+The same run made `TestTenMillisecondBudgetIsRespected` fail at 142% of a 10 ms
+budget, which is the ten generator workers, not the clock code. Both reds cost a
+four-minute suite run each. Before believing a red in this repo, check `uptime`
+and whether a generator is running.
