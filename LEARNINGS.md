@@ -895,3 +895,35 @@ sees it as bad. `TestFiftyMoveFadeHelpsTheLosingSideToo` holds that.
 none of them flags: bullet 2+1 and 1+0, blitz 5+3, 3+2 and 3+0. Blitz
 5+3 over eighty moves ends with 5.9 s in hand. The weak blitz record is
 not a time management problem.
+
+## Duplicates in the training corpus cost more than the positions they add
+
+Three networks, same architecture (64 hidden, 8 king buckets), same trainer, raced
+against the shipped champion at 100 ms a move:
+
+| corpus | positions | held out | Elo |
+| --- | --- | --- | --- |
+| all five pools, duplicates kept | 15,755,343 | 1.3707 | -19 +/- 20, rejected |
+| self-play only | 4,866,000 | (89.8% explained) | -26 +/- 20, rejected |
+| all five pools, deduplicated | 10,957,828 | 1.3618 | +15 +/- 11, adopted |
+
+30.5% of the merged corpus was exact repeats (4,797,515 positions). Dropping them
+improved the held-out fit on 44% fewer rows, and only the deduplicated net beat the
+incumbent. So the answer to "do the human-game pools help" is yes, but only once the
+repeats are gone: the same pools with their duplicates made the network worse than
+having no new data at all.
+
+It also settles a cheaper question. The held-out number tracked the race here
+(1.3618 beat 1.3707 and won the match), which it did not do for the 128-unit net or
+the probability-space blend. A held-out number is worth trusting only when the
+corpora being compared are the same shape.
+
+### A race is only as clean as the machine under it
+
+The first block of the adopted net's race read +22 +/- 18 over 1,500 games; a
+confirmation block on an idle machine read +1 +/- 23 over 900. The difference was
+the box, not the network: swap sat at 6,636 MB of 7,168 MB with 72 MB of free
+pages, and the gauntlet's own 2.8 GB (tt_bits 22, ten workers, two engines each)
+was what tipped it. The sixth chunk ran 25 minutes against 8 for each clean one.
+Pooled over 3,600 games across three blocks at different openings the answer settled
+at +15 +/- 11, so check `vm.swapusage` before believing a single block.
