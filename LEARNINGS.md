@@ -1309,3 +1309,25 @@ moment the process is killed.
 Jamf Protect is worth knowing about on this laptop: it sat at 338% CPU scanning
 the gigabytes of pool files being written, alongside `mds`. A load average of 50
 here is not necessarily my own work.
+
+### The lichess games agree with the corrected rating, which the old one never explained
+
+Saying the calibration invalidates every absolute number was too broad. The
+lichess results are an independent instrument, measured against a real
+population rather than against Stockfish, and they always fitted the corrected
+figure better than the old one: at 10+5 the bot beat maia5 (1655), sargon-3ply
+(1545) and GarboBot (1988), and lost to the stronger bots. Beating a 1988 bot is
+what an engine around 2,000 does. It is not what a 2,710 engine does, and that
+tension sat in this file unremarked.
+
+So two instruments now agree on roughly 2,000 at short controls, and only the
+Stockfish `UCI_Elo` readings ever said 2,500 or 2,700. The provisional 3,004
+lichess showed after five games is not evidence of anything; a rating over five
+games is mostly its own prior.
+
+Move generation was checked at the same time, since an engine searching twelve
+plies with an evaluation within a pawn of the oracle ought to be stronger than
+2,000. Perft is exact on every position except position 4, where it is short by
+exactly the under-promotions: the generator makes queens only. That is worth a
+few Elo in rare endings, not hundreds, and it is deliberate and marked
+`knownGap` in the test.
