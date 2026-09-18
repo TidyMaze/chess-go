@@ -33,7 +33,8 @@ func main() {
 	sf := flag.String("sf", "/opt/homebrew/bin/stockfish", "the judge")
 	positions := flag.Int("positions", 200, "positions to judge")
 	sampleEvery := flag.Int("sample-every", 4, "judge one position in this many")
-	depth := flag.Int("depth", 10, "search depth for both sides")
+	depth := flag.Int("depth", 10, "search depth for the engine under audit")
+	judgeDepth := flag.Int("judge-depth", 0, "search depth for the judge; 0 means the same as -depth. Setting them apart answers whether a disagreement is a missing evaluation term or simply less depth")
 	playDepth := flag.Int("play-depth", 6, "depth the audited engine plays the games at")
 	keep := flag.Int("keep", 20, "how many of the costliest disagreements to print")
 	maxScore := flag.Float64("max-score", 5.0, "skip positions the judge already scores beyond this, in pawns: there every sane move keeps the result and the disagreement is taste")
@@ -48,7 +49,12 @@ func main() {
 	// The audited engine plays and is judged through the same entry point
 	// the races use, so what is measured is the champion as it actually
 	// plays, not a search assembled here.
-	tt := engine.NewTranspositionTable(22)
+	// Two tables, not one. Sharing a table means the audited search's
+	// entries change what the game-playing search finds, so every arm of
+	// a depth sweep walks a different set of positions and the arms
+	// cannot be compared.
+	playTT := engine.NewTranspositionTable(22)
+	auditTT := engine.NewTranspositionTable(22)
 	deepPlayer := p
 	deepPlayer.Depth = *depth
 	deepPlayer.TimeBudget = 0
@@ -62,6 +68,9 @@ func main() {
 		os.Exit(1)
 	}
 
+	if *judgeDepth == 0 {
+		*judgeDepth = *depth
+	}
 	tl := newTally(*keep)
 	gap := newKindGap()
 	var serr scoreError
@@ -72,14 +81,14 @@ func main() {
 			g, ply = game.New(), 0
 			continue
 		}
-		ours, _, ok := shallow.ChooseMoveScored(g, tt)
+		ours, _, ok := shallow.ChooseMoveScored(g, playTT)
 		if !ok {
 			g, ply = game.New(), 0
 			continue
 		}
 		if ply%*sampleEvery == 0 {
-			deep, ourScore, okDeep := deepPlayer.ChooseMoveScored(g, tt)
-			theirs, score, okJudge := judge.BestMoveScored(g, *depth, 0)
+			deep, ourScore, okDeep := deepPlayer.ChooseMoveScored(g, auditTT)
+			theirs, score, okJudge := judge.BestMoveScored(g, *judgeDepth, 0)
 			if okDeep && okJudge && !math.IsNaN(score) && worthJudging(score, *maxScore) {
 				agreed := deep.UCI() == theirs.UCI()
 				cost := 0.0
@@ -92,7 +101,7 @@ func main() {
 							return 0, false
 						}
 						after.ApplyMove(m.From, m.To)
-						_, sc, ok := judge.BestMoveScored(after, *depth-1, 0)
+						_, sc, ok := judge.BestMoveScored(after, *judgeDepth-1, 0)
 						return sc, ok && !math.IsNaN(sc)
 					}
 					ourAfter, okOurs := childScore(deep)

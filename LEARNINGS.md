@@ -1109,6 +1109,68 @@ offers many moves that all keep the result. The middlegame is where a
 disagreement is most expensive, so that is where an evaluation defect is worth
 hunting.
 
+## RETRACTED: the evaluation does not prefer pieces over pawns
+
+This section reported that the oracle plays twice as many pawn moves as this
+engine (51 against 24, then 24 against 11), called checks and king moves the
+symmetric control, and treated it as the first concrete lead on the evaluation.
+It was an artifact of the measurement, and the sections below record the chase
+it set off. They are kept because the refutations are worth having, not because
+the premise was.
+
+The audit played its games with one search and audited the position with
+another, both sharing a transposition table. The audited search's entries
+therefore changed which moves the game-playing search found, so the positions
+themselves differed with the audited depth, and the two "independent runs" that
+agreed shared the same flaw.
+
+With a table each and the judge held at depth 12:
+
+| our depth | agreement | pawn push, judge against ours | score error |
+| --- | --- | --- | --- |
+| 4 | 41.6% | 21 against 18 | +0.04, absolute 0.81 |
+| 8 | 44.4% | 12 against 14 | +0.29, absolute 1.20 |
+| 12 | 45.6% | 15 against 16 | +0.03, absolute 1.07 |
+
+Symmetric at every depth. What the clean sweep does show is agreement rising
+monotonically with depth against a fixed judge, which is what a working search
+looks like, and a score error near zero with about a pawn of spread.
+
+Two runs agreeing proved nothing here: both carried the same confound, and the
+counts were small enough that Poisson noise alone spans the ratios claimed.
+
+## A judge built with skill 0 is the weakest Stockfish, not the strongest
+
+`engine.NewStockfish(path, skill, elo)` sends `setoption name Skill Level
+value <skill>` unconditionally, so `NewStockfish(sf, 0, 0)` is not "no limit
+set", it is Stockfish at its weakest setting. Its search scores stay honest
+while its move choices are deliberately degraded, which is a peculiarly
+misleading combination for an oracle.
+
+Signature of the bug: the engine under audit appeared to choose better moves
+than the judge, by the judge's own evaluation, averaging -1.41 pawns across 319
+disagreements. A negative mean cost is impossible against a real oracle and is
+what gave it away. Two rounds of fixing the cost arithmetic came first and
+neither helped, because the arithmetic was never the problem.
+
+Corrected, with skill 20, over 400 positions at depth 10:
+
+| phase | agreed | mean cost when we differ |
+| --- | --- | --- |
+| opening | 56.2% | 0.34 pawns |
+| middlegame | 47.4% | 0.36 pawns |
+| endgame | 40.8% | 0.22 pawns |
+| all | 45.8% | 0.29 pawns |
+
+Every other caller in the repo already passed 20. The gauntlet builds its
+reference as `NewStockfish(*refUCI, 20, *refUCIElo)`, so no race or calibration
+was affected, only the new audit.
+
+Agreement is lowest in the endgame but costs least there, which fits: an endgame
+offers many moves that all keep the result. The middlegame is where a
+disagreement is most expensive, so that is where an evaluation defect is worth
+hunting.
+
 ## The evaluation prefers pieces where the oracle prefers pawns
 
 Over 500 positions at depth 10, counting for each kind of move how often the
@@ -1220,3 +1282,30 @@ independent runs the oracle plays roughly twice as many pawn moves as this
 engine does (24 against 11, and 51 against 24), and this engine takes pieces off
 the back rank noticeably more often (23 against 16, and 28 against 11). Checks
 and king moves stay symmetric in both runs, which is the control.
+
+## Timing tests fail on preemption, not on slowness
+
+Three false reds in one evening on `TestTenMillisecondBudgetIsRespected`, once at
+587% of a 10 ms budget, every time because the data generator held all ten
+cores. The test was right that the budget was missed and wrong about who missed
+it, and each red cost a five minute suite run to diagnose.
+
+The cause is not throughput. Under a load average of 91 a fixed 20M iteration
+spin still finished in 11.3 ms, barely slower than idle. What collapses is
+holding the processor: the gap between two consecutive `time.Now()` reads
+reached 20 to 30 ms. A search descheduled for 30 ms cannot stop at 10 ms however
+carefully it checks the clock.
+
+`skipIfMachineBusy` measures that gap over a 20 ms window and skips above 3 ms.
+Verified both ways, which a skip guard needs or it is just a disabled test: it
+skips with the generator running (9.5 ms gap) and lets the test run and pass
+without it.
+
+Two traps came with it. `go test` caches results, so a rerun printed an
+identical skip down to the microsecond and looked like fresh evidence; use
+`-count=1`. And load average decays over minutes, so a machine is not idle the
+moment the process is killed.
+
+Jamf Protect is worth knowing about on this laptop: it sat at 338% CPU scanning
+the gigabytes of pool files being written, alongside `mds`. A load average of 50
+here is not necessarily my own work.

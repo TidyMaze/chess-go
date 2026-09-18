@@ -67,6 +67,7 @@ func TestBudgetUsage(t *testing.T) {
 // which is half a 10 ms budget in overrun and makes every 10 ms race and
 // calibration measure the overrun as much as the engine.
 func TestTenMillisecondBudgetIsRespected(t *testing.T) {
+	skipIfMachineBusy(t)
 	net, err := LoadHalfKPNet("../champion_net.json")
 	if err != nil {
 		t.Skip("no champion network:", err)

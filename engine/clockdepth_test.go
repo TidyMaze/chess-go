@@ -17,6 +17,7 @@ import (
 // 100 ms then the search is fine and the flat stretch belongs to the
 // opponent's limiter.
 func TestDepthReachedAcrossClocks(t *testing.T) {
+	skipIfMachineBusy(t)
 	if testing.Short() {
 		t.Skip("timing measurement")
 	}
