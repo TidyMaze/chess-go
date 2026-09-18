@@ -1178,3 +1178,19 @@ implemented a second time by someone reading the same chessprogramming page.
 The cost of knowing this was one unit test comparing node counts, which is the
 check worth running before every feature race: if a feature cannot move the node
 count on positions chosen to favour it, it cannot move the Elo.
+
+### And the same evening, `go test | tail` hid a red again
+
+The commit above went out on a failing test. `go test ./engine/ | tail -1`
+printed FAIL, but `tail` exits 0, so the `&&` chain ran on and pushed. This is
+the second time that pipeline has masked an exit code in this project.
+
+The test itself was the wrong shape: it asserted the exemption searched MORE
+nodes, when the whole finding is that the difference is a handful of nodes in
+either direction and the search is not bit-deterministic across runs. It now
+asserts the measured claim, that the two searches stay within 1% of each other,
+and fails if that ever stops being true, which would mean the skipped race is
+worth running after all.
+
+Run `go test ./...` and read `echo $?`, never a pipeline whose last stage is
+`tail`, `head` or `grep`.
