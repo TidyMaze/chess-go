@@ -1355,3 +1355,32 @@ worth hundreds of Elo.
 
 Any measurement at a short budget must reuse a warmed table, or it measures
 `mmap` rather than the engine.
+
+## The opening book is inert in every race, and live in every real game
+
+`scripts/chunked_match.sh` passes the gauntlet's default `-opening-plies 6`, six
+random plies to start each game. Measured against `games_book_v5.txt`:
+
+| opening | book hits |
+| --- | --- |
+| from the start position | 600 of 600, 100% |
+| after 6 random plies | 0 of 60, 0% |
+
+A book built from real games has nothing to say about a position reached by six
+random moves, so it never speaks. Every A/B and every calibration this project
+has run therefore measured a bookless engine, on both sides.
+
+That makes the A/B results valid, since both sides lost the book equally, and it
+makes two other things false:
+
+- Removing the book read -2 +/- 14 over 2,400 games at 10 ms. That is a null
+  control, not a result: neither side had a book to remove.
+- The engine measured in races is not the engine that plays on lichess or in the
+  UI, where games start from the real initial position and the book does fire.
+  The book's measured 5.5% bad-move rate is therefore unmeasured risk in exactly
+  the games that face real opponents, and the ratings measured against Stockfish
+  say nothing about it.
+
+Measuring the book needs openings the book knows: real positions from an opening
+set, not random plies, and not `-opening-plies 0`, which repeats identical games
+and has fabricated 40 Elo here before.
