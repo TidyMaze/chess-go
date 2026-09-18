@@ -961,3 +961,20 @@ The wider net fits worse and stops improving eight epochs earlier. No race was
 run: the corpora being compared are the same shape, which is the one case where
 the held-out number has tracked the race here, and the earlier head to head
 already read -28 +/- 20. Capacity is not what the evaluation is short of.
+
+## Razoring pays, and the champion files had drifted apart
+
+Razoring adopted at +14 +/- 12 over 3,000 games at 100 ms, SPRT[0,10] settled
+better at llr +3.26. The node measurement predicted it: 94.7% of the plain node
+count over six positions at depth 7, and the Elo came in where a 5% node saving
+should land.
+
+The race needed 3,000 games rather than the 2,400 budgeted. It read +15 +/- 14 at
+2,400 with llr +2.84 against a +2.94 bound, which is the one case worth paying
+another block for: a test one block short of settling is not a result.
+
+Adopting it exposed something else. `champion_ui.json` still had no `improving`
+flag, adopted days earlier at +12 +/- 11 over 4,000 games, so the champion the UI
+runs at 8 threads and 3 s a move has been playing weaker than the one being
+raced. The three champion files carry their feature lists independently and
+nothing checks that they agree.
