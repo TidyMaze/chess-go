@@ -1019,3 +1019,29 @@ Stockfish does at this rating, and that nothing is gained between 10 ms and
 100 ms, which is where a search that deepens too slowly would show. The first
 100 ms figure of the evening, -325 +/- 41, predates razoring and describes a
 different engine; the three above were all taken after it.
+
+## The Stockfish ruler is not the same opponent at every clock
+
+The three measurements above look like the engine gains nothing between 10 ms
+and 100 ms and a great deal by 1 s. The first reading of that was that the
+search converts time into depth badly at short clocks. Measured, it does not:
+
+| clock | mean depth | mean nodes |
+| --- | --- | --- |
+| 10 ms | 3.7 | 2,026 |
+| 100 ms | 7.7 | 50,858 |
+| 1 s | 12.0 | 557,738 |
+
+Four plies per tenfold increase, twice over, which by the ~150 Elo per ply ladder
+is worth several hundred Elo of self-improvement across each step. The engine is
+converting time into depth exactly as it should.
+
+So the flat stretch is the opponent's. Stockfish under `UCI_Elo 2800` is not a
+fixed-strength player across time controls: it improves with the clock alongside
+us at 10 ms and 100 ms, then its limiter saturates and it stops, which is why the
+gap collapses from -309 to -133 by 1 s. An Elo read off this ruler is only
+comparable to another Elo read at the same clock, and "the engine is 2,493" is
+meaningless without saying at what time control it was measured.
+
+TestDepthReachedAcrossClocks keeps the measurement, and fails if a tenfold clock
+increase ever buys less than two plies.
