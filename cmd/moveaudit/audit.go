@@ -40,7 +40,11 @@ type tally struct {
 	seen   map[string]int
 	agreed map[string]int
 	worst  []disagreement
-	keep   int
+	// all keeps every disagreement, not only the costliest: a theme is
+	// counted over the whole set, and the top twenty-five were far too
+	// few to tell a pattern from a coincidence.
+	all  []disagreement
+	keep int
 }
 
 func newTally(keep int) *tally {
@@ -55,6 +59,7 @@ func (t *tally) add(d disagreement, agreed bool) {
 		t.agreed[d.phase]++
 		return
 	}
+	t.all = append(t.all, d)
 	t.worst = append(t.worst, d)
 	sort.Slice(t.worst, func(i, j int) bool { return t.worst[i].costPawn > t.worst[j].costPawn })
 	if len(t.worst) > t.keep {
@@ -81,4 +86,23 @@ func (t *tally) report() string {
 	}
 	out += fmt.Sprintf("%-12s %8d %7d %5.1f%%\n", "all", total, totalAgreed, rate)
 	return out
+}
+
+// worthJudging rejects positions the judge already considers settled.
+//
+// In a position won by more than a few pawns almost any reasonable move
+// keeps the win and the judge simply prefers the fastest mate, so the
+// disagreement is taste rather than a defect. Mate scores arrive as 100
+// pawns, and one of those in the cost arithmetic reported an "87 pawn
+// blunder" that was really "kept a winning position instead of mating".
+func worthJudging(score, limit float64) bool {
+	return score <= limit && score >= -limit
+}
+
+// costOfOurMove is how much more the opponent gets from our move than
+// from the judge's, in pawns. Both scores come from searching the two
+// children to the same depth, so the horizon is identical and only the
+// move differs.
+func costOfOurMove(afterOurs, afterTheirs float64) float64 {
+	return afterOurs - afterTheirs
 }

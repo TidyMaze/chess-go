@@ -1076,3 +1076,35 @@ no absolute scale. It does invalidate every absolute claim, including the 2,710
 carried in `champion.json` and the 2,281 lichess calibration, and it means a
 target expressed as a percentage of rating was resting on a number 500 points
 too high.
+
+## A judge built with skill 0 is the weakest Stockfish, not the strongest
+
+`engine.NewStockfish(path, skill, elo)` sends `setoption name Skill Level
+value <skill>` unconditionally, so `NewStockfish(sf, 0, 0)` is not "no limit
+set", it is Stockfish at its weakest setting. Its search scores stay honest
+while its move choices are deliberately degraded, which is a peculiarly
+misleading combination for an oracle.
+
+Signature of the bug: the engine under audit appeared to choose better moves
+than the judge, by the judge's own evaluation, averaging -1.41 pawns across 319
+disagreements. A negative mean cost is impossible against a real oracle and is
+what gave it away. Two rounds of fixing the cost arithmetic came first and
+neither helped, because the arithmetic was never the problem.
+
+Corrected, with skill 20, over 400 positions at depth 10:
+
+| phase | agreed | mean cost when we differ |
+| --- | --- | --- |
+| opening | 56.2% | 0.34 pawns |
+| middlegame | 47.4% | 0.36 pawns |
+| endgame | 40.8% | 0.22 pawns |
+| all | 45.8% | 0.29 pawns |
+
+Every other caller in the repo already passed 20. The gauntlet builds its
+reference as `NewStockfish(*refUCI, 20, *refUCIElo)`, so no race or calibration
+was affected, only the new audit.
+
+Agreement is lowest in the endgame but costs least there, which fits: an endgame
+offers many moves that all keep the result. The middlegame is where a
+disagreement is most expensive, so that is where an evaluation defect is worth
+hunting.
