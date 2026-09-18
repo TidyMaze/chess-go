@@ -120,3 +120,4 @@ run_playwright_mcp.sh
 # Pool provenance sidecars are small and are the record of where the
 # training data came from, so they are tracked even though the pools are not.
 !*.meta.json
+moveaudit-bin
