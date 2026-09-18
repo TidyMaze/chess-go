@@ -1137,3 +1137,27 @@ labels are made: a pawn move pays off over a long horizon, the training labels
 come from our own search at depth 6 to 8, and a network cannot learn what its
 teacher cannot see. The hand-written evaluation has a pawn `Structure` term,
 which `hand_blend 0` switched off entirely when the network took over.
+
+### The network is not pawn-blind, which refutes the obvious reading
+
+The first explanation for that gap was that a 64 unit HalfKP network cannot
+represent pawn structure. It can. Same material either side, only the pawns
+standing differently:
+
+| pair | score change |
+| --- | --- |
+| doubling and isolating three White pawns | -0.530 |
+| blocking White's passed pawn | -1.164 |
+| a pawn chain against scattered pawns | +0.042 |
+
+Doubled, isolated and blocked passed pawns are all penalised, correctly and with
+sensible weight. Only the chain against scattered pawns draws no opinion.
+`TestNetworkSeesPawnStructure` keeps the first two, so a retrained network cannot
+quietly lose the knowledge.
+
+Move ordering was the next suspect and is also innocent: `scoreMove` ranks quiet
+moves purely by history with no piece-type term, so a pawn push is ordered like
+any other quiet move. What remains is that history is self-reinforcing, and a
+move kind that rarely causes early cutoffs stays ranked low, where late move
+reduction cuts it hardest. Testing that needs the rank of the best move recorded
+by piece type, which is instrumentation this session did not build.
