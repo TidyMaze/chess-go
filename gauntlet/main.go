@@ -103,6 +103,8 @@ func (s referenceSwitches) applyTo(p engine.Player) (engine.Player, error) {
 			p.HistLMR = true
 		case "histgravity":
 			p.HistGravity = true
+		case "razoring":
+			p.Razoring = true
 		case "singular":
 			p.Singular = true
 		default:
@@ -223,6 +225,8 @@ func main() {
 			challenger.HistLMR = true
 		case "histgravity":
 			challenger.HistGravity = true
+		case "razoring":
+			challenger.Razoring = true
 		case "singular":
 			challenger.Singular = true
 		default:

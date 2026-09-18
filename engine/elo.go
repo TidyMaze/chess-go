@@ -64,6 +64,9 @@ type Player struct {
 	Structure bool
 	// Futility enables futility pruning near the leaves.
 	Futility bool
+	// Razoring verifies hopeless low-depth nodes with quiescence.
+	Razoring bool
+
 	// Tuned swaps the hand-picked evaluation constants for the Texel-fitted
 	// ones. Set alongside Weights only if you mean to override the fitted
 	// material values.
@@ -194,6 +197,8 @@ func (p *Player) ApplyFeatures(features string) {
 			p.HistLMR = true
 		case "histgravity":
 			p.HistGravity = true
+		case "razoring":
+			p.Razoring = true
 		case "singular":
 			p.Singular = true
 		case "historyaging":
@@ -727,7 +732,7 @@ func evalForPlayer(p Player) *Eval {
 		Weights: p.Weights, UsePST: p.UsePST, NullMove: p.NullMove,
 		MaterialOnly: p.MaterialOnly, QuiescePly: p.QuiescePly, Tapered: p.Tapered,
 		Extensions: p.Extensions, Aspiration: p.Aspiration, SEEPruning: p.SEEPruning,
-		Structure: p.Structure, Futility: p.Futility, Mobility: p.Mobility,
+		Structure: p.Structure, Futility: p.Futility, Razoring: p.Razoring, Mobility: p.Mobility,
 		KingSafety: p.KingSafety, Net: p.Net, HalfKP: p.HalfKP,
 		HalfKPBlend: p.HalfKPBlend, Tablebases: p.Tablebases,
 		NoCastle: p.NoCastle, NoLMR: p.NoLMR, ScaledLMR: p.ScaledLMR, LMP: p.LMP, DeepLMP: p.DeepLMP,

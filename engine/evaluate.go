@@ -128,6 +128,10 @@ type Eval struct {
 	// Futility enables futility and reverse-futility pruning near the
 	// leaves (Heinz, 1998).
 	Futility bool
+	// Razoring verifies hopeless low-depth nodes with a quiescence
+	// search instead of searching them at full width.
+	Razoring bool
+
 	// Mobility adds a bonus per square each piece can reach.
 	Mobility bool
 	// KingSafety weights the attacker-counting king danger term. 0 is off.

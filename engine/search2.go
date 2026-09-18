@@ -760,6 +760,25 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 			return staticEval
 		}
 	}
+	// Razoring: depths 1 to 3, a static evaluation standing far below the
+	// window. Quiescence decides, not the static score, because the
+	// captures it sees are exactly what a big deficit tends to hide.
+	if c.ev != nil && c.ev.Razoring && c.quiescence && depth <= 3 && !inCheck &&
+		alpha > negInf && beta < posInf && alpha > -mateBound && beta < mateBound {
+		if !haveStatic {
+			staticEval, haveStatic = evalPositionFor(g, color, maximizingFor, c.ev), true
+		}
+		if razorCuts(depth, staticEval, alpha, beta, maximizing) {
+			q := quiesceWithKey(g, key, color, maximizingFor, alpha, beta, c.ev, 0, ply)
+			if maximizing && q <= alpha {
+				return q
+			}
+			if !maximizing && q >= beta {
+				return q
+			}
+		}
+	}
+
 	nullOK := true
 	if c.ev.useNullMove() && c.ev.NullGate && depth >= 3 && !inCheck && !afterNull {
 		if !haveStatic {
