@@ -1384,3 +1384,20 @@ makes two other things false:
 Measuring the book needs openings the book knows: real positions from an opening
 set, not random plies, and not `-opening-plies 0`, which repeats identical games
 and has fabricated 40 Elo here before.
+
+### And measured properly, the book is worth nothing
+
+Racing the champion against itself with the book removed, starting from 1,500
+positions sampled out of `games_book_v5.txt` so the booked side gets hits from
+the first move: **+6 +/- 20 over 1,200 games** at 10 ms, llr +0.13, nowhere near
+either bound.
+
+So the book neither helps nor hurts. The 5.5% bad-move rate measured earlier is
+real but costs nothing that 1,200 games can see, and the unmeasured risk flagged
+above is smaller than it looked. It stays because it costs nothing to keep, not
+because it earns its place.
+
+The general shape is worth keeping though: a feature that only acts in positions
+the harness never visits cannot be measured by the harness's defaults, and
+`-match-openings` with positions drawn from the feature's own domain is how to
+give it a fair hearing.
