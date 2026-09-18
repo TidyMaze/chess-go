@@ -63,6 +63,7 @@ func main() {
 	}
 
 	tl := newTally(*keep)
+	gap := newKindGap()
 	judged, ply := 0, 0
 	g := game.New()
 	for judged < *positions {
@@ -100,6 +101,9 @@ func main() {
 					}
 					cost = costOfOurMove(ourAfter, theirAfter)
 				}
+				if !agreed {
+					gap.add(g.FEN(), deep, theirs)
+				}
 				tl.add(disagreement{fen: g.FEN(), phase: phase(g),
 					ours: deep.UCI(), theirs: theirs.UCI(), costPawn: cost}, agreed)
 				judged++
@@ -113,6 +117,11 @@ func main() {
 	}
 
 	fmt.Print("\n", tl.report())
+	fmt.Println("\nWhat the judge plays that we do not, over the disagreements:")
+	fmt.Printf("%-20s %10s %10s\n", "kind", "judge only", "ours only")
+	for _, kind := range moveKinds {
+		fmt.Printf("%-20s %10d %10d\n", kind, gap.judgeOnly[kind], gap.ourOnly[kind])
+	}
 	fmt.Printf("\nThe %d costliest disagreements:\n", len(tl.worst))
 	for _, d := range tl.worst {
 		fmt.Printf("  %-6.2f %-11s ours %s judge %s  %s\n", d.costPawn, d.phase, d.ours, d.theirs, d.fen)

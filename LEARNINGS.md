@@ -1108,3 +1108,32 @@ Agreement is lowest in the endgame but costs least there, which fits: an endgame
 offers many moves that all keep the result. The middlegame is where a
 disagreement is most expensive, so that is where an evaluation defect is worth
 hunting.
+
+## The evaluation prefers pieces where the oracle prefers pawns
+
+Over 500 positions at depth 10, counting for each kind of move how often the
+oracle played one and we did not, against the reverse:
+
+| kind | judge only | ours only |
+| --- | --- | --- |
+| pawn push | 51 | 24 |
+| develops | 11 | 28 |
+| capture | 21 | 10 |
+| check | 18 | 16 |
+| king move | 26 | 28 |
+| retreat | 35 | 34 |
+
+Checks, king moves and retreats come out symmetric, which is what no signal
+looks like and is the control that makes the rest worth reading. Pawn moves and
+development do not: the oracle plays a pawn move twice as often as we do, and we
+take a piece off its home rank two and a half times as often as it would.
+
+Agreement itself is 47.6%: 57.8% in the opening, 46.8% in the middlegame, 44.3%
+in the endgame.
+
+This is a preference difference, not proof of a missing term, but it is the
+first concrete lead on the evaluation the project has had. It also fits how the
+labels are made: a pawn move pays off over a long horizon, the training labels
+come from our own search at depth 6 to 8, and a network cannot learn what its
+teacher cannot see. The hand-written evaluation has a pawn `Structure` term,
+which `hand_blend 0` switched off entirely when the network took over.
