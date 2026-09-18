@@ -998,21 +998,24 @@ Depth 6 labels are not a compromise here: `clean_r9.bin`, the 8M pool the
 champion actually learned from, is labelled at depth 3. Count has beaten label
 depth every time it has been measured in this project.
 
-## Where the champion stands, both rulers on the same engine
+## Where the champion stands, all three rulers on the same engine
 
-Measured 2026-09-18 after the deduplicated network and razoring, 600 games each
-against Stockfish limited to UCI_Elo 2800, one thread, idle machine:
+Measured 2026-09-18 after the deduplicated network and razoring, against
+Stockfish limited to UCI_Elo 2800, one thread, idle machine:
 
-| clock | W-D-L | Elo against SF@2800 | champion on that ruler |
-| --- | --- | --- | --- |
-| 10 ms | 64-47-489 | -307 +/- 40 | 2,493 +/- 40 |
-| 100 ms | 42-89-469 | -309 +/- 40 | 2,491 +/- 40 |
+| clock | games | W-D-L | Elo against SF@2800 | champion on that ruler |
+| --- | --- | --- | --- | --- |
+| 10 ms | 600 | 64-47-489 | -307 +/- 40 | 2,493 +/- 40 |
+| 100 ms | 600 | 42-89-469 | -309 +/- 40 | 2,491 +/- 40 |
+| 1 s | 200 | 38-51-111 | -133 +/- 52 | 2,667 +/- 52 |
 
-The two agree inside their intervals, which is itself the finding: the gap to
-Stockfish no longer shrinks with the clock the way it did when the deficit was
--401 at 10 ms and -216 at 1 s. Speed advantages used to decay as the clock grew;
-now the deficit is flat across a factor of ten in thinking time, so what remains
-is evaluation quality rather than nodes per second.
+10 ms and 100 ms agree inside their intervals, and on those two alone this
+section originally concluded that the deficit had stopped shrinking with the
+clock. The 1 s measurement refutes that: 176 Elo better than 100 ms, well
+outside both intervals. Two points were not a trend.
 
-The first 100 ms figure of the evening, -325 +/- 41, was measured before razoring
-was adopted and describes a different engine. Both numbers above were taken after.
+What the shape does say is that the engine gains more from a longer clock than
+Stockfish does at this rating, and that nothing is gained between 10 ms and
+100 ms, which is where a search that deepens too slowly would show. The first
+100 ms figure of the evening, -325 +/- 41, predates razoring and describes a
+different engine; the three above were all taken after it.
