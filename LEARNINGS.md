@@ -941,3 +941,23 @@ The same run made `TestTenMillisecondBudgetIsRespected` fail at 142% of a 10 ms
 budget, which is the ten generator workers, not the clock code. Both reds cost a
 four-minute suite run each. Before believing a red in this repo, check `uptime`
 and whether a generator is running.
+
+## Width stays dead on the clean corpus
+
+The 128-unit rejection was worth re-asking once the corpus was deduplicated: it
+had been measured on `clean_r9.bin` alone, 8.0M positions from one pool, and the
+engine loses -168 at equal depth 4 and -215 at depth 6 against Stockfish, which
+is an evaluation gap, not a search one.
+
+Trained on the same 10,957,828 distinct positions, same trainer, same schedule,
+only the width differing:
+
+| width | best held out | explains |
+| --- | --- | --- |
+| 64 | 1.3618 (epoch 24) | 91.3% |
+| 128 | 1.3705 (epoch 16) | 91.2% |
+
+The wider net fits worse and stops improving eight epochs earlier. No race was
+run: the corpora being compared are the same shape, which is the one case where
+the held-out number has tracked the race here, and the earlier head to head
+already read -28 +/- 20. Capacity is not what the evaluation is short of.
