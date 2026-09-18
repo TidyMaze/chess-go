@@ -1,40 +1,40 @@
 # Queue
 
-Nothing here runs while the generator holds the machine: a race at 100 ms a move
-under ten busy workers measures the load, not the change. Check `uptime` and
-`sysctl vm.swapusage` first.
+The absolute scale changed on 2026-09-18: the engine is about 1,985 at 10 ms,
+not the 2,493 the SF@2800 rung implied. See `analyses/elo-calibration/report.html`.
+Every A/B in LEARNINGS.md still stands, they are head to head at a fixed clock.
 
-## 1. Race razoring (ready, one command)
+## 1. Move agreement audit against Stockfish as a judge
 
-```
-CHESS_SPRT=on CHESS_SPRT_ELO1=10 scripts/chunked_match.sh 2400 300 \
-  -champion champion.json -ref-champion champion.json -features razoring \
-  -threads 1 -time-ms 100
-```
+An engine that searches 12 plies at 1 s and rates 1,985 has evaluation defects,
+not diminishing returns. Find them: take a few hundred positions from the pools,
+ask for our best move and Stockfish's best move at a fixed depth, and bucket the
+disagreements by phase and by what the position contains (passed pawn, open file
+next to a king, material imbalance, locked centre).
 
-Same file on both sides, so the feature flag is the only difference. This is a
-config A/B and it is valid here only because the flag is read at runtime by the
-search: TestRazoringFlagReachesTheSearch and TestRazoringVisitsFewerNodes prove
-it arrives and changes the node count (94.7% of plain over six positions).
+Stockfish is a judge here, never a teacher: it scores nothing that reaches the
+training pool. The output is a list of themes where we choose badly, which is a
+list of evaluation features worth building.
 
-## 2. Merge the new pool, retrain, race
+## 2. Recalibrate at 100 ms and 1 s
 
-The generator writes /private/tmp/chesslogs/deep_play6.bin with its provenance
-sidecar. Check the first generation's positions merge cleanly against the
-existing corpus BEFORE letting it run all night:
+Only 10 ms has a five-rung curve. The 100 ms and 1 s numbers still come from the
+2800 rung alone and are inflated the same way. 400 games per rung, SF@1800 to
+2400 is the bracket to try at 100 ms given the 10 ms crossover.
 
-```
-go run ./cmd/poolmerge -out /tmp/merge_probe.bin \
-  /private/tmp/chesslogs/merged_dedup.bin /private/tmp/chesslogs/deep_play6.bin
-```
+## 3. Merge the overnight pool and retrain
 
-What matters is the duplicate count. deep_d8.bin was 99% already present in
-clean_r9, which is why re-labelling old PGN positions bought nothing; fresh
-self-play at play-depth 6 should overlap far less.
+`/private/tmp/chesslogs/gen_fast.bin`, play depth 3, label depth 6, about 132
+positions a second. Merge into the deduplicated corpus and check the duplicate
+rate first: generation 1 of the slow run was 92.3% new, which is the number to
+beat.
 
 ## Closed this session
 
 - deduplicated corpus: +15 +/- 11 over 3,600 games, adopted
-- 128 hidden units: 1.3705 against 1.3618 held out, rejected without a race
+- razoring: +14 +/- 12 over 3,000 games, adopted
+- 128 hidden units: 1.3705 against 1.3618 held out, rejected
 - all five pools with duplicates: -19 +/- 20, rejected
 - self-play positions alone: -26 +/- 20, rejected
+- champion files can no longer drift apart (test)
+- generation is label-bound: depth 8 to 6 is 8.2x throughput
