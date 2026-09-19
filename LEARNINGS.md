@@ -1446,3 +1446,24 @@ happens when weaker play revisits the same positions; poolmerge drops them, and
 So the corpus is now 12,982,332 positions and the lever is clear: more positions,
 labelled cheaply, beats fewer positions labelled well. That was not obvious, and
 the opposite was assumed when the generator was first set to depth 8.
+
+## Data scaling, four points in one night
+
+Each row is the same architecture and trainer, raced against the champion it
+replaced, at 100 ms:
+
+| corpus | new positions | explained | Elo |
+| --- | --- | --- | --- |
+| 10,957,828 (deduplicated) | - | 91.3% | +15 +/- 11 |
+| 11,527,328 | 569,483 at label depth 6 | 91.3% | +9 +/- 10, never settled |
+| 12,982,332 | 1,455,021 at label depth 4 | 92.0% | +12 +/- 11 |
+| 16,796,968 | 3,814,636 at label depth 4 | 93.0% | +22 +/- 16, settled in 1,800 games |
+
+The gains are not shrinking as the corpus grows, they are growing with the size
+of each batch, which is what a data-limited network looks like. Four cycles in
+one night, and the only cost is machine hours at 1,261 positions a second.
+
+The duplicate rate is the thing to watch: 0.4%, then 3.3%, then 11.9% as the
+batches grew, because self-play at play depth 3 keeps revisiting the same
+positions. When it approaches 100% the well is dry and the opening diversity, or
+the play depth, has to change before more hours buy anything.
