@@ -1487,3 +1487,22 @@ measure; 400 games per rung buys +/- 34, while 1,500 head to head buys +/- 18.
 So head to head is the instrument for deciding what to keep, and the external
 rungs are the instrument for knowing where the engine actually stands. Using
 either one for the other's job wastes hours.
+
+## Where self-play starts decides how fast the well runs dry
+
+Self-play defaults to ten random plies before the engine takes over. Measured
+against the 16.8M corpus, one generation of 600 games each way:
+
+| start | positions/s | new positions | new/s |
+| --- | --- | --- | --- |
+| ten random plies | 1,261 | 62.8% | 792 |
+| `openings.txt`, 150,000 real positions | 880 | 89.9% | 791 |
+
+The same yield per second today, and a different trajectory: the random-plies
+well is already 37% depleted while the book's is 10%, because the corpus is
+largely made of random-plies games already. Generation switched to
+`-opening-book openings.txt`.
+
+The duplicate rate is the gauge to watch, not the raw position count. It went
+0.4%, 3.3%, 11.9%, then 37% on successive random-plies batches, and 10% on the
+first book batch.
