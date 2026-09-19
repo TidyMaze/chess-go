@@ -1467,3 +1467,23 @@ The duplicate rate is the thing to watch: 0.4%, then 3.3%, then 11.9% as the
 batches grew, because self-play at play depth 3 keeps revisiting the same
 positions. When it approaches 100% the well is dry and the opening diversity, or
 the play depth, has to change before more hours buy anything.
+
+## What one night bought, measured directly
+
+The engine at commit 7098b16, network and feature list included, against the
+engine now, 1,500 games at 100 ms: **+65 +/- 18**, W-D-L 718-341-441.
+
+That is close to the +72 the five adopted changes summed to individually
+(+15 dedup, +14 razoring, +9 and +12 and +22 from data), so they stack rather
+than overlapping, which was not guaranteed: three of the five are the same
+lever applied repeatedly.
+
+Against a fixed external opponent the same work reads smaller. At 10 ms, the
+SF@2000 rung moved from -15 +/- 34 to +5 +/- 34, and SF@2200 from -110 +/- 36 to
+-75 +/- 35: roughly +20 and +35, both far wider than the head-to-head interval
+and both below +65. Transfer to an outside opponent is partial and expensive to
+measure; 400 games per rung buys +/- 34, while 1,500 head to head buys +/- 18.
+
+So head to head is the instrument for deciding what to keep, and the external
+rungs are the instrument for knowing where the engine actually stands. Using
+either one for the other's job wastes hours.
