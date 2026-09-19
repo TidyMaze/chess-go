@@ -1506,3 +1506,29 @@ largely made of random-plies games already. Generation switched to
 The duplicate rate is the gauge to watch, not the raw position count. It went
 0.4%, 3.3%, 11.9%, then 37% on successive random-plies batches, and 10% on the
 first book batch.
+
+## The ruler is consistent at 1 s and incoherent at 10 ms
+
+Measured with the current champion, one thread, 200 games at 1 s:
+
+| clock | against SF@2400 | implies | against SF@2800 | implies | spread |
+| --- | --- | --- | --- | --- | --- |
+| 10 ms | -201 +/- 40 | 2,199 | -307 +/- 40 | 2,493 | 294 |
+| 1 s | +191 +/- 56 | 2,591 | -133 +/- 52 | 2,667 | 76 |
+
+At 1 s two rungs 400 points apart agree within 76 points. At 10 ms five rungs
+disagree by 508. So `UCI_Elo` is a usable scale at a normal clock and not at a
+very fast one, where Stockfish's own limiter and its time handling interact in
+ways that compress the scale.
+
+**This corrects the retraction above.** "The engine is about 1,985" is true at
+10 ms and says nothing about any other clock; at 1 s the same engine measures
+about 2,600 single-threaded, and the two rungs agree on that. So
+`champion.json`'s 2,710, measured at 1 s with eight threads, was never the
+500-point inflation this file claimed an hour earlier: it is consistent with
+2,600 single-threaded plus threads. What was wrong was reading a 10 ms result
+off a rung 800 points away, not the 1 s calibration.
+
+The swing itself is the headline: the same engine reads -201 against SF@2400 at
+10 ms and +191 at 1 s, a 392 point move bought entirely by the clock. Any Elo
+quoted here without its time control is meaningless.
