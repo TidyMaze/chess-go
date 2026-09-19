@@ -1423,3 +1423,26 @@ Held-out loss was no help here and would have been misleading: 1.3895 against
 the old network's 1.3618 looks worse, but the constant it is measured against
 moved too (15.89 against 15.63) because the corpus changed. A held-out number
 compares two networks on one corpus, never two corpora.
+
+## Cheap labels win: depth 4 beat depth 6 per hour of machine time
+
+Labelling is the whole cost of generating training data, so the label search
+decides how much data an evening buys:
+
+| label depth | positions/s | batch | new positions | Elo from retraining |
+| --- | --- | --- | --- | --- |
+| 6 | 132 | 621,577 | 569,483 | +9 +/- 10 over 5,100 games, never settled |
+| 4 | 1,261 | 1,899,215 | 1,455,021 | +12 +/- 11 over 3,900 games, settled better |
+
+The depth-4 batch took 26 minutes and produced more Elo than the depth-6 batch
+did in hours. Nine and a half times the throughput, and the labels are no worse
+than `clean_r9.bin`, the 8M pool this engine was built on, which is labelled at
+depth 3.
+
+Duplicate rate rose with the shallower play, 3.3% against 0.4%, which is what
+happens when weaker play revisits the same positions; poolmerge drops them, and
+1,455,021 of 1,899,215 still landed.
+
+So the corpus is now 12,982,332 positions and the lever is clear: more positions,
+labelled cheaply, beats fewer positions labelled well. That was not obvious, and
+the opposite was assumed when the generator was first set to depth 8.

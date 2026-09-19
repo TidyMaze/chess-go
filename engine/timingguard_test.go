@@ -26,6 +26,17 @@ func skipIfMachineBusy(t *testing.T) {
 	// observed while the generator was running.
 	const tolerated = 3 * time.Millisecond
 
+	worst := worstPreemptionGap(window)
+	if worst > tolerated {
+		t.Skipf("machine is busy: this goroutine lost the processor for %v inside a %v window, so a millisecond budget cannot be measured here",
+			worst, window)
+	}
+}
+
+// worstPreemptionGap measures the longest the caller goes without the
+// processor inside a window, which is what a wall-clock budget actually
+// competes with.
+func worstPreemptionGap(window time.Duration) time.Duration {
 	var worst time.Duration
 	start := time.Now()
 	last := start
@@ -36,8 +47,5 @@ func skipIfMachineBusy(t *testing.T) {
 		}
 		last = now
 	}
-	if worst > tolerated {
-		t.Skipf("machine is busy: this goroutine lost the processor for %v inside a %v window, so a millisecond budget cannot be measured here",
-			worst, window)
-	}
+	return worst
 }
