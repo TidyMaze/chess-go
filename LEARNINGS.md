@@ -1401,3 +1401,25 @@ The general shape is worth keeping though: a feature that only acts in positions
 the harness never visits cannot be measured by the harness's defaults, and
 `-match-openings` with positions drawn from the feature's own domain is how to
 give it a fair hearing.
+
+## A 5% larger corpus buys about 9 Elo, and SPRT cannot settle it
+
+The loop closed once end to end: generate, merge, train, race. Self-play at play
+depth 3 and label depth 6 produced 621,577 positions, of which 569,483 were new
+against the existing corpus (91.6%, and only 0.4% duplicates), giving 11,527,328
+distinct positions, 5% more than the corpus that won +15.
+
+Retrained on it, the network reads **+9 +/- 10 over 5,100 games** at 100 ms,
+with block estimates of +8, +12, +10 and +2. SPRT[0,10] ran from llr +0.89 to
++2.38 and back to +2.04 without settling, which is what happens when the true
+effect sits on the threshold the test is asking about: "worth at least 10" and
+"worth nothing" both fit.
+
+SPRT[-5,5] settled better at llr +4.89. That is the question worth asking of
+more data: not whether it clears a bar, but whether it regresses. It does not,
+so it was adopted.
+
+Held-out loss was no help here and would have been misleading: 1.3895 against
+the old network's 1.3618 looks worse, but the constant it is measured against
+moved too (15.89 against 15.63) because the corpus changed. A held-out number
+compares two networks on one corpus, never two corpora.
