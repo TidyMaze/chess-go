@@ -1547,3 +1547,13 @@ Generated 4,017,623 positions via self-play with `openings.txt` (150k real openi
 Merged into `merged_v5.bin`:
 - 20,814,591 read, 20,058,404 written, 756,187 duplicates dropped (3.6%).
 - Reached 20.06M distinct positions with 96.4% novelty yield.
+
+## Rung 13: 20.06M Deduplicated Positions Network (+40 Elo)
+
+Adopted 2026-09-20 into `champion.json`, `champion_bot.json`, and `champion_ui.json`:
+- Retrained on `merged_v5.bin` (20,058,404 deduplicated positions).
+- Test loss dropped to 1.2691 (explains 93.25% variance), the lowest recorded in this project.
+- Measured: +40 +/- 22 Elo over 1,000 games at 10 ms against Rung 12 champion (W-D-L 472-170-358, score 0.557).
+- SPRT[0, 10] settled better at llr +3.51 after 1,000 games.
+- Champion updated to `champion_net.json` with bit-exact regression tests verified.
+
