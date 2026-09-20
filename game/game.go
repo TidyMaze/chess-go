@@ -304,8 +304,8 @@ func (g *Game) AppendQuiescenceMoves(dst []Move, color board.Color) ([]Move, boo
 				target == epSquare && ps.Sq.File != target.File
 			occupied := (enemyOcc & (uint64(1) << (target.Rank*8 + target.File))) != 0
 			// Pawns never move backwards, so either end of the board is
-			// the last rank (or 7th rank threat) for whichever colour is moving.
-			promotes := ps.Type == board.Pawn && (target.Rank <= 1 || target.Rank >= 6)
+			// the last rank for whichever colour is moving.
+			promotes := ps.Type == board.Pawn && (target.Rank == 0 || target.Rank == 7)
 			wanted := occupied || epCapture || promotes
 			// One legal quiet move is all the stalemate question needs;
 			// the rest are skipped before their legality test.

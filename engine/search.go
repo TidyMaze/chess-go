@@ -81,10 +81,6 @@ func moveOrderScore(g *game.Game, m game.Move) int {
 	}
 	victim, isCapture := g.Board.PieceAt(m.To)
 	if !isCapture {
-		p, ok := g.Board.PieceAt(m.From)
-		if ok && p.Type == board.Pawn && (m.To.Rank == 1 || m.To.Rank == 6) {
-			return 150 // threat of promotion next move
-		}
 		return 0 // quiet moves last
 	}
 	attacker, _ := g.Board.PieceAt(m.From)
