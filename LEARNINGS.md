@@ -1532,3 +1532,18 @@ off a rung 800 points away, not the 1 s calibration.
 The swing itself is the headline: the same engine reads -201 against SF@2400 at
 10 ms and +191 at 1 s, a 392 point move bought entirely by the clock. Any Elo
 quoted here without its time control is meaningless.
+
+## Rung 12: Continuation History and History-Adjusted LMR (+23 Elo)
+
+Adopted 2026-09-19 into `champion.json` and `champion_bot.json`:
+- `conthist`: Quiet move history conditioned on the previous opponent move (`prevMove.To -> piece -> move.To`).
+- `histlmr`: Late move reductions shifted by history performance `shift = history / 16384` bounded in `[-2, +2]`.
+- Measured: +58 +/- 91 over 60 games and +23 +/- 49 over 200 games at depth 4 vs previous champion.
+- Opening book aligned to `games_book_v5.txt` (+9 to +21 Elo over `champion_selfplay_book.txt`).
+
+## 20.06M Deduplicated Positions Milestone
+
+Generated 4,017,623 positions via self-play with `openings.txt` (150k real openings) and depth-4 labeling.
+Merged into `merged_v5.bin`:
+- 20,814,591 read, 20,058,404 written, 756,187 duplicates dropped (3.6%).
+- Reached 20.06M distinct positions with 96.4% novelty yield.
