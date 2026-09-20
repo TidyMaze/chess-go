@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"os"
 	"testing"
 
 	"chess/board"
@@ -91,17 +92,45 @@ func TestPawnPushSearchesAdvancedPushesHarder(t *testing.T) {
 		return total
 	}
 	plain, exempt := nodes(false), nodes(true)
-	// Inertness is the claim, so inertness is what is asserted. An
-	// earlier version asserted that the exemption searched MORE nodes
-	// and failed on reruns, because the difference is a handful of nodes
-	// either way and the search is not bit-deterministic across runs.
-	drift := float64(exempt-plain) / float64(plain)
-	if drift < 0 {
-		drift = -drift
+	if exempt <= plain {
+		t.Errorf("exempting advanced pushes searched %d nodes against %d plain, so the flag is not reaching the search",
+			exempt, plain)
 	}
-	if drift > 0.01 {
-		t.Errorf("the exemption changed the search by %.2f%% (%d nodes against %d); it was inert when measured, so something here has changed and the race that was skipped is worth running",
-			100*drift, exempt, plain)
+	t.Logf("nodes %d plain, %d with advanced pushes exempt (%.2f%% more nodes)", plain, exempt, 100*float64(exempt-plain)/float64(plain))
+}
+
+func TestEndgamePassedPawnBlockade(t *testing.T) {
+	// FEN from lichess game nkVWv4cy turn 99: White to move.
+	// Black has dangerous passed pawns on a3 and c4 with Rd3.
+	// White must NOT abandon the blockade (e.g. Ke6, which was played in the game).
+	// The drawing move is Qa1 (e1a1) blockading the a3 pawn.
+	fen := "8/8/8/1p2K3/2p5/p2r4/2k5/4Q3 w - - 10 99"
+	g, err := game.ParseFEN(fen)
+	if err != nil {
+		t.Fatal(err)
 	}
-	t.Logf("nodes %d plain, %d with advanced pushes exempt (%.2f%% apart)", plain, exempt, 100*drift)
+	_ = os.Chdir("..")
+	defer func() { _ = os.Chdir("engine") }()
+	champ := ReadChampion("champion.json")
+	p, err := champ.PlayerOrError()
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.ApplyFeatures("pawnpush")
+	q := p
+	q.Depth = 13
+	q.TimeBudget = 0
+	q.Threads = 1
+	tt := NewTranspositionTable(20)
+	m, score, ok := q.pickScored(g, tt)
+	if !ok {
+		t.Fatal("no move")
+	}
+	t.Logf("chosen move: %s (score %f, nodes %d)", m.UCI(), score, TotalNodes())
+	if m.UCI() == "e5e6" {
+		t.Errorf("blundered e5e6 (game blunder), abandoning blockade against advanced passed pawns; want e1a1")
+	}
+	if m.UCI() != "e1a1" {
+		t.Errorf("expected blockade move e1a1 (Qa1), got %s", m.UCI())
+	}
 }

@@ -546,6 +546,9 @@ func (c *searchCtx) scoreMove(g *game.Game, m game.Move, ttMove game.Move, ply i
 	if c.ev != nil && c.ev.Countermoves && m == c.counterFor(color, c.prevMove) {
 		return 1 << 18, 0
 	}
+	if c.ev != nil && c.ev.PawnPush && advancedPawnPush(&g.Board, m, color) {
+		return 1<<18 - 50, 0
+	}
 	score := int(c.history[color][sqIndex(m.From)][sqIndex(m.To)])
 	if slot := c.contSlot(color, g, m); slot != nil {
 		score += int(*slot)
@@ -1002,6 +1005,7 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 		// left. Promotion is handled here because the board layer does not
 		// know the rule.
 		childClock := childFiftyClock(g, m, c.fifty[ply])
+		isAdvPawn := c.ev != nil && c.ev.PawnPush && advancedPawnPush(&g.Board, m, color)
 		undo, promoted := makeSearchMove(g, m)
 		if ply < maxSearchPly {
 			c.moveStack[ply] = m
@@ -1027,7 +1031,7 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 		if c.ev != nil && c.ev.DeepLMP {
 			maxLMP = 8
 		}
-		if lmp && i > 0 && lateMovePrunedMax(depth, i, improvingHere, inCheck, isCapture, promoted, givesCheck, c.isKiller(ply, m), maxLMP) {
+		if lmp && i > 0 && !isAdvPawn && lateMovePrunedMax(depth, i, improvingHere, inCheck, isCapture, promoted, givesCheck, c.isKiller(ply, m), maxLMP) {
 			g.Board.UnmakeMove(undo)
 			continue
 		}
@@ -1036,7 +1040,7 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 		// far short of the bound is not going to reach it, so skip its
 		// whole subtree. The first move is always searched so that `best`
 		// is backed by a real score.
-		if futile && i > 0 && !isCapture && !givesCheck && !promoted {
+		if futile && i > 0 && !isCapture && !givesCheck && !promoted && !isAdvPawn {
 			margin := futilityMargin[depth]
 			if (maximizing && staticEval+margin <= alpha) ||
 				(!maximizing && staticEval-margin >= beta) {
@@ -1048,7 +1052,7 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 		// Late move reductions: the ordering above says moves after the
 		// first few are unlikely to be best, so look at them shallower.
 		reduction := 0
-		if depth >= 3 && i >= 3 && !isCapture && !inCheck && !(c.ev != nil && c.ev.NoLMR) {
+		if depth >= 3 && i >= 3 && !isCapture && !inCheck && !isAdvPawn && !(c.ev != nil && c.ev.NoLMR) {
 			reduction = 1
 			if c.ev != nil && c.ev.ScaledLMR {
 				// Reduce more the deeper the search and the later the

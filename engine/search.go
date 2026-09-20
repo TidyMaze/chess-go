@@ -76,8 +76,15 @@ func terminalScore(g *game.Game, color, maximizingFor board.Color, depthLeft int
 var mvvLvaPiece = [6]int{board.Pawn: 1, board.Knight: 3, board.Bishop: 3, board.Rook: 5, board.Queen: 9, board.King: 20}
 
 func moveOrderScore(g *game.Game, m game.Move) int {
+	if pawnReachesLastRank(g, m) {
+		return 200 // promotions first
+	}
 	victim, isCapture := g.Board.PieceAt(m.To)
 	if !isCapture {
+		p, ok := g.Board.PieceAt(m.From)
+		if ok && p.Type == board.Pawn && (m.To.Rank == 1 || m.To.Rank == 6) {
+			return 150 // threat of promotion next move
+		}
 		return 0 // quiet moves last
 	}
 	attacker, _ := g.Board.PieceAt(m.From)

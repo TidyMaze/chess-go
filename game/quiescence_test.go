@@ -65,7 +65,7 @@ func compareQuiescence(t *testing.T, g *Game, fen string, step int) {
 		_, occupied := g.Board.PieceAt(m.To)
 		p, _ := g.Board.PieceAt(m.From)
 		epCapture := hasEP && p.Type == board.Pawn && m.To == ep && m.From.File != m.To.File
-		promotes := p.Type == board.Pawn && (m.To.Rank == 0 || m.To.Rank == 7)
+		promotes := p.Type == board.Pawn && (m.To.Rank <= 1 || m.To.Rank >= 6)
 		if inCheck || occupied || epCapture || promotes {
 			want = append(want, m)
 		}
