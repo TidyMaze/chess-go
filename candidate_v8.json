@@ -1,0 +1,8 @@
+{
+  "label": "candidate v8: 21.20M positions h64 (loss 1.2549)",
+  "depth": 1,
+  "net_file": "/tmp/chesslogs/net_v8_h64.json",
+  "hand_blend": 0.0,
+  "features": "lmp,deeplmp,rfp,scaledlmr,countermove,see,historymalus,lmrtwostep,nullgate,iir,improving,razoring,conthist,histlmr",
+  "book": "games_book_v5.txt"
+}
