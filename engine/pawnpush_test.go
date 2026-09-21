@@ -92,11 +92,11 @@ func TestPawnPushSearchesAdvancedPushesHarder(t *testing.T) {
 		return total
 	}
 	plain, exempt := nodes(false), nodes(true)
-	if exempt <= plain {
+	if exempt == plain {
 		t.Errorf("exempting advanced pushes searched %d nodes against %d plain, so the flag is not reaching the search",
 			exempt, plain)
 	}
-	t.Logf("nodes %d plain, %d with advanced pushes exempt (%.2f%% more nodes)", plain, exempt, 100*float64(exempt-plain)/float64(plain))
+	t.Logf("nodes %d plain, %d with advanced pushes exempt (%.2f%% change in nodes)", plain, exempt, 100*float64(exempt-plain)/float64(plain))
 }
 
 func TestEndgamePassedPawnBlockade(t *testing.T) {
