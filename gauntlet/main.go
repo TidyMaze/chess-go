@@ -143,6 +143,7 @@ func main() {
 	championPath := flag.String("champion", "", "challenger plays the champion described by this file, network included. Use it with -ref-champion on the same file to put the identical player on both sides, so a -features flag is the only difference between them. Without it the challenger is engine.Strong plus flags, which is NOT the champion: a null control of -halfkp against -ref-champion read -10 +/- 48 one run and -40 +/- 34 another.")
 	refChampion := flag.String("ref-champion", "", "reference plays the champion described by this file, network included. Without it the reference is the plain hand-written evaluation, so a network is measured against the original baseline and not against whatever it is supposed to have improved on.")
 	refUCIElo := flag.Int("ref-uci-elo", 0, "limit the -ref-uci engine to this UCI_Elo, so it can be a rung on a ladder rather than a wall. 0 leaves it at full strength, which against this engine scores about 100%% and resolves nothing.")
+	refUCISkill := flag.Int("ref-uci-skill", 20, "set the -ref-uci engine's Skill Level (0-20, default 20)")
 	refUCI := flag.String("ref-uci", "", "reference is this external UCI engine (a path), on the challenger's clock when -time-ms is set, else at -depth. Built for racing one build of this engine against another.")
 	challengerUCI := flag.String("uci", "", "challenger is this external UCI engine (a path) instead of the in-process player, so two builds can be raced symmetrically, both behind stdio.")
 	refKeepEP := flag.Bool("ref-nullmove-ep-bug", false, "reference keeps the en passant square across a null move, reproducing the bug fixed on 2026-09-06")
@@ -378,16 +379,16 @@ func main() {
 		fmt.Printf("challenger is the UCI engine %s\n", *challengerUCI)
 	}
 	if *refUCI != "" {
-		e, err := engine.NewStockfish(*refUCI, 20, *refUCIElo)
+		e, err := engine.NewStockfish(*refUCI, *refUCISkill, *refUCIElo)
 		if err != nil {
 			fmt.Println("ref-uci:", err)
 			return
 		}
 		reference = engine.Player{Name: "reference: " + *refUCI, UCI: e, UCIDepth: *depth, UCIMoveTimeMS: *timeMS}
 		if *refUCIElo > 0 {
-			fmt.Printf("reference is the UCI engine %s limited to UCI_Elo %d\n", *refUCI, *refUCIElo)
+			fmt.Printf("reference is the UCI engine %s limited to UCI_Elo %d (skill %d)\n", *refUCI, *refUCIElo, *refUCISkill)
 		} else {
-			fmt.Printf("reference is the UCI engine %s at full strength\n", *refUCI)
+			fmt.Printf("reference is the UCI engine %s at Skill Level %d\n", *refUCI, *refUCISkill)
 		}
 	}
 
