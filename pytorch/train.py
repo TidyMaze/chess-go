@@ -125,22 +125,21 @@ def pack(index_lists, pad_index, device):
     """Pack variable-length feature lists into one dense [N, K] tensor.
 
     Built once for the whole pool and kept on the device, so a batch is a
-    GPU gather rather than Python work. The first version assembled index
-    tensors per batch in Python and that was the bottleneck: 49,535
-    positions per second with the CPU busy against 360,330 with it idle,
-    because feeding the GPU competed with the matches and the data
-    generation for the same cores.
-
-    Padding uses one extra embedding row, held at zero and excluded from
-    gradients, so a short list contributes nothing.
+    GPU gather rather than Python work.
     """
-    width = max((len(l) for l in index_lists), default=1)
+    import numpy as np
+
     n = len(index_lists)
-    out = torch.full((n, width), pad_index, dtype=torch.int32)
-    for i, lst in enumerate(index_lists):
-        if lst:
-            out[i, : len(lst)] = torch.tensor(lst, dtype=torch.int32)
-    return out.to(device)
+    if n == 0:
+        return torch.empty((0, 1), dtype=torch.int32, device=device)
+    lens = np.fromiter((len(l) for l in index_lists), dtype=np.int32, count=n)
+    width = int(lens.max()) if n else 1
+    arr = np.full((n, width), pad_index, dtype=np.int32)
+    flat_data = np.fromiter((x for l in index_lists for x in l), dtype=np.int32)
+    col_idx = np.arange(width)
+    mask = col_idx < lens[:, None]
+    arr[mask] = flat_data
+    return torch.from_numpy(arr).to(device)
 
 
 class HalfKP(nn.Module):
@@ -618,28 +617,22 @@ def main():
         Consecutive entries in a pool are consecutive positions in a game, so
         a pair is only counted when both sides share a game id.
         """
+    def evaluate_heldout(idx):
         model.eval()
-        total, pairs = 0.0, 0
+        loss_total, n = 0.0, 0
+        jump_total, pairs = 0.0, 0
         with torch.no_grad():
             for b in batches(idx, args.batch, False):
                 pred = model(own_t[b], opp_t[b])
+                loss_total += float(((space(pred) - space(y[b])) ** 2).sum())
+                n += b.numel()
                 gid = games_t[b]
                 same = gid[1:] == gid[:-1]
                 if same.any():
                     d = (pred[1:] - pred[:-1]).abs()[same]
-                    total += float(d.sum())
+                    jump_total += float(d.sum())
                     pairs += int(same.sum())
-        return total / max(pairs, 1)
-
-    def evaluate(idx):
-        model.eval()
-        total, n = 0.0, 0
-        with torch.no_grad():
-            for b in batches(idx, args.batch, False):
-                pred = model(own_t[b], opp_t[b])
-                total += float(((space(pred) - space(y[b])) ** 2).sum())
-                n += b.numel()
-        return total / max(n, 1)
+        return loss_total / max(n, 1), jump_total / max(pairs, 1)
 
     best, best_epoch, best_state = float("inf"), 0, None
     # The best few epochs by held-out loss, newest first on ties.
@@ -669,8 +662,7 @@ def main():
             seen += b.numel()
         if smooth_idx is not None:
             smooth_(model.embed.weight, smooth_idx, smooth_mask, args.smooth)
-        test = evaluate(te_t)
-        jump = smoothness(te_t)
+        test, jump = evaluate_heldout(te_t)
         explained = 100 * (1 - test / baseline) if baseline > 0 else 0.0
         rate = seen / max(time.time() - est, 1e-6)
 
@@ -714,7 +706,7 @@ def main():
     if len(top) > 1:
         averaged_state = average_states([state for _, state in top])
         model.load_state_dict(averaged_state)
-        averaged = evaluate(te_t)
+        averaged, _ = evaluate_heldout(te_t)
         chosen, best, kept = pick_weights(averaged_state, averaged, best_state, best)
         log("averaged the best %d epochs: held out %.4f against %.4f, %s"
             % (len(top), averaged, best, kept))
