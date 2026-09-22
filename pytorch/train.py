@@ -18,6 +18,7 @@ by the engine's own search.
 """
 
 import argparse
+import hashlib
 import json
 import struct
 import sys
@@ -323,6 +324,22 @@ def ensemble(paths, out_path: Path) -> dict:
     Path(out_path).write_text(json.dumps(merged))
     return merged
 
+def held_out_games(games: list[int], fraction: float) -> set[int]:
+    """The games scored instead of trained on, each decided by its id alone.
+
+    A permutation over the number of games re-draws the whole set every time
+    the pool grows, so a fine-tuned network is scored on games its starting
+    weights were trained on. poolmerge keeps the ids of the first pool, so a
+    hash of the id keeps each old game on the side it was already on."""
+    held = {g for g in games if _id_hash_fraction(g) < fraction}
+    return held or {min(games)}
+
+
+def _id_hash_fraction(game: int) -> float:
+    digest = hashlib.blake2b(game.to_bytes(8, "little", signed=True), digest_size=8).digest()
+    return int.from_bytes(digest, "little") / 2**64
+
+
 def counts_as_improvement(test: float, best: float, min_delta: float, baseline: float) -> bool:
     """Whether a held-out loss has improved enough to count.
 
@@ -462,10 +479,7 @@ def main():
     # held-out set: the same network once measured 1.36 held-out against a
     # hand-written evaluation's 5.89 and lost 60 games out of 60.
     uniq = sorted(set(games))
-    g = torch.Generator().manual_seed(23)
-    perm = torch.randperm(len(uniq), generator=g).tolist()
-    n_hold = max(1, int(len(uniq) * args.holdout_games))
-    held = {uniq[i] for i in perm[:n_hold]}
+    held = held_out_games(uniq, args.holdout_games)
     tr = [i for i, gi in enumerate(games) if gi not in held]
     te = [i for i, gi in enumerate(games) if gi in held]
     log("%d training positions, %d held out over %d games" % (len(tr), len(te), len(uniq)))

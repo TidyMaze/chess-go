@@ -255,6 +255,17 @@ def test_an_improvement_counts_by_its_share_of_the_loss_not_its_size():
     assert not train.counts_as_improvement(2.0, 1.0, 1e-5, 15.099)
 
 
+def test_growing_the_pool_leaves_every_old_game_on_its_side():
+    """Each rung fine-tunes the champion on the previous pool plus one new
+    batch. If adding games moves old ones into the held-out set, the
+    held-out loss is measured on games the starting weights trained on."""
+    old, grown = list(range(311619)), list(range(312219))
+    before = train.held_out_games(old, 0.15)
+    after = train.held_out_games(grown, 0.15)
+    assert {g for g in after if g < len(old)} == before
+    assert 0.14 < len(after) / len(grown) < 0.16
+
+
 def test_average_states_is_the_elementwise_mean():
     """Two networks from the identical recipe, differing only in weight
     initialisation and batch order, measured 18 +/- 16 Elo apart over 1750
