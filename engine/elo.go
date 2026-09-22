@@ -572,11 +572,16 @@ func playFrom(g *game.Game, white, black Player, maxMoves int, live LiveHook) (w
 	// shared between the two players: a stored score is from one side's
 	// point of view, and the entries also encode each engine's own
 	// evaluation, which is exactly what an A/B is varying.
-	tables := map[board.Color]*TranspositionTable{}
-	for c, p := range map[board.Color]Player{board.White: white, board.Black: black} {
-		if p.TTBits > 0 {
-			tables[c] = NewTranspositionTable(p.TTBits)
-		}
+	var tables [2]*TranspositionTable
+	if white.Table != nil {
+		tables[board.White] = white.Table
+	} else if white.TTBits > 0 {
+		tables[board.White] = NewTranspositionTable(white.TTBits)
+	}
+	if black.Table != nil {
+		tables[board.Black] = black.Table
+	} else if black.TTBits > 0 {
+		tables[board.Black] = NewTranspositionTable(black.TTBits)
 	}
 	var adj adjudicator
 	for plies := 0; plies < maxMoves && !g.IsOver(); plies++ {

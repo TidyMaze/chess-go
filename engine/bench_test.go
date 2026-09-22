@@ -63,3 +63,14 @@ func BenchmarkFullEngineDepth5PersistentTT(b *testing.B) {
 		PlayerPick(p, g)
 	}
 }
+
+func BenchmarkPlaySimulation(b *testing.B) {
+	p1 := Player{Depth: 2, TTBits: 14, Quiescence: true}
+	p2 := Player{Depth: 2, TTBits: 14, Quiescence: true}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		g := game.New()
+		_, _ = playFrom(g, p1, p2, 20, nil)
+	}
+}
+
