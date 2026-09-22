@@ -511,12 +511,16 @@ func (c *searchCtx) scoreMove(g *game.Game, m game.Move, ttMove game.Move, ply i
 	if m == ttMove {
 		return 1 << 30, 0
 	}
-	if isCaptureMove(g, m) {
-		victim, onSquare := g.Board.PieceAt(m.To)
-		if !onSquare {
-			victim = board.Piece{Type: board.Pawn} // en passant
+	victim, isDirectCapture := g.Board.PieceAt(m.To)
+	attacker, hasAttacker := g.Board.PieceAt(m.From)
+	isEP := !isDirectCapture && hasAttacker && attacker.Type == board.Pawn && m.From.File != m.To.File
+	if isEP {
+		if ep, has := g.Board.EPSquare(); has && ep == m.To {
+			victim = board.Piece{Type: board.Pawn}
+			isDirectCapture = true
 		}
-		attacker, _ := g.Board.PieceAt(m.From)
+	}
+	if isDirectCapture {
 		if c.ev != nil && c.ev.MainSEE {
 			// Winning captures first by what they win, losing captures
 			// after every quiet move.
@@ -532,7 +536,7 @@ func (c *searchCtx) scoreMove(g *game.Game, m game.Move, ttMove game.Move, ply i
 		}
 		return 1<<20 + mvvLvaPiece[victim.Type]*100 - mvvLvaPiece[attacker.Type], 0
 	}
-	if pawnReachesLastRank(g, m) {
+	if hasAttacker && attacker.Type == board.Pawn && (m.To.Rank == 7 || m.To.Rank == 0) {
 		return 1<<20 - 100, 0
 	}
 	if ply < maxSearchPly {
