@@ -360,11 +360,31 @@ func (n *HalfKPNet) head(own, opp []float32) float64 {
 		// last digits of every network trained before this layer existed,
 		// and every calibration made against them.
 		out := n.B2
-		for i := 0; i < h; i++ {
-			out += n.W2[i] * clip01(own[i])
+		wOwn := n.W2[:h:h]
+		wOpp := n.W2[h : 2*h : 2*h]
+		own = own[:h:h]
+		opp = opp[:h:h]
+
+		i := 0
+		for ; i+4 <= h; i += 4 {
+			out += wOwn[i] * clip01(own[i])
+			out += wOwn[i+1] * clip01(own[i+1])
+			out += wOwn[i+2] * clip01(own[i+2])
+			out += wOwn[i+3] * clip01(own[i+3])
 		}
-		for i := 0; i < h; i++ {
-			out += n.W2[h+i] * clip01(opp[i])
+		for ; i < h; i++ {
+			out += wOwn[i] * clip01(own[i])
+		}
+
+		i = 0
+		for ; i+4 <= h; i += 4 {
+			out += wOpp[i] * clip01(opp[i])
+			out += wOpp[i+1] * clip01(opp[i+1])
+			out += wOpp[i+2] * clip01(opp[i+2])
+			out += wOpp[i+3] * clip01(opp[i+3])
+		}
+		for ; i < h; i++ {
+			out += wOpp[i] * clip01(opp[i])
 		}
 		return n.toPawns(out)
 	}

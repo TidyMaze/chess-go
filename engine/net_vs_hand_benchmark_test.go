@@ -38,6 +38,36 @@ func BenchmarkHalfKPNeuralNetwork(b *testing.B) {
 	}
 }
 
+func BenchmarkHalfKPHead(b *testing.B) {
+	net, err := LoadHalfKPNet("../champion_net.json")
+	if err != nil {
+		b.Skipf("cannot load champion_net.json: %v", err)
+	}
+	h := net.H
+	own := make([]float32, h)
+	opp := make([]float32, h)
+	for i := range own {
+		own[i] = float32(i) * 0.02
+		opp[i] = float32(i) * 0.015
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = net.head(own, opp)
+	}
+}
+
+func BenchmarkHalfKPAddRow(b *testing.B) {
+	net, err := LoadHalfKPNet("../champion_net.json")
+	if err != nil {
+		b.Skipf("cannot load champion_net.json: %v", err)
+	}
+	a := make([]float32, net.H)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		net.addRow(a, 100, 1.0)
+	}
+}
+
 func BenchmarkChampionHybrid(b *testing.B) {
 	net, err := LoadHalfKPNet("../champion_net.json")
 	if err != nil {
