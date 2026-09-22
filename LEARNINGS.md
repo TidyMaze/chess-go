@@ -1557,3 +1557,51 @@ Adopted 2026-09-20 into `champion.json`, `champion_bot.json`, and `champion_ui.j
 - SPRT[0, 10] settled better at llr +3.51 after 1,000 games.
 - Champion updated to `champion_net.json` with bit-exact regression tests verified.
 
+
+## The held-out set was re-drawn every rung
+
+`train.py` split by game with `torch.randperm(len(games))` under a fixed seed.
+A permutation over a different count is a different permutation, and every
+rung adds games, so every rung held out a fresh random 15%. Checked on the
+real counts, 311,619 games at rung 24 and 312,219 at rung 25: of the 46,754
+old games rung 25 held out, only 6,963 had been held out at rung 24. The other
+85% were training games for the network the fine-tune starts from, and after
+four fine-tunes in a row almost nothing in the held-out set was unseen.
+
+That is why rungs 20 to 24 all stopped at epoch 1: the starting weights had
+memorised the held-out games, so every epoch of real training looked like a
+regression. Early stopping, "best epoch" and every "record test loss" on the
+fine-tuned lineage were measured on training data.
+
+The split is now a hash of the game id (`held_out_games`), and poolmerge keeps
+the first pool's ids, so an old game stays on the side it was on.
+`test_growing_the_pool_leaves_every_old_game_on_its_side` fails against the old
+permutation. The current lineage has still seen nearly every old game, so its
+held-out numbers stay contaminated until a network is trained from scratch on
+the fixed split.
+
+## Rungs 19 to 23 were the harness, not the networks
+
+Rungs 19 to 23 were raced with `gauntlet-bin -halfkp net -ref-champion
+champion.json` at depth 4. That puts the network on `engine.Strong`, not on the
+champion: none of the fifteen search features, so at a fixed depth the
+challenger prunes less, searches a wider tree and wins on that alone. The rungs
+claimed +31, +48, +52, +51 and +43.
+
+All three measured the same evening, 2,000 games at depth 4 from `openings.txt`:
+
+| match | W-D-L | Elo |
+| --- | --- | --- |
+| null control: champion net via `-halfkp` against the champion | 709-800-491 | **+38 +/- 15** |
+| net_v24_fine against the champion, both from champion files | 575-846-579 | -1 +/- 15 |
+| champion against the champion config carrying the rung 19 net | 575-877-548 | +5 +/- 15 |
+
+So the four fine-tunes since rung 19 are worth +5 +/- 15 together, not +194, and
+the internal ladder's 3,163 is about 190 points of harness. Rungs 17 and 18 used
+the same flags at 10 ms, where the bias has another size and an unknown sign.
+Rungs 13 to 16 used `-champion candidate.json` and stand.
+
+`gauntlet-bin` now refuses `-halfkp` or `-net` against `-ref-champion` unless
+`-champion` is given, so the only way to race a network against the champion is
+a champion file naming it. `ladder.sh`, `ladder_scratch.sh` and `screen.sh` still
+pass the refused flags and stop with that message.

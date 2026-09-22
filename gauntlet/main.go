@@ -126,6 +126,16 @@ func clockNote(timeMS, depth int, refIsUCI bool) string {
 	return fmt.Sprintf("challenger plays to %d ms per move; the reference stays at depth %d", timeMS, depth)
 }
 
+// networkAgainstChampion refuses a network on the plain challenger raced against a
+// champion reference: the sides then differ in every search feature, not just the network.
+func networkAgainstChampion(halfkp, net, champion, refChampion string) error {
+	if refChampion != "" && champion == "" && (halfkp != "" || net != "") {
+		return fmt.Errorf("-halfkp/-net against -ref-champion races engine.Strong against the champion, not one network against another: " +
+			"copy the champion file with net_file pointing at the network and pass it as -champion")
+	}
+	return nil
+}
+
 func main() {
 	games := flag.Int("games", 40, "games in the match")
 	maxMoves := flag.Int("max-moves", 250, "ply cap")
@@ -180,6 +190,10 @@ func main() {
 	refTBPath := flag.String("ref-tablebases", "", "reference probes it too")
 	gamesOut := flag.String("games-out", "", "append every game as one JSON line to this file, for a loss audit")
 	flag.Parse()
+	if err := networkAgainstChampion(*halfkpPath, *netPath, *championPath, *refChampion); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
 	engine.OpeningPlies = *openingPlies
 
 	reference := full("reference (current FULL)", *depth)

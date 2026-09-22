@@ -20,3 +20,23 @@ func TestClockNoteTellsTheTruthAboutTheReference(t *testing.T) {
 		t.Errorf("an in-process reference stays at its depth, and the note must say so: %q", atDepth)
 	}
 }
+
+// The champion's own network on the plain challenger beat the champion at
+// depth 4, and four ladder rungs were adopted on that gap.
+func TestANetworkIsOnlyRacedAgainstAChampionFromAChampionFile(t *testing.T) {
+	if networkAgainstChampion("net.json", "", "", "champion.json") == nil {
+		t.Error("-halfkp against -ref-champion must be refused")
+	}
+	if networkAgainstChampion("", "net.json", "", "champion.json") == nil {
+		t.Error("-net against -ref-champion must be refused")
+	}
+	for _, ok := range [][4]string{
+		{"", "", "cand.json", "champion.json"},
+		{"net.json", "", "", ""},
+		{"", "", "", "champion.json"},
+	} {
+		if err := networkAgainstChampion(ok[0], ok[1], ok[2], ok[3]); err != nil {
+			t.Errorf("%v must be allowed: %v", ok, err)
+		}
+	}
+}
