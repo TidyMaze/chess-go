@@ -107,6 +107,8 @@ func (s referenceSwitches) applyTo(p engine.Player) (engine.Player, error) {
 			p.PawnPush = true
 		case "razoring":
 			p.Razoring = true
+		case "nullpieces":
+			p.NullPieces = true
 		case "singular":
 			p.Singular = true
 		default:
@@ -246,6 +248,8 @@ func main() {
 			challenger.PawnPush = true
 		case "razoring":
 			challenger.Razoring = true
+		case "nullpieces":
+			challenger.NullPieces = true
 		case "singular":
 			challenger.Singular = true
 		default:

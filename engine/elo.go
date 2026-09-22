@@ -69,6 +69,8 @@ type Player struct {
 	Futility bool
 	// Razoring verifies hopeless low-depth nodes with quiescence.
 	Razoring bool
+	// NullPieces skips the null move when the side to move has under two pieces.
+	NullPieces bool
 	// PawnPush exempts advanced pawn pushes from reduction and pruning.
 	PawnPush bool
 
@@ -206,6 +208,8 @@ func (p *Player) ApplyFeatures(features string) {
 			p.PawnPush = true
 		case "razoring":
 			p.Razoring = true
+		case "nullpieces":
+			p.NullPieces = true
 		case "singular":
 			p.Singular = true
 		case "historyaging":
@@ -746,7 +750,7 @@ func evalForPlayer(p Player) *Eval {
 		Weights: p.Weights, UsePST: p.UsePST, NullMove: p.NullMove,
 		MaterialOnly: p.MaterialOnly, QuiescePly: p.QuiescePly, Tapered: p.Tapered,
 		Extensions: p.Extensions, Aspiration: p.Aspiration, SEEPruning: p.SEEPruning,
-		Structure: p.Structure, Futility: p.Futility, Razoring: p.Razoring, PawnPush: p.PawnPush, Mobility: p.Mobility,
+		Structure: p.Structure, Futility: p.Futility, Razoring: p.Razoring, NullPieces: p.NullPieces, PawnPush: p.PawnPush, Mobility: p.Mobility,
 		KingSafety: p.KingSafety, Net: p.Net, HalfKP: p.HalfKP,
 		HalfKPBlend: p.HalfKPBlend, Tablebases: p.Tablebases,
 		NoCastle: p.NoCastle, NoLMR: p.NoLMR, ScaledLMR: p.ScaledLMR, LMP: p.LMP, DeepLMP: p.DeepLMP,

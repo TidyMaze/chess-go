@@ -2,6 +2,7 @@ package engine
 
 import (
 	"math"
+	"math/bits"
 	"math/rand"
 	"sync"
 	"sync/atomic"
@@ -796,6 +797,9 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 			bound = alpha
 		}
 		nullOK = nullMoveAllowed(staticEval, bound, maximizing)
+	}
+	if nullOK && c.ev.NullPieces && !nullAllowedByMaterial(&g.Board, color) {
+		nullOK = false
 	}
 	if c.ev.useNullMove() && depth >= 3 && !inCheck && !afterNull && nullOK {
 		// Clear the en passant square across the null move.
@@ -1666,6 +1670,16 @@ func reverseFutilityCuts(depth int, staticEval, alpha, beta float64, maximizing,
 		return staticEval-margin >= beta
 	}
 	return staticEval+margin <= alpha
+}
+
+// nullAllowedByMaterial reports whether the side to move has the two non-pawn
+// pieces that make passing a safe lower bound; with fewer, zugzwang is common.
+func nullAllowedByMaterial(b *board.Board, color board.Color) bool {
+	n := 0
+	for t := board.Knight; t <= board.Queen; t++ {
+		n += bits.OnesCount64(b.PieceBitboard(color, t))
+	}
+	return n >= 2
 }
 
 // nullMoveAllowed gates the null move on the static evaluation standing
