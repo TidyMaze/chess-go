@@ -218,14 +218,16 @@ func (t *TranspositionTable) probe(key uint64, depth int, maximizingFor board.Co
 		return 0, false
 	}
 	idx := key & t.mask
-	var e ttEntry
+	var e *ttEntry
+	var stackEntry ttEntry
 	if t.shared {
 		l := &t.locks[idx&(ttStripes-1)]
 		l.Lock()
-		e = t.entries[idx]
+		stackEntry = t.entries[idx]
 		l.Unlock()
+		e = &stackEntry
 	} else {
-		e = t.entries[idx]
+		e = &t.entries[idx]
 	}
 	if e.key32 != keyUpper(key) || int(e.depth) < depth || e.maximizingFor != uint8(maximizingFor) {
 		return 0, false
@@ -252,14 +254,16 @@ func (t *TranspositionTable) probeWithMove(key uint64, depth int, maximizingFor 
 		return 0, false, game.Move{}, false
 	}
 	idx := key & t.mask
-	var e ttEntry
+	var e *ttEntry
+	var stackEntry ttEntry
 	if t.shared {
 		l := &t.locks[idx&(ttStripes-1)]
 		l.Lock()
-		e = t.entries[idx]
+		stackEntry = t.entries[idx]
 		l.Unlock()
+		e = &stackEntry
 	} else {
-		e = t.entries[idx]
+		e = &t.entries[idx]
 	}
 	if e.key32 != keyUpper(key) {
 		return 0, false, game.Move{}, false
@@ -303,12 +307,12 @@ func (t *TranspositionTable) storeWithMove(key uint64, score float64, depth int,
 		from:          sqToIndex(best.From), to: sqToIndex(best.To),
 	}
 	if !t.shared {
-		t.put(idx, depth, entry)
+		t.put(idx, depth, &entry)
 		return
 	}
 	l := &t.locks[idx&(ttStripes-1)]
 	l.Lock()
-	t.put(idx, depth, entry)
+	t.put(idx, depth, &entry)
 	l.Unlock()
 }
 
@@ -321,14 +325,16 @@ func (t *TranspositionTable) bestMove(key uint64) (game.Move, bool) {
 		return game.Move{}, false
 	}
 	idx := key & t.mask
-	var e ttEntry
+	var e *ttEntry
+	var stackEntry ttEntry
 	if t.shared {
 		l := &t.locks[idx&(ttStripes-1)]
 		l.Lock()
-		e = t.entries[idx]
+		stackEntry = t.entries[idx]
 		l.Unlock()
+		e = &stackEntry
 	} else {
-		e = t.entries[idx]
+		e = &t.entries[idx]
 	}
 	if e.key32 != keyUpper(key) {
 		return game.Move{}, false
@@ -346,14 +352,16 @@ func (t *TranspositionTable) entryFor(key uint64) (score float64, depth int, fla
 		return 0, 0, 0, false
 	}
 	idx := key & t.mask
-	var e ttEntry
+	var e *ttEntry
+	var stackEntry ttEntry
 	if t.shared {
 		l := &t.locks[idx&(ttStripes-1)]
 		l.Lock()
-		e = t.entries[idx]
+		stackEntry = t.entries[idx]
 		l.Unlock()
+		e = &stackEntry
 	} else {
-		e = t.entries[idx]
+		e = &t.entries[idx]
 	}
 	if e.key32 != keyUpper(key) {
 		return 0, 0, 0, false
@@ -365,7 +373,7 @@ func (t *TranspositionTable) entryFor(key uint64) (score float64, depth int, fla
 // searches. Quiescence stores at depth 0 and is about half the nodes, so
 // plain always-replace let a leaf evict a depth-12 entry it collided with,
 // and the subtree behind that entry had to be searched again.
-func (t *TranspositionTable) put(idx uint64, depth int, entry ttEntry) {
+func (t *TranspositionTable) put(idx uint64, depth int, entry *ttEntry) {
 	e := &t.entries[idx]
 	entry.gen = t.generation
 	if e.key32 == entry.key32 && int(e.depth) > depth {
@@ -374,7 +382,7 @@ func (t *TranspositionTable) put(idx uint64, depth int, entry ttEntry) {
 	if e.gen == t.generation && int(e.depth) > depth {
 		return
 	}
-	*e = entry
+	*e = *entry
 }
 
 // NewSearch ages the table: every entry written before this point becomes

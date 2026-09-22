@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"chess/engine"
+	"chess/game"
 )
 
 // Bot drives the champion against lichess: it reads the account event
@@ -222,6 +223,12 @@ func (b *Bot) playGame(ctx context.Context, gameID string) {
 	// other side, so it must not be shared between games or carried across
 	// them.
 	overhead := newOverheadEstimate()
+	// One transposition table per game, so subsequent moves in the same game
+	// reuse previously explored branches rather than re-allocating 24-96 MB every move.
+	var gameTable *engine.TranspositionTable
+	if b.Player.TTBits > 0 {
+		gameTable = engine.NewTranspositionTable(b.Player.TTBits)
+	}
 	gameCtx, dropGame := context.WithCancel(ctx)
 	defer dropGame()
 
@@ -238,7 +245,7 @@ func (b *Bot) playGame(ctx context.Context, gameID string) {
 		if gameCtx.Err() != nil {
 			return
 		}
-		lines, over, err := b.readGameStream(gameCtx, gameID, &full, &haveFull, overhead)
+		lines, over, err := b.readGameStream(gameCtx, gameID, &full, &haveFull, overhead, gameTable)
 		if over {
 			return
 		}
@@ -268,7 +275,7 @@ func (b *Bot) playGame(ctx context.Context, gameID string) {
 // reports how many lines it managed to read, so the caller can tell a
 // dropped connection from a game lichess no longer serves, and whether the
 // game is over, which is the only reason to stop reconnecting.
-func (b *Bot) readGameStream(ctx context.Context, gameID string, full *gameFull, haveFull *bool, overhead *overheadEstimate) (lines int, over bool, err error) {
+func (b *Bot) readGameStream(ctx context.Context, gameID string, full *gameFull, haveFull *bool, overhead *overheadEstimate, gameTable *engine.TranspositionTable) (lines int, over bool, err error) {
 	stream, err := b.API.streamNDJSON(ctx, "/api/bot/game/stream/"+gameID)
 	if err != nil {
 		b.logf("game %s: stream failed: %v", gameID, err)
@@ -293,7 +300,7 @@ func (b *Bot) readGameStream(ctx context.Context, gameID string, full *gameFull,
 			}
 			*haveFull = true
 			over = over || gameOver(full.State.Status)
-			b.maybeMove(gameID, *full, full.State, received, overhead)
+			b.maybeMove(gameID, *full, full.State, received, overhead, gameTable)
 		case "gameState":
 			if !*haveFull {
 				return nil
@@ -303,7 +310,7 @@ func (b *Bot) readGameStream(ctx context.Context, gameID string, full *gameFull,
 				return nil
 			}
 			over = over || gameOver(st.Status)
-			b.maybeMove(gameID, *full, st, received, overhead)
+			b.maybeMove(gameID, *full, st, received, overhead, gameTable)
 		}
 		return nil
 	})
@@ -329,7 +336,7 @@ func effectivePlayer(base engine.Player, ourColor string, st gameState, speed st
 	return base
 }
 
-func (b *Bot) maybeMove(gameID string, full gameFull, st gameState, received time.Time, overhead *overheadEstimate) {
+func (b *Bot) maybeMove(gameID string, full gameFull, st gameState, received time.Time, overhead *overheadEstimate, gameTable *engine.TranspositionTable) {
 	if gameOver(st.Status) {
 		return
 	}
@@ -352,7 +359,13 @@ func (b *Bot) maybeMove(gameID string, full gameFull, st gameState, received tim
 	}
 	player := effectivePlayer(b.Player, color, st, full.Speed, overhead)
 	searchStart := time.Now()
-	m, ok := engine.PlayerPick(player, g)
+	var m game.Move
+	var ok bool
+	if gameTable != nil {
+		m, ok = engine.PlayerPickWith(player, g, gameTable)
+	} else {
+		m, ok = engine.PlayerPick(player, g)
+	}
 	searched := time.Since(searchStart)
 	if !ok {
 		b.logf("game %s: no legal move found on our turn", gameID)

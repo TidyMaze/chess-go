@@ -34,6 +34,9 @@ type Player struct {
 	UsePST bool
 	// TTBits sizes the transposition table (2^TTBits entries); 0 disables.
 	TTBits uint
+	// Table is an optional persistent transposition table for this player.
+	// When provided, pickScored reuses it instead of allocating a fresh table.
+	Table *TranspositionTable
 	// NullMove enables null-move pruning.
 	NullMove bool
 	// Greedy plays a random capture when one is available, else a random
@@ -283,6 +286,8 @@ func (p Player) pickScored(g *game.Game, reuse *TranspositionTable) (game.Move, 
 	switch {
 	case reuse != nil:
 		ev.Table = reuse
+	case p.Table != nil:
+		ev.Table = p.Table
 	case p.TTBits > 0:
 		ev.Table = NewTranspositionTable(p.TTBits)
 	}
