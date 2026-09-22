@@ -235,31 +235,76 @@ func quiesceWithKey(g *game.Game, key uint64, color, maximizingFor board.Color, 
 	}
 	origAlpha, origBeta := alpha, beta
 	ev.setAccPly(&g.Board, basePly+ply+1)
-	// Terminal first. Quiescence used to stand pat in any position at all,
-	// so a capture that delivered mate was scored as the material it took
-	// and a stalemate as the material on the board.
-	var moveBuf [96]game.Move
-	legal, inCheck, anyLegal := g.AppendQuiescenceMoves(moveBuf[:0], color)
-	if !anyLegal {
-		return terminalScore(g, color, maximizingFor, 0)
+	inCheck := moves.IsInCheck(&g.Board, color)
+	maximizing := color == maximizingFor
+
+	if inCheck {
+		var moveBuf [96]game.Move
+		legal, _, anyLegal := g.AppendQuiescenceMoves(moveBuf[:0], color)
+		if !anyLegal {
+			return terminalScore(g, color, maximizingFor, 0)
+		}
+		if ply >= ev.quiescePly() {
+			return evalPositionFor(g, color, maximizingFor, ev)
+		}
+		best := negInf
+		if !maximizing {
+			best = posInf
+		}
+		orderInPlace(g, legal)
+		for _, m := range legal {
+			undo, promoted := makeSearchMove(g, m)
+			childKey := zobristUpdate(key, &g.Board, m, undo, promoted)
+			value := quiesceWithKey(g, childKey, color.Other(), maximizingFor, alpha, beta, ev, ply+1, basePly)
+			g.Board.UnmakeMove(undo)
+			if maximizing {
+				if value > best {
+					best = value
+				}
+				if best > alpha {
+					alpha = best
+				}
+			} else {
+				if value < best {
+					best = value
+				}
+				if best < beta {
+					beta = best
+				}
+			}
+			if beta <= alpha {
+				break
+			}
+		}
+		if tt != nil {
+			flag := ttExact
+			if maximizing {
+				if best <= origAlpha {
+					flag = ttUpperBound
+				} else if best >= origBeta {
+					flag = ttLowerBound
+				}
+			} else {
+				if best >= origBeta {
+					flag = ttUpperBound
+				} else if best <= origAlpha {
+					flag = ttLowerBound
+				}
+			}
+			tt.store(key, best, 0, flag, maximizingFor)
+		}
+		return best
 	}
+
+	// Not in check: evaluate stand-pat score.
 	standPat := evalPositionFor(g, color, maximizingFor, ev)
 	if ply >= ev.quiescePly() {
 		return standPat
 	}
-	maximizing := color == maximizingFor
 
-	// Stand-pat: the side to move can decline to capture, so a quiet
-	// evaluation is a lower bound for the maximizer (upper for minimizer).
-	// Not in check: a check cannot be declined, so every evasion is
-	// searched and the static score bounds nothing.
-	best := standPat
-	if inCheck {
-		best = negInf
-		if !maximizing {
-			best = posInf
-		}
-	} else if maximizing {
+	// Stand-pat cutoff: if the static evaluation already beats beta (or <= alpha for minimizer),
+	// we can stand pat and decline all captures immediately, avoiding move generation.
+	if maximizing {
 		if standPat >= beta {
 			return standPat
 		}
@@ -274,6 +319,15 @@ func quiesceWithKey(g *game.Game, key uint64, color, maximizingFor board.Color, 
 			beta = standPat
 		}
 	}
+
+	// If not cut off, generate quiescence moves.
+	var moveBuf [96]game.Move
+	legal, _, anyLegal := g.AppendQuiescenceMoves(moveBuf[:0], color)
+	if !anyLegal {
+		return terminalScore(g, color, maximizingFor, 0)
+	}
+
+	best := standPat
 
 	// Biggest victim first, cheapest attacker first. Same rule the main
 	// search uses; here it decides which capture fails high before the

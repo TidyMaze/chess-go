@@ -162,11 +162,44 @@ func (g *Game) appendLegalMoves(dst []Move, color board.Color, inCheck bool) []M
 }
 
 func (g *Game) IsCheckmate(color board.Color) bool {
-	return moves.IsInCheck(&g.Board, color) && len(g.AllLegalMoves(color)) == 0
+	return moves.IsInCheck(&g.Board, color) && !g.HasAnyLegalMove(color)
 }
 
 func (g *Game) IsStalemate(color board.Color) bool {
-	return !moves.IsInCheck(&g.Board, color) && len(g.AllLegalMoves(color)) == 0
+	return !moves.IsInCheck(&g.Board, color) && !g.HasAnyLegalMove(color)
+}
+
+// HasAnyLegalMove returns true as soon as a single legal move is found for color.
+func (g *Game) HasAnyLegalMove(color board.Color) bool {
+	inCheck := moves.IsInCheck(&g.Board, color)
+	return g.HasAnyLegalMoveInCheck(color, inCheck)
+}
+
+// HasAnyLegalMoveInCheck returns true as soon as a single legal move is found,
+// accepting precomputed inCheck flag.
+func (g *Game) HasAnyLegalMoveInCheck(color board.Color, inCheck bool) bool {
+	pinned := moves.PinnedSquares(&g.Board, color)
+	var pieceBuf [16]board.PieceAtSquare
+	pieces := g.Board.AppendPiecesOf(pieceBuf[:0], color)
+	var targetBuf [28]board.Sq
+	epSquare, hasEP := g.Board.EPSquare()
+	for _, ps := range pieces {
+		needsCheckTest := inCheck || ps.Type == board.King || pinned.Has(ps.Sq)
+		for _, target := range moves.AppendLegalTargets(targetBuf[:0], &g.Board, ps.Sq, color, ps.Type) {
+			epCapture := hasEP && ps.Type == board.Pawn &&
+				target == epSquare && ps.Sq.File != target.File
+			if needsCheckTest || epCapture {
+				undo := g.Board.MakeMove(ps.Sq, target)
+				illegal := moves.IsInCheck(&g.Board, color)
+				g.Board.UnmakeMove(undo)
+				if illegal {
+					continue
+				}
+			}
+			return true
+		}
+	}
+	return false
 }
 
 func (g *Game) IsFiftyMoveDraw() bool {
