@@ -537,3 +537,20 @@ func TestOverheadEstimateIgnoresANegativeMeasurement(t *testing.T) {
 		t.Errorf("a negative measurement moved the estimate from %v to %v", before, o.reserve())
 	}
 }
+
+// A classical game with lots of time must never think longer than 30s per
+// move. Game blbndbPY had a 36s budget on a 1800s clock (1800000/50=36000ms)
+// and searched 38-39s, making opponents disconnect. No position needs more
+// than 30s of search on local hardware.
+func TestMoveTimeBudgetCapsAt30Seconds(t *testing.T) {
+	const absMaxBudgetMs = 30000
+	// 1800s classical clock with 20s increment: raw formula gives 36s+.
+	got := moveTimeBudget("white", gameState{WhiteTimeMS: 1800000, WhiteIncMS: 20000}, newOverheadEstimate())
+	if got > time.Duration(absMaxBudgetMs)*time.Millisecond {
+		t.Errorf("budget %v on a 1800s clock exceeds the 30s absolute cap; opponents disconnect waiting for a 36s think", got)
+	}
+	// Also verify it actually spends (not zero or tiny).
+	if got < 10*time.Second {
+		t.Errorf("budget %v on a 1800s clock is suspiciously low, expected near 30s", got)
+	}
+}

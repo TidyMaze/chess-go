@@ -289,6 +289,13 @@ func moveTimeBudget(ourColor string, st gameState, overhead *overheadEstimate) t
 	if budgetMs > ceiling {
 		budgetMs = ceiling
 	}
+	// No position needs more than 30s on local hardware: at depth 24 the engine
+	// is already searching the universe. A 1800s classical clock gives 36s via
+	// the share rule, which makes opponents disconnect (game blbndbPY).
+	const absMaxBudgetMs = 30000
+	if budgetMs > absMaxBudgetMs {
+		budgetMs = absMaxBudgetMs
+	}
 	return time.Duration(budgetMs) * time.Millisecond
 }
 

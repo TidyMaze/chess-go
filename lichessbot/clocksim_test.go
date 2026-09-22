@@ -56,6 +56,11 @@ func controlsWePlay() []control {
 		// Unspent clock is unsearched depth, which is the complaint that
 		// produced this whole rule.
 		{"classical 20+10, 40 moves", 1200000, 10000, 40, 30000, 800000},
+		// Game blbndbPY: a 1800s clock produced a 36s budget. Both controls
+		// below must spend (lowest < ceiling) and stay above the floor, so
+		// a future change that loosens the 30s cap fails the build.
+		{"classical 30+20", 1800000, 20000, 120, 30000, 1000000},
+		{"classical 60+0", 3600000, 0, 120, 30000, 800000},
 	}
 }
 
