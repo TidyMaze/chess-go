@@ -599,8 +599,7 @@ func PositionScoreEval(b *board.Board, color board.Color, ev *Eval) float64 {
 
 	if wantStructure {
 		sw := ev.structureWeights()
-		score += structurePieces(pieces, color, pawns[color], pawns[other], phase, sw)
-		score -= structurePieces(pieces, other, pawns[other], pawns[color], phase, sw)
+		score += structurePiecesDiff(pieces, color, other, pawns, phase, sw)
 	}
 
 	if ev != nil && ev.Shape && wantStructure {

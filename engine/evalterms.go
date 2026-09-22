@@ -220,6 +220,55 @@ func structurePieces(pieces []board.ColoredPiece, color board.Color, own, enemy 
 	return score
 }
 
+// structurePiecesDiff computes (color structure - other structure) in a single pass over pieces.
+func structurePiecesDiff(pieces []board.ColoredPiece, color, other board.Color, pawns [2]pawnFiles, phase float64, w StructureWeights) float64 {
+	var s [2]float64
+	for _, ps := range pieces {
+		c := ps.Color
+		o := c.Other()
+		own := pawns[c]
+		enemy := pawns[o]
+		file := ps.Sq.File
+		switch ps.Type {
+		case board.Pawn:
+			rank := ps.Sq.Rank
+			if c == board.Black {
+				rank = 7 - rank
+			}
+			if isPassed(file, rank, enemy) {
+				s[c] += (w.PassedBase + w.PassedPerRank*float64(rank)) * (2 - phase)
+			}
+			if !hasNeighbourPawn(file, own) {
+				s[c] -= w.Isolated
+			}
+			if own.count[file] > 1 {
+				s[c] -= w.Doubled / float64(own.count[file])
+			}
+		case board.Rook:
+			if own.count[file] == 0 {
+				if enemy.count[file] == 0 {
+					s[c] += w.RookOpen
+				} else {
+					s[c] += w.RookSemiOpen
+				}
+			}
+		case board.King:
+			shield := 0
+			for df := -1; df <= 1; df++ {
+				f := file + df
+				if f < 0 || f > 7 {
+					continue
+				}
+				if own.count[f] > 0 {
+					shield++
+				}
+			}
+			s[c] += float64(shield) * w.KingShield * phase
+		}
+	}
+	return s[color] - s[other]
+}
+
 // mobilityWeights is the value of one available square, per piece type.
 //
 // Mobility is the most standard evaluation term this engine did not
