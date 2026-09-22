@@ -521,8 +521,10 @@ func (n *HalfKPNet) refresh(b *board.Board, self, parent *halfKPAcc, st *halfKPA
 		a := self.acc[side][:h]
 		if parent != nil && parent.valid &&
 			perspectiveKingSlot(parent.kings[side], persp, buckets) == perspectiveKingSlot(self.kings[side], persp, buckets) {
-			copy(a, parent.acc[side][:h])
-			n.applyDelta(a, parent, self, persp, buckets)
+			if !n.fusedDelta(a, parent.acc[side][:h], parent, self, persp, buckets) {
+				copy(a, parent.acc[side][:h])
+				n.applyDelta(a, parent, self, persp, buckets)
+			}
 			if st != nil {
 				st.incremental++
 			}
@@ -564,6 +566,59 @@ func (n *HalfKPNet) applyDelta(a []float32, parent, self *halfKPAcc, persp board
 			}
 		}
 	}
+}
+
+// fusedDelta writes src plus the changed rows into dst in one pass, in the
+// order applyDelta visits them, so each unit is rounded identically. It
+// reports false when a move changes more rows than it batches.
+func (n *HalfKPNet) fusedDelta(dst, src []float32, parent, self *halfKPAcc, persp board.Color, buckets int) bool {
+	const maxRows = 4
+	var rows [maxRows][]float32
+	var signs [maxRows]float32
+	k := 0
+	king := self.kings[persp]
+	h := n.H
+	for c := 0; c < 2; c++ {
+		owner := board.Color(c)
+		for t := board.Pawn; t < board.King; t++ {
+			changed := parent.pieces[c][t] ^ self.pieces[c][t]
+			for changed != 0 {
+				if k == maxRows {
+					return false
+				}
+				i := bits.TrailingZeros64(changed)
+				changed &= changed - 1
+				f, _ := halfKPIndex(king, t, owner, board.Sq{File: i % 8, Rank: i / 8}, persp, buckets)
+				col := f * h
+				rows[k] = n.W1[col : col+h : col+h]
+				signs[k] = -1
+				if self.pieces[c][t]&(1<<uint(i)) != 0 {
+					signs[k] = 1
+				}
+				k++
+			}
+		}
+	}
+	dst, src = dst[:h:h], src[:h:h]
+	switch k {
+	case 0:
+		copy(dst, src)
+	case 2:
+		w0, w1, s0, s1 := rows[0], rows[1], signs[0], signs[1]
+		for i := range dst {
+			v := src[i] + s0*w0[i]
+			dst[i] = v + s1*w1[i]
+		}
+	default:
+		copy(dst, src)
+		for j := 0; j < k; j++ {
+			w, s := rows[j], signs[j]
+			for i := range dst {
+				dst[i] += s * w[i]
+			}
+		}
+	}
+	return true
 }
 
 // perspectiveKingSlot is the king slot halfKPIndex conditions on, with
