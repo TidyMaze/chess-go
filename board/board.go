@@ -358,17 +358,29 @@ func (b *Board) IsAttackedBy(sq Sq, by Color) bool {
 		return true
 	}
 
-	// Sliders. The ray tables answer all four directions at once, where the
-	// walk stepped one square at a time through the padded array and paid a
-	// bounds check and a colour decode per step. This is the one place the
-	// tables are a pure win: the answer is a bool, so unlike move generation
-	// there is no order to preserve and the search sees the same tree.
-	occ := b.occupiedBB()
-	if RookAttacks(sqIdx, occ)&(b.pieces[by][Rook]|b.pieces[by][Queen]) != 0 {
-		return true
-	}
-	if BishopAttacks(sqIdx, occ)&(b.pieces[by][Bishop]|b.pieces[by][Queen]) != 0 {
-		return true
+	// Sliders. If the attacker has no rooks/queens or bishops/queens,
+	// skip ray calculations entirely. Otherwise check direction-by-direction
+	// to short-circuit as soon as any attacker is found.
+	rq := b.pieces[by][Rook] | b.pieces[by][Queen]
+	bq := b.pieces[by][Bishop] | b.pieces[by][Queen]
+	if rq != 0 || bq != 0 {
+		occ := b.occupiedBB()
+		if rq != 0 {
+			if rayFrom(dirNorth, sqIdx, occ)&rq != 0 ||
+				rayFrom(dirSouth, sqIdx, occ)&rq != 0 ||
+				rayFrom(dirEast, sqIdx, occ)&rq != 0 ||
+				rayFrom(dirWest, sqIdx, occ)&rq != 0 {
+				return true
+			}
+		}
+		if bq != 0 {
+			if rayFrom(dirNorthEast, sqIdx, occ)&bq != 0 ||
+				rayFrom(dirNorthWest, sqIdx, occ)&bq != 0 ||
+				rayFrom(dirSouthEast, sqIdx, occ)&bq != 0 ||
+				rayFrom(dirSouthWest, sqIdx, occ)&bq != 0 {
+				return true
+			}
+		}
 	}
 
 	return false
