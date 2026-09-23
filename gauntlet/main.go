@@ -109,6 +109,8 @@ func (s referenceSwitches) applyTo(p engine.Player) (engine.Player, error) {
 			p.Razoring = true
 		case "nullpieces":
 			p.NullPieces = true
+		case "drawscale":
+			p.DrawScale = true
 		case "singular":
 			p.Singular = true
 		default:
@@ -250,6 +252,8 @@ func main() {
 			challenger.Razoring = true
 		case "nullpieces":
 			challenger.NullPieces = true
+		case "drawscale":
+			challenger.DrawScale = true
 		case "singular":
 			challenger.Singular = true
 		default:

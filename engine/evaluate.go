@@ -133,6 +133,8 @@ type Eval struct {
 	Razoring bool
 	// NullPieces skips the null move when the side to move has under two pieces.
 	NullPieces bool
+	// DrawScale shrinks scores in endgames the side ahead cannot usually win.
+	DrawScale bool
 	// PawnPush exempts a pawn push to the sixth rank or beyond from
 	// late move reduction and pruning.
 	PawnPush bool
@@ -736,5 +738,9 @@ func evalPositionFor(g *game.Game, sideToMove, maximizingFor board.Color, ev *Ev
 			clock = ev.FiftyClock
 		}
 	}
-	return fadeForFiftyMove(PositionScoreEval(&g.Board, maximizingFor, ev), clock)
+	score := PositionScoreEval(&g.Board, maximizingFor, ev)
+	if ev != nil && ev.DrawScale {
+		score = drawScale(&g.Board, score, maximizingFor)
+	}
+	return fadeForFiftyMove(score, clock)
 }
