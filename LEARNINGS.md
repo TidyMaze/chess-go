@@ -1622,3 +1622,13 @@ The newest self-play batch was 41% duplicates of the corpus. A from-scratch
 network on this corpus does not reach the champion, whose lineage started on
 the 24.58M corpus of rung 19 that no longer exists. Depth 8 labels bought
 nothing over depth 4 at 200k positions; labelling ran at 97 positions a second.
+
+Search features never measured before, champion against champion plus one, at
+100 ms: `singular` -5 +/- 21 (1,000 games), `historyaging` +4 +/- 21 (1,000),
+`histgravity` +7 +/- 21 then +3 +/- 15 (3,000 in all). None adopted.
+
+Width, measured in games this time: a 128-unit network from scratch on
+merged_v26 reached the same held-out loss as the 64-unit one (1.1984 against
+1.1991) and lost to it by -32 +/- 21 over 1,000 games at 100 ms. The corpus, not
+the capacity, is the ceiling, and the wider network only pays its slower
+evaluation.
