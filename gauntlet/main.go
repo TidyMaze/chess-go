@@ -111,6 +111,8 @@ func (s referenceSwitches) applyTo(p engine.Player) (engine.Player, error) {
 			p.NullPieces = true
 		case "drawscale":
 			p.DrawScale = true
+		case "drive2":
+			p.Drive2 = true
 		case "singular":
 			p.Singular = true
 		default:
@@ -254,6 +256,8 @@ func main() {
 			challenger.NullPieces = true
 		case "drawscale":
 			challenger.DrawScale = true
+		case "drive2":
+			challenger.Drive2 = true
 		case "singular":
 			challenger.Singular = true
 		default:

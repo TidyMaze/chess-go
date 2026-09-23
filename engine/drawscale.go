@@ -56,3 +56,11 @@ func oppositeBishopsOnly(b *board.Board) bool {
 	}
 	return (bishop[0]&darkSquares != 0) != (bishop[1]&darkSquares != 0)
 }
+
+// kingDriveThreshold is the lead from which the king drive applies.
+func kingDriveThreshold(b *board.Board, ev *Eval) float64 {
+	if ev != nil && ev.Drive2 && pieceMaterial(b, board.White)+pieceMaterial(b, board.Black) <= 16 {
+		return 2
+	}
+	return 4
+}

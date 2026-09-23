@@ -135,6 +135,8 @@ type Eval struct {
 	NullPieces bool
 	// DrawScale shrinks scores in endgames the side ahead cannot usually win.
 	DrawScale bool
+	// Drive2 starts the endgame king drive at +2 instead of +4.
+	Drive2 bool
 	// PawnPush exempts a pawn push to the sixth rank or beyond from
 	// late move reduction and pruning.
 	PawnPush bool
@@ -509,9 +511,9 @@ func PositionScoreEval(b *board.Board, color board.Color, ev *Eval) float64 {
 		// converts a won endgame into a mate, not a positional opinion,
 		// and the network is trained on positions that are mostly not
 		// near mate.
-		if score >= 4 {
+		if drive := kingDriveThreshold(b, ev); score >= drive {
 			score += kingDrivingBonus(b, color)
-		} else if score <= -4 {
+		} else if score <= -drive {
 			score -= kingDrivingBonus(b, color.Other())
 		}
 		return score
