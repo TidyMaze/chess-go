@@ -365,6 +365,15 @@ var (
 	MatchProgress      func(done, total int, elapsed, eta time.Duration)
 )
 
+// matchWorkers is how many games a match plays at once on procs cores. An
+// external engine runs in its own process beside ours, so each game needs two.
+func matchWorkers(a, b Player, procs int) int {
+	if a.UCI != nil || b.UCI != nil {
+		procs /= 2
+	}
+	return max(procs, 1)
+}
+
 // PlayMatch plays `games` games between a and b with alternating colours,
 // concurrently across GOMAXPROCS goroutines, and reports a's record.
 func PlayMatch(a, b Player, games, maxMoves int) MatchResult {
@@ -378,7 +387,7 @@ func PlayMatchLive(a, b Player, games, maxMoves int, live LiveHook) MatchResult 
 		score float64
 	}
 	scores := make([]float64, games)
-	sem := make(chan struct{}, runtime.GOMAXPROCS(0))
+	sem := make(chan struct{}, matchWorkers(a, b, runtime.GOMAXPROCS(0)))
 	var wg sync.WaitGroup
 
 	// Progress and a remaining-time estimate.
