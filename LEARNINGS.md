@@ -1605,3 +1605,20 @@ Rungs 13 to 16 used `-champion candidate.json` and stand.
 `-champion` is given, so the only way to race a network against the champion is
 a champion file naming it. `ladder.sh`, `ladder_scratch.sh` and `screen.sh` still
 pass the refused flags and stop with that message.
+
+## More data, cleaner splits and deeper labels all read flat
+
+Clean races at depth 4, 2,000 games each, against the rung 23 champion:
+
+| candidate | Elo |
+| --- | --- |
+| net_v25_fine, 60 epochs on the leaky split | -32 +/- 15 |
+| from scratch on merged_v25 (13.67M), fixed split | -18 +/- 15 |
+| from scratch on merged_v26 (16.06M, 2.39M new) | -27 +/- 15 |
+| champion fine-tuned on 200k PGN positions, labels depth 8 | -27 +/- 15 |
+| depth 8 labels against the same positions at depth 4 | -4 +/- 15 |
+
+The newest self-play batch was 41% duplicates of the corpus. A from-scratch
+network on this corpus does not reach the champion, whose lineage started on
+the 24.58M corpus of rung 19 that no longer exists. Depth 8 labels bought
+nothing over depth 4 at 200k positions; labelling ran at 97 positions a second.
