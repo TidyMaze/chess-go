@@ -1653,4 +1653,10 @@ about 25 wins between two arms on the same openings means anything.
 
 At 100 ms a move the same champion scores 63-64-273 over 400 games, -203 +/-
 40. The gap to Stockfish grows as the clock shrinks: it is search efficiency
-at low node counts, not only evaluation.
+at low node counts, not only evaluation. Both sides really get the clock: over
+30 positions at a 100 ms budget ours took 105.7 ms a move, Stockfish 101.1 ms.
+
+`drive2` (king drive from +2 in endgames) read 93-29-78 on the offset 80000
+openings, against 85 and 89 wins for the two arms above: inside the noise, not
+adopted. `tt_bits 20` against 22, champion against itself at 100 ms, read
+-5 +/- 21 over 1,000 games: the table size is not what costs us at short clocks.
