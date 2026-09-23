@@ -1632,3 +1632,25 @@ merged_v26 reached the same held-out loss as the 64-unit one (1.1984 against
 1.1991) and lost to it by -32 +/- 21 over 1,000 games at 100 ms. The corpus, not
 the capacity, is the ceiling, and the wider network only pays its slower
 evaluation.
+
+## Against Stockfish 2700, 200 games is one engine's noise
+
+Same engine settings, 1 s a move, one thread each, 200 games per row:
+
+| engine | openings | W-D-L |
+| --- | --- | --- |
+| rung 23 | offset 70000 | 70-37-93 |
+| + nullpieces | offset 70000 | 73-34-93 |
+| + drawscale | offset 70000 | 89-39-72 |
+| + drawscale | offset 80000 | 85-43-72 |
+| without drawscale | offset 80000 | 89-34-77 |
+
+The jump to 89 wins looked like drawscale and was not: on fresh openings the
+engine without it scored the same. Four runs spread between 35% and 45% wins,
+which is the noise of a 200-game match against a strength-limited Stockfish,
+whose UCI_Elo cap plays deliberately imperfect moves. Only a difference of
+about 25 wins between two arms on the same openings means anything.
+
+At 100 ms a move the same champion scores 63-64-273 over 400 games, -203 +/-
+40. The gap to Stockfish grows as the clock shrinks: it is search efficiency
+at low node counts, not only evaluation.
