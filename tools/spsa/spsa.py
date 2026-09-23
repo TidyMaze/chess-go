@@ -93,7 +93,9 @@ def main() -> None:
         delta = {name: rng.choice((-1, 1)) for name in theta}
         # Standard SPSA gain schedules, perturbation shrinking slower than the step.
         ck = (1 + k) ** -0.101
-        lr = 2.0 * (1 + k / 50) ** -0.602
+        # 0.5: a 20-game result has a spread near 0.2, so one iteration moves a
+        # parameter about a tenth of its perturbation and noise cannot walk it far.
+        lr = 0.5 * (1 + k / 50) ** -0.602
         plus = {n: theta[n] + ck * PARAMS[n].c * delta[n] for n in theta}
         minus = {n: theta[n] - ck * PARAMS[n].c * delta[n] for n in theta}
         w, d, lo = race(plus, minus, games, offset=110000 + k * games)
