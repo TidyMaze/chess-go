@@ -55,6 +55,7 @@ type referenceSwitches struct {
 	noRepetition   bool
 	keepNullMoveEP bool
 	features       string
+	tune           string
 }
 
 func (s referenceSwitches) applyTo(p engine.Player) (engine.Player, error) {
@@ -72,6 +73,13 @@ func (s referenceSwitches) applyTo(p engine.Player) (engine.Player, error) {
 	p.NoCastle = s.noCastle
 	p.NoRepetition = s.noRepetition
 	p.KeepNullMoveEP = s.keepNullMoveEP
+	tune, err := engine.ParseSearchTune(s.tune)
+	if err != nil {
+		return p, err
+	}
+	if tune != nil {
+		p.Tune = tune
+	}
 	for _, f := range strings.Split(s.features, ",") {
 		switch strings.TrimSpace(f) {
 		case "":
@@ -166,6 +174,8 @@ func main() {
 	noLMR := flag.Bool("no-lmr", false, "challenger disables late move reductions")
 	features := flag.String("features", "", "comma-separated search features the challenger switches on: lmp, scaledlmr, rfp, nullgate, countermove, iir, see")
 	refFeatures := flag.String("ref-features", "", "search features the reference switches on too, so a feature can be measured on top of another")
+	tuneFlag := flag.String("tune", "", "challenger's search margins, Name=value,... over the defaults (engine.SearchTune); needs -champion")
+	refTune := flag.String("ref-tune", "", "reference's search margins, same format as -tune")
 	scaledLMR := flag.Bool("scaled-lmr", strongDefaults.ScaledLMR, "challenger scales reductions with depth and move number")
 	noNull := flag.Bool("no-null", false, "challenger disables null-move pruning")
 	qply := flag.Int("qply", strongDefaults.QuiescePly, "challenger quiescence ply cap (0 = default)")
@@ -375,6 +385,7 @@ func main() {
 			// is about.
 			futility: *futility,
 			features: *features,
+			tune:     *tuneFlag,
 		}.applyTo(challenger)
 		if err != nil {
 			fmt.Println(err)
@@ -430,6 +441,7 @@ func main() {
 		noRepetition:   *refNoRep,
 		keepNullMoveEP: *refKeepEP,
 		features:       *refFeatures,
+		tune:           *refTune,
 	}.applyTo(reference)
 	if err != nil {
 		fmt.Println(err)

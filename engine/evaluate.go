@@ -279,6 +279,10 @@ type Eval struct {
 	// strictly more expressive function, so summing the two would be
 	// double-counting.
 	Net *Net
+	// Tune overrides the search's hand-set pruning and reduction constants
+	// (reverse futility, razoring, futility, LMR, LMP, null move,
+	// aspiration, quiescence delta). Nil means the historical defaults.
+	Tune *SearchTune
 }
 
 func (e *Eval) pstScale() *[6]float64 {

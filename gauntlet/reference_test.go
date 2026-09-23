@@ -78,6 +78,24 @@ func TestReferenceSwitchesSurviveAChampionReplacement(t *testing.T) {
 	}
 }
 
+// SPSA races two tunings of the same champion, so each side's search margins
+// must come from its own flag and survive the champion-file replacement.
+func TestEachSideTakesItsOwnSearchTune(t *testing.T) {
+	p, err := (referenceSwitches{tune: "LMRDiv=2.3"}).applyTo(engine.Strong(4))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Tune == nil || p.Tune.LMRDiv != 2.3 {
+		t.Errorf("tune LMRDiv=2.3 gave %+v", p.Tune)
+	}
+	if p, _ := (referenceSwitches{}).applyTo(engine.Strong(4)); p.Tune != nil {
+		t.Errorf("no tune flag must leave the defaults, got %+v", p.Tune)
+	}
+	if _, err := (referenceSwitches{tune: "Nonsense=1"}).applyTo(engine.Strong(4)); err == nil {
+		t.Error("an unknown tune name was accepted")
+	}
+}
+
 func TestUnknownReferenceFeatureIsRejected(t *testing.T) {
 	if _, err := (referenceSwitches{features: "lmp,nonsense"}).applyTo(engine.Strong(4)); err == nil {
 		t.Error("an unknown feature was accepted, so a typo would silently race the wrong reference")

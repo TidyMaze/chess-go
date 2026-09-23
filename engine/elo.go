@@ -174,6 +174,10 @@ type Player struct {
 	// UCIMoveTimeMS, when positive, gives the external engine a per-move
 	// clock instead of UCIDepth, so a timed match is timed on both sides.
 	UCIMoveTimeMS int
+	// Tune overrides the search's hand-set pruning and reduction
+	// constants, so an SPSA tuner can race two players with different
+	// values in one process. Nil means the historical defaults.
+	Tune *SearchTune
 }
 
 // ApplyFeatures enables search features from a comma-separated string.
@@ -778,6 +782,7 @@ func evalForPlayer(p Player) *Eval {
 		NullReduction: p.NullReduction, NullScale: p.NullScale,
 		Extras: p.Extras, Shape: p.Shape, ShapeW: p.ShapeW,
 		PSTScale: p.PSTScale, MobilityW: p.MobilityW, StructureW: p.StructureW,
+		Tune: p.Tune,
 	}
 	if p.Tuned {
 		if p.Weights == nil {

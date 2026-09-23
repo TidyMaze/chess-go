@@ -95,6 +95,7 @@ func (c *searchCtx) reset() {
 	c.checkMask = 2047
 	c.stop = nil
 	c.played = nil
+	c.lmrTuned = nil
 	c.nodes = 0
 	c.aborted = false
 	c.deadline = time.Time{}
@@ -208,6 +209,9 @@ type searchCtx struct {
 	// Repeating one of those is a draw by repetition, which the search
 	// must be able to see coming, especially when it is winning.
 	played map[uint64]int
+	// lmrTuned is the per-search LMR table for c.ev.Tune, built lazily by
+	// lmrValue and cached here so it is never rebuilt per node.
+	lmrTuned *[64][64]int
 	// deadline aborts the search when a time budget runs out, and aborted
 	// records that it happened.
 	//
@@ -744,13 +748,14 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 	// kept because it costs two comparisons on a path that already
 	// evaluates the position.
 	const mateBound = mateScore - maxSearchPly
+	t := c.ev.tune()
 	staticEval, haveStatic := 0.0, false
 	futile := c.ev != nil && c.ev.Futility && !inCheck && depth <= 3 &&
 		alpha > negInf && beta < posInf &&
 		alpha > -mateBound && beta < mateBound
 	if futile {
 		staticEval, haveStatic = evalPositionFor(g, color, maximizingFor, c.ev), true
-		margin := futilityMargin[depth]
+		margin := t.marginFutility(depth)
 		if maximizing && staticEval-margin >= beta {
 			return staticEval - margin
 		}
@@ -764,7 +769,7 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 		if !haveStatic {
 			staticEval, haveStatic = evalPositionFor(g, color, maximizingFor, c.ev), true
 		}
-		if reverseFutilityCuts(depth, staticEval, alpha, beta, maximizing, inCheck) {
+		if t.cutsRFP(depth, staticEval, alpha, beta, maximizing, inCheck) {
 			return staticEval
 		}
 	}
@@ -776,7 +781,7 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 		if !haveStatic {
 			staticEval, haveStatic = evalPositionFor(g, color, maximizingFor, c.ev), true
 		}
-		if razorCuts(depth, staticEval, alpha, beta, maximizing) {
+		if t.cutsRazor(depth, staticEval, alpha, beta, maximizing) {
 			q := quiesceWithKey(g, key, color, maximizingFor, alpha, beta, c.ev, 0, ply)
 			if maximizing && q <= alpha {
 				return q
@@ -831,7 +836,7 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 			if !maximizing {
 				over = alpha - staticEval
 			}
-			r = nullMoveReduction(depth, over)
+			r = t.reductionNull(depth, over)
 		}
 		ep, hadEP := g.Board.EPSquare()
 		if !c.ev.KeepNullMoveEP {
@@ -1039,7 +1044,7 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 		if c.ev != nil && c.ev.DeepLMP {
 			maxLMP = 8
 		}
-		if lmp && i > 0 && !isAdvPawn && lateMovePrunedMax(depth, i, improvingHere, inCheck, isCapture, promoted, givesCheck, c.isKiller(ply, m), maxLMP) {
+		if lmp && i > 0 && !isAdvPawn && t.prunedLMP(depth, i, improvingHere, inCheck, isCapture, promoted, givesCheck, c.isKiller(ply, m), maxLMP) {
 			g.Board.UnmakeMove(undo)
 			continue
 		}
@@ -1049,7 +1054,7 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 		// whole subtree. The first move is always searched so that `best`
 		// is backed by a real score.
 		if futile && i > 0 && !isCapture && !givesCheck && !promoted && !isAdvPawn {
-			margin := futilityMargin[depth]
+			margin := t.marginFutility(depth)
 			if (maximizing && staticEval+margin <= alpha) ||
 				(!maximizing && staticEval-margin >= beta) {
 				g.Board.UnmakeMove(undo)
@@ -1073,7 +1078,7 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 				// grows without ever reducing so much that a good move
 				// cannot come back, and the re-search on a fail-high
 				// catches the cases where it was wrong.
-				reduction = lmrReduction(depth, i, !zeroWindow(alpha, beta), c.isKiller(ply, m), promoted)
+				reduction = c.lmrReduction(depth, i, !zeroWindow(alpha, beta), c.isKiller(ply, m), promoted)
 			}
 			reduction = c.historyAdjustedReduction(reduction, color, g, m, depth)
 		}
@@ -1384,7 +1389,7 @@ func searchIterative(g *game.Game, color board.Color, maxDepth int, ev *Eval, us
 		// then run with far tighter bounds and prune much harder; the
 		// occasional miss costs one re-search with a full window.
 		alpha, beta := negInf, posInf
-		delta := 0.5
+		delta := ev.tune().aspirationDelta()
 		if ev.Aspiration && depth >= 3 && depth > startDepth {
 			alpha, beta = prevScore-delta, prevScore+delta
 		}

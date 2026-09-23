@@ -357,7 +357,7 @@ func quiesceWithKey(g *game.Game, key uint64, color, maximizingFor board.Color, 
 			if !onSquare {
 				victim = board.Piece{Type: board.Pawn}
 			}
-			margin := float64(mvvLvaPiece[victim.Type]) + 2.0
+			margin := float64(mvvLvaPiece[victim.Type]) + ev.tune().quiesceDeltaMargin()
 			if maximizing && standPat+margin < alpha {
 				continue
 			}
