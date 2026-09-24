@@ -17,6 +17,14 @@ def is_balanced(score_cp: int | None, limit_pawns: float) -> bool:
     return score_cp is not None and abs(score_cp) < 100 * limit_pawns
 
 
+def usable(fen: str) -> bool:
+    """A legal position Stockfish will accept; openings.txt holds some with impossible castling rights."""
+    try:
+        return chess.Board(fen).is_valid()
+    except ValueError:
+        return False
+
+
 def main() -> None:
     src, out = sys.argv[1], sys.argv[2]
     count = int(sys.argv[3]) if len(sys.argv) > 3 else 20000
@@ -33,6 +41,8 @@ def main() -> None:
             seen += 1
             if seen > count:
                 break
+            if not usable(fen):
+                continue
             score = engine.analyse(chess.Board(fen), chess.engine.Limit(depth=depth))["score"].white()
             if is_balanced(score.score(), limit):
                 o.write(fen + "\n")
