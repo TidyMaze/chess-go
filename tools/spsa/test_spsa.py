@@ -40,6 +40,15 @@ def test_resumes_from_the_last_journal_line(tmp_path: Path) -> None:
     assert (start, theta) == (2, {"A": 1.2})
 
 
+def test_stops_before_a_round_that_would_overrun_the_budget() -> None:
+    # 25 minutes left and rounds of 80 s: keep going.
+    assert spsa.has_time_for_another(elapsed_s=300, last_round_s=80, budget_s=1800)
+    # 20 s left, a round takes 80 s: stop now rather than overrun.
+    assert not spsa.has_time_for_another(elapsed_s=1780, last_round_s=80, budget_s=1800)
+    # The first round has no duration yet and always runs.
+    assert spsa.has_time_for_another(elapsed_s=0, last_round_s=0, budget_s=1800)
+
+
 def test_starts_from_the_defaults_without_a_journal(tmp_path: Path) -> None:
     start, theta = spsa.resume(tmp_path / "none.jsonl", {"A": spsa.Param(1.0, 0.1)})
     assert (start, theta) == (0, {"A": 1.0})

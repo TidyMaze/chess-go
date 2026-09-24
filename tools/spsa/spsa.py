@@ -5,13 +5,17 @@ against theta- for a few games, and steps each parameter toward the side that
 won. Every iteration is appended to the journal before the next one starts, and
 a restart resumes from its last line.
 
-Usage: spsa.py JOURNAL [iterations] [games-per-iteration]
+Each invocation stops by itself before its time budget (default 25 minutes) and
+the next one resumes, so no single process runs for hours.
+
+Usage: spsa.py JOURNAL [iterations] [games-per-iteration] [budget-minutes]
 """
 import json
 import random
 import re
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import NamedTuple
 
@@ -67,6 +71,11 @@ def resume(journal: Path, params: dict[str, Param]) -> tuple[int, dict[str, floa
     return int(last["iter"]) + 1, {k: float(v) for k, v in last["theta"].items()}
 
 
+def has_time_for_another(elapsed_s: float, last_round_s: float, budget_s: float) -> bool:
+    """Whether one more round, as long as the last one, still fits in the budget."""
+    return elapsed_s + last_round_s <= budget_s
+
+
 def tune_string(theta: dict[str, float]) -> str:
     return ",".join(f"{k}={v:.4f}" for k, v in sorted(theta.items()))
 
@@ -86,9 +95,15 @@ def main() -> None:
     journal = Path(sys.argv[1])
     iterations = int(sys.argv[2]) if len(sys.argv) > 2 else 300
     games = int(sys.argv[3]) if len(sys.argv) > 3 else 20
+    budget_s = 60 * float(sys.argv[4]) if len(sys.argv) > 4 else 25 * 60
     journal.parent.mkdir(parents=True, exist_ok=True)
     start, theta = resume(journal, PARAMS)
+    began, last_round = time.monotonic(), 0.0
     for k in range(start, iterations):
+        if not has_time_for_another(time.monotonic() - began, last_round, budget_s):
+            print(f"stopping at iteration {k}: time budget reached, rerun to resume", flush=True)
+            break
+        round_start = time.monotonic()
         rng = random.Random(k)
         delta = {name: rng.choice((-1, 1)) for name in theta}
         # Standard SPSA gain schedules, perturbation shrinking slower than the step.
@@ -103,6 +118,7 @@ def main() -> None:
         with journal.open("a") as f:
             f.write(json.dumps({"iter": k, "wdl": [w, d, lo], "theta": theta}) + "\n")
         print(f"iter {k}: {w}-{d}-{lo}  {tune_string(theta)}", flush=True)
+        last_round = time.monotonic() - round_start
 
 
 if __name__ == "__main__":
