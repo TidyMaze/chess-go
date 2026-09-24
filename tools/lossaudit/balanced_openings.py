@@ -43,7 +43,14 @@ def main() -> None:
                 break
             if not usable(fen):
                 continue
-            score = engine.analyse(chess.Board(fen), chess.engine.Limit(depth=depth))["score"].white()
+            try:
+                score = engine.analyse(chess.Board(fen), chess.engine.Limit(depth=depth))["score"].white()
+            except chess.engine.EngineTerminatedError:
+                # Stockfish exits on some positions python-chess calls valid; skip it, keep going.
+                print(f"stockfish died on {fen}, skipped", file=sys.stderr)
+                engine = chess.engine.SimpleEngine.popen_uci("/opt/homebrew/bin/stockfish")
+                engine.configure({"Threads": 1})
+                continue
             if is_balanced(score.score(), limit):
                 o.write(fen + "\n")
                 kept += 1
