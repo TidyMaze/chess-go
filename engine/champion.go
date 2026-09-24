@@ -52,6 +52,8 @@ type Champion struct {
 	Features string `json:"features,omitempty"`
 	// TTBits sizes the transposition table (2^TTBits entries).
 	TTBits int `json:"tt_bits,omitempty"`
+	// QuiescePly caps the capture search; 0 keeps the engine default.
+	QuiescePly int `json:"qply,omitempty"`
 }
 
 // DefaultChampion is what the engine was before this campaign started:
@@ -120,6 +122,9 @@ func (c Champion) PlayerOrError() (Player, error) {
 	p.Threads = c.Threads
 	if c.TTBits > 0 {
 		p.TTBits = uint(c.TTBits)
+	}
+	if c.QuiescePly > 0 {
+		p.QuiescePly = c.QuiescePly
 	}
 	if c.NetFile != "" {
 		n, err := LoadHalfKPNet(c.NetFile)
