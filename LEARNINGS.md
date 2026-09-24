@@ -1660,3 +1660,15 @@ at low node counts, not only evaluation. Both sides really get the clock: over
 openings, against 85 and 89 wins for the two arms above: inside the noise, not
 adopted. `tt_bits 20` against 22, champion against itself at 100 ms, read
 -5 +/- 21 over 1,000 games: the table size is not what costs us at short clocks.
+
+## SPSA on twelve search margins: 6,000 games bought nothing
+
+Against Stockfish 2700 at 100 ms, 1,000 games with five in parallel (so each
+engine has its own core): -209 +/- 25. The ten-in-parallel runs had starved our
+side of CPU (37% of a core against 50%), yet read the same -203.
+
+`tools/spsa/spsa.py` ran 300 iterations of 20 games at 100 ms on RFP, razoring,
+futility, LMR, LMP, null move, aspiration and delta pruning margins. The largest
+move was LMPBase 3 to 6.5. The result read +2 +/- 21 against the defaults over
+1,000 games and -214 +/- 26 against Stockfish: inside the noise both times. Twelve
+parameters need far more than 6,000 games.
