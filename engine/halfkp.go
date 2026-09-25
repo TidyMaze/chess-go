@@ -98,11 +98,18 @@ func kingCanonicalSquare(s Sq) int {
 // treated as 8, which is what every network written before this existed
 // was trained with.
 func kingSlot(s Sq, buckets int) int {
-	if buckets == halfKPKingSquares {
+	switch buckets {
+	case halfKPKingSquares:
 		return kingCanonicalSquare(s)
+	case halfKPRawKingSquares:
+		return s.Rank*8 + s.File
 	}
 	return kingBucket(s)
 }
+
+// halfKPRawKingSquares keys on the exact king square, nothing mirrored, so a
+// pool generated this way can be re-bucketed into any coarser scheme.
+const halfKPRawKingSquares = 64
 
 // halfKPPieceIndex maps a piece to its slot, relative to the perspective
 // being computed: 0-4 are the perspective side's pieces, 5-9 the enemy's.
