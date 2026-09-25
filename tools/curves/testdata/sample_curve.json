@@ -1,0 +1,19 @@
+{
+  "label": "sample (hand-made values, not a real run)",
+  "loss": "mse",
+  "units": "pawns^2",
+  "baselines": {"constant": 1.62, "material": 1.05},
+  "best_epoch": 8,
+  "epochs": [
+    {"epoch": 1, "train": 0.612, "validation": 0.438, "test": 0.445},
+    {"epoch": 2, "train": 0.371, "validation": 0.297, "test": 0.301},
+    {"epoch": 3, "train": 0.268, "validation": 0.232, "test": 0.236},
+    {"epoch": 4, "train": 0.214, "validation": 0.198, "test": 0.203},
+    {"epoch": 5, "train": 0.183, "validation": 0.179, "test": 0.184},
+    {"epoch": 6, "train": 0.162, "validation": 0.168, "test": 0.172},
+    {"epoch": 7, "train": 0.147, "validation": 0.161, "test": 0.166},
+    {"epoch": 8, "train": 0.135, "validation": 0.158, "test": 0.163},
+    {"epoch": 9, "train": 0.126, "validation": 0.159, "test": 0.165},
+    {"epoch": 10, "train": 0.118, "validation": 0.161, "test": 0.167}
+  ]
+}

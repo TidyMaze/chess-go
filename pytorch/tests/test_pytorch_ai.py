@@ -122,6 +122,69 @@ def test_trainer_end_to_end_with_checkpoint_resume_and_plateau(tmp_path):
     run_main(train, common[:1] + [str(pool), str(pool2)] + common[2:] + ["--epochs", "1", "--limit", "40"])
 
 
+def test_held_out_games_split_into_validation_and_test_that_never_overlap():
+    """Early stopping picks the epoch with the best validation loss, so that
+    number is optimistic. The test half is never used to choose anything and
+    is the one to report."""
+    games = list(range(20000))
+    validation, test = train.split_held_out(games, 0.15)
+    assert not validation & test
+    assert validation | test == train.held_out_games(games, 0.15)
+    assert 0.4 < len(test) / (len(test) + len(validation)) < 0.6
+    grown_validation, grown_test = train.split_held_out(list(range(20500)), 0.15)
+    assert {g for g in grown_test if g < 20000} == test
+
+
+def test_material_is_read_back_from_the_perspective_features():
+    """The pure-pieces baseline: pawn 1, knight 3, bishop 3, rook 5, queen 9,
+    the perspective's pieces minus the other side's (pools store White's
+    perspective, and White's view of the target). Kinds 0-4 are the
+    perspective's, 5-9 the other side's; the king bucket (index // 640) does
+    not change the piece. Clamped to +-12 like every pool target."""
+    rook, own_queen, their_pawn, their_knight = 3 * 64 + 7, 4 * 64 + 12, 5 * 64 + 40, 6 * 64 + 9
+    features = [rook, own_queen + 640, their_pawn, their_knight + 3 * 640]
+    assert train.material_score(features) == 5 + 9 - 1 - 3
+    assert train.material_score([]) == 0
+    three_queens_two_rooks = [4 * 64 + 1, 4 * 64 + 2, 4 * 64 + 3, 3 * 64 + 4, 3 * 64 + 5]
+    assert train.material_score(three_queens_two_rooks) == 12
+    assert train.material_score([f + 5 * 64 for f in three_queens_two_rooks]) == -12
+
+
+def test_a_checkpoint_from_another_split_does_not_carry_its_best_over(tmp_path):
+    """A checkpoint's best loss was measured on its own validation games. From
+    an older split (or none recorded) it is not comparable, and keeping it
+    would let games that are test games now choose the shipped weights."""
+    pool = tmp_path / "pool.bin"
+    write_pool(pool, games=40, per_game=10)
+    ckpt, curve = tmp_path / "net.ckpt", tmp_path / "curve.json"
+    common = ["--pool", str(pool), "--out", str(tmp_path / "net.json"), "--status", str(tmp_path / "s.json"),
+              "--device", "cpu", "--hidden", "4", "--batch", "16", "--holdout-games", "0.3",
+              "--checkpoint", str(ckpt), "--checkpoint-every", "1", "--curve", str(curve)]
+    run_main(train, common + ["--epochs", "2"])
+    ck = torch.load(ckpt, weights_only=False)
+    ck.pop("split", None)  # what a checkpoint written before the split existed looks like
+    ck["best"] = 1e-9  # a loss no epoch can beat
+    torch.save(ck, ckpt)
+    run_main(train, common + ["--epochs", "3"])
+    assert json.loads(curve.read_text())["best_epoch"] == 3
+
+
+def test_the_trainer_writes_train_validation_and_test_loss_per_epoch(tmp_path):
+    pool = tmp_path / "pool.bin"
+    write_pool(pool, games=40, per_game=10)
+    curve = tmp_path / "curve.json"
+    run_main(train, ["--pool", str(pool), "--out", str(tmp_path / "net.json"),
+                     "--status", str(tmp_path / "s.json"), "--device", "cpu", "--hidden", "4",
+                     "--batch", "16", "--holdout-games", "0.3", "--epochs", "3", "--curve", str(curve)])
+    doc = json.loads(curve.read_text())
+    rows = doc["epochs"]
+    assert [r["epoch"] for r in rows] == [1, 2, 3]
+    for r in rows:
+        assert set(r) >= {"epoch", "train", "validation", "test"}
+        assert all(r[k] >= 0 for k in ("train", "validation", "test"))
+    assert set(doc["baselines"]) == {"constant", "material"}
+
+
 @pytest.mark.skipif(not (REPO / "nnue-bin").exists(), reason="no Go binary")
 def test_exported_net_agrees_with_go(tmp_path):
     pool = tmp_path / "pool.bin"

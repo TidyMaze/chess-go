@@ -33,9 +33,28 @@ PIECE_KINDS = 10
 SQUARES = 64
 PER_KING = PIECE_KINDS * SQUARES
 
+# Pure-pieces value of each feature kind: the perspective's pawn, knight,
+# bishop, rook and queen, then the other side's same five, subtracted. Kings
+# have no feature, so they count for nothing.
+PIECE_VALUES = (1, 3, 3, 5, 9, -1, -3, -3, -5, -9)
+# The generator clamps every target to this many pawns (nnue/main.go
+# blendedTarget), so a baseline compared against them must be clamped too.
+TARGET_CLAMP = 12.0
+# Bumped whenever the train/validation/test assignment of games changes, so a
+# checkpoint's best loss is only trusted on the split it was measured on.
+SPLIT_SCHEME = "id-hash, test below half the held-out fraction"
+
 
 def inputs_for(buckets: int) -> int:
     return buckets * PER_KING
+
+
+def material_score(features) -> float:
+    """Material from the features' perspective, in pawns, read back from its
+    feature list and clamped like the targets. Pools store White's
+    perspective and White's view of the target, so the two agree."""
+    raw = float(sum(PIECE_VALUES[(f % PER_KING) // SQUARES] for f in features))
+    return max(-TARGET_CLAMP, min(TARGET_CLAMP, raw))
 
 
 def load_pool(path: Path, limit: int = 0):
@@ -335,6 +354,24 @@ def held_out_games(games: list[int], fraction: float) -> set[int]:
     return held or {min(games)}
 
 
+def split_held_out(games: list[int], fraction: float) -> tuple[set[int], set[int]]:
+    """The held-out games as (validation, test), split by the same id hash.
+
+    Early stopping keeps the epoch with the best validation loss, so that
+    number was chosen and reads optimistic. Test is never used to choose
+    anything, which makes it the one to report. Splitting on the hash keeps
+    every old game on its side as the pool grows, as held_out_games does.
+    """
+    held = held_out_games(games, fraction)
+    test = {g for g in held if _id_hash_fraction(g) < fraction / 2}
+    validation = held - test
+    if not validation:
+        # A pool this small can hash every held-out game into test, and
+        # choosing needs positions where reporting does not.
+        return test, set()
+    return validation, test
+
+
 def _id_hash_fraction(game: int) -> float:
     digest = hashlib.blake2b(game.to_bytes(8, "little", signed=True), digest_size=8).digest()
     return int.from_bytes(digest, "little") / 2**64
@@ -388,7 +425,7 @@ def main():
     ap.add_argument("--holdout-games", type=float, default=0.15)
     ap.add_argument("--device", default="mps")
     ap.add_argument("--patience", type=int, default=8,
-                    help="stop when the held-out loss has not improved for this many epochs")
+                    help="stop when the validation loss has not improved for this many epochs")
     ap.add_argument("--min-delta", type=float, default=1e-5,
                     help="an improvement counts when it clears this fraction of the "
                          "constant-predictor loss. A fraction rather than an absolute "
@@ -425,6 +462,9 @@ def main():
                     help="halve the learning rate after this many epochs without improvement "
                          "(0 disables). A plateau can be the optimiser stalling rather than the "
                          "data running out, and the two look identical from the loss alone.")
+    ap.add_argument("--curve", default="",
+                    help="after every epoch, rewrite this JSON file with the train, validation "
+                         "and test losses so far and the test baselines; empty to disable")
     args = ap.parse_args()
 
     def log(msg):
@@ -479,10 +519,15 @@ def main():
     # held-out set: the same network once measured 1.36 held-out against a
     # hand-written evaluation's 5.89 and lost 60 games out of 60.
     uniq = sorted(set(games))
-    held = held_out_games(uniq, args.holdout_games)
-    tr = [i for i, gi in enumerate(games) if gi not in held]
-    te = [i for i, gi in enumerate(games) if gi in held]
-    log("%d training positions, %d held out over %d games" % (len(tr), len(te), len(uniq)))
+    validation, test_games = split_held_out(uniq, args.holdout_games)
+    tr, va, te = [], [], []
+    for i, gi in enumerate(games):
+        (va if gi in validation else te if gi in test_games else tr).append(i)
+    log("split by game: %d training, %d validation, %d test positions "
+        "(%d, %d, %d games)" % (len(tr), len(va), len(te), len(uniq) - len(validation)
+                                - len(test_games), len(validation), len(test_games)))
+    # Read before the feature lists are dropped for their packed form.
+    material_te = [material_score(own[i]) for i in te]
 
     layers = "%d -> %d (shared, both perspectives) -> %d" % (
         inputs_for(args.buckets), args.hidden, 2 * args.hidden)
@@ -556,8 +601,17 @@ def main():
     # The only honest reference for "is it learning": a model that cannot
     # beat the mean of its own targets has learned nothing, whatever else
     # it beats.
-    baseline = float(((space(y[te]) - space(y[te]).mean()) ** 2).mean())
-    log("constant-predictor held-out MSE %.4f" % baseline)
+    baseline = float(((space(y[va]) - space(y[va]).mean()) ** 2).mean())
+    log("constant-predictor validation loss %.4f" % baseline)
+    # The same two references on the test positions, reported beside the
+    # test loss. Material is what a network has to beat to have learned
+    # anything beyond counting pieces.
+    y_te = space(y[te])
+    test_constant = float(((y_te - y_te.mean()) ** 2).mean())
+    material_t = torch.tensor(material_te, dtype=torch.float32, device=device)
+    test_material = float(((space(material_t) - y_te) ** 2).mean())
+    units = "win-probability^2" if args.loss == "sigmoid" else "pawns^2"
+    log("test baselines, %s: constant %.4f, material %.4f" % (units, test_constant, test_material))
 
     # Checkpointing. A run told to train until it plateaus has no fixed
     # end, so "stopped" and "finished" look the same from outside and an
@@ -582,7 +636,7 @@ def main():
                 model.load_state_dict(ck["model"])
                 opt.load_state_dict(ck["opt"])
                 start_epoch = ck["epoch"] + 1
-                log("resumed from %s at epoch %d (best held out %.4f at epoch %d)"
+                log("resumed from %s at epoch %d (best validation %.4f at epoch %d)"
                     % (ckpt_path, ck["epoch"], ck["best"], ck["best_epoch"]))
             except Exception as exc:
                 log("ignoring %s: it does not restore (%s)" % (ckpt_path, exc))
@@ -596,11 +650,18 @@ def main():
                 % (ckpt_path, ck.get("hidden"), ck.get("buckets"), ck.get("hidden2", 0),
                    args.hidden, args.buckets, args.hidden2))
 
+    # Which positions a stored best loss was measured on. A checkpoint from any
+    # other split (older scheme, other fraction, grown pool) keeps its weights
+    # but not its best: that loss is not comparable, and some of its
+    # validation games may be test games now.
+    split_id = {"scheme": SPLIT_SCHEME, "holdout": args.holdout_games,
+                "validation": len(va), "test": len(te)}
+
     def save_checkpoint(epoch, best, best_epoch, best_state):
         tmp = ckpt_path.with_suffix(ckpt_path.suffix + ".tmp")
         torch.save({"model": model.state_dict(), "opt": opt.state_dict(),
                     "epoch": epoch, "best": best, "best_epoch": best_epoch,
-                    "best_state": best_state,
+                    "best_state": best_state, "split": split_id,
                     "hidden": args.hidden, "buckets": args.buckets,
                     "hidden2": args.hidden2}, tmp)
         # Renamed into place so a kill during the write cannot leave a
@@ -610,7 +671,13 @@ def main():
     # Game ids on the device, so smoothness can be computed without leaving it.
     games_t = torch.tensor(games, dtype=torch.long, device=device)
     tr_t = torch.tensor(tr, dtype=torch.long, device=device)
+    va_t = torch.tensor(va, dtype=torch.long, device=device)
     te_t = torch.tensor(te, dtype=torch.long, device=device)
+    # The train loss is measured on as many positions as the test loss, the
+    # same ones every epoch, so the gap between the two is the only thing
+    # that moves between epochs.
+    pick = torch.randperm(len(tr), generator=torch.Generator().manual_seed(0))
+    tr_sample_t = tr_t[pick[: min(len(te), len(tr))].to(device)]
 
     def batches(idx_t, size, shuffle):
         if shuffle:
@@ -631,22 +698,41 @@ def main():
         Consecutive entries in a pool are consecutive positions in a game, so
         a pair is only counted when both sides share a game id.
         """
-    def evaluate_heldout(idx):
+    def evaluate(idx):
+        """Mean loss in the run's space and mean jump over the positions in
+        idx. Per-batch sums stay on the device and cross to the host once:
+        a sync per batch stalls the GPU, three times an epoch."""
         model.eval()
-        loss_total, n = 0.0, 0
-        jump_total, pairs = 0.0, 0
+        losses, jumps, pairs = [], [], []
         with torch.no_grad():
             for b in batches(idx, args.batch, False):
                 pred = model(own_t[b], opp_t[b])
-                loss_total += float(((space(pred) - space(y[b])) ** 2).sum())
-                n += b.numel()
+                losses.append(((space(pred) - space(y[b])) ** 2).sum())
                 gid = games_t[b]
                 same = gid[1:] == gid[:-1]
-                if same.any():
-                    d = (pred[1:] - pred[:-1]).abs()[same]
-                    jump_total += float(d.sum())
-                    pairs += int(same.sum())
-        return loss_total / max(n, 1), jump_total / max(pairs, 1)
+                jumps.append(((pred[1:] - pred[:-1]).abs() * same).sum())
+                pairs.append(same.sum())
+        if not losses:
+            return float("nan"), 0.0
+        # Summed in double on the host, since MPS has no float64.
+        loss_total = float(torch.stack(losses).cpu().double().sum())
+        jump_total = float(torch.stack(jumps).cpu().double().sum())
+        n_pairs = int(torch.stack(pairs).sum())
+        return loss_total / idx.numel(), jump_total / max(n_pairs, 1)
+
+    curve: list = []
+
+    def write_curve():
+        if not args.curve:
+            return
+        doc = {"label": args.label, "loss": args.loss, "units": units,
+               "baselines": {"constant": test_constant, "material": test_material},
+               "best_epoch": best_epoch, "epochs": curve}
+        # Renamed into place, like the checkpoint, so a killed run still
+        # leaves a curve that parses.
+        tmp = Path(args.curve + ".tmp")
+        tmp.write_text(json.dumps(doc))
+        tmp.replace(args.curve)
 
     best, best_epoch, best_state = float("inf"), 0, None
     # The best few epochs by held-out loss, newest first on ties.
@@ -654,9 +740,12 @@ def main():
     if ckpt_path.exists() and not args.fresh:
         try:
             ck = torch.load(ckpt_path, map_location=device, weights_only=False)
-            if ck.get("hidden") == args.hidden and ck.get("hidden2", 0) == args.hidden2:
+            same_net = ck.get("hidden") == args.hidden and ck.get("hidden2", 0) == args.hidden2
+            if same_net and ck.get("split") == split_id:
                 best, best_epoch = ck["best"], ck["best_epoch"]
                 best_state = ck.get("best_state")
+            elif same_net:
+                log("checkpoint's best loss was measured on another split; not kept")
         except Exception:
             pass
 
@@ -676,37 +765,44 @@ def main():
             seen += b.numel()
         if smooth_idx is not None:
             smooth_(model.embed.weight, smooth_idx, smooth_mask, args.smooth)
-        test, jump = evaluate_heldout(te_t)
-        explained = 100 * (1 - test / baseline) if baseline > 0 else 0.0
+        val, jump = evaluate(va_t)
+        # Only reported: the test positions never choose an epoch, a rate or
+        # a set of weights, so their loss is not optimistic.
+        test, _ = evaluate(te_t)
+        train_loss, _ = evaluate(tr_sample_t)
+        explained = 100 * (1 - val / baseline) if baseline > 0 else 0.0
         rate = seen / max(time.time() - est, 1e-6)
 
-        improved = counts_as_improvement(test, best, args.min_delta, baseline)
+        improved = counts_as_improvement(val, best, args.min_delta, baseline)
         if improved:
-            best, best_epoch = test, epoch
+            best, best_epoch = val, epoch
             # Keep the best weights, not the last: past the plateau the
-            # held-out loss drifts back up, and the final epoch is then
+            # validation loss drifts back up, and the final epoch is then
             # worse than one seen twenty epochs earlier.
             best_state = {k: v.detach().clone() for k, v in model.state_dict().items()}
         if args.average_best > 1:
-            top.append((test, {k: v.detach().clone() for k, v in model.state_dict().items()}))
+            top.append((val, {k: v.detach().clone() for k, v in model.state_dict().items()}))
             top.sort(key=lambda kept: kept[0])
             del top[args.average_best:]
         stale = epoch - best_epoch
 
         where = "epoch %d/%d" % (epoch, args.epochs) if args.epochs > 0 \
             else "epoch %d (until plateau)" % epoch
-        log("%-26s held out %.4f  constant %.4f  explains %.1f%%  jump %.3f  %.0f pos/s%s"
-            % (where, test, baseline, explained, jump, rate,
+        log("%-26s train %.4f  validation %.4f  test %.4f  constant %.4f  explains %.1f%%  "
+            "jump %.3f  %.0f pos/s%s"
+            % (where, train_loss, val, test, baseline, explained, jump, rate,
                "" if improved else "  (no improvement for %d)" % stale))
+        curve.append({"epoch": epoch, "train": train_loss, "validation": val, "test": test})
+        write_curve()
         if improved or epoch % max(args.checkpoint_every, 1) == 0:
             save_checkpoint(epoch, best, best_epoch, best_state)
-        write_status(epoch=epoch, epochs=args.epochs, test_loss=test,
+        write_status(epoch=epoch, epochs=args.epochs, test_loss=val,
                      explains=explained, smoothness=jump, positions_per_sec=rate,
                      epoch_positions=seen, epoch_total=len(tr),
                      epoch_eta_sec=0, best_epoch=best_epoch, stale_epochs=stale)
 
         if sched is not None:
-            sched.step(test)
+            sched.step(val)
         if args.patience > 0 and stale >= args.patience:
             log("stopping early: no improvement for %d epochs, best was %.4f at epoch %d"
                 % (stale, best, best_epoch))
@@ -715,17 +811,20 @@ def main():
     save_checkpoint(epoch, best, best_epoch, best_state)
     if best_state is not None:
         model.load_state_dict(best_state)
-        log("restored the best weights, from epoch %d (held out %.4f, explains %.1f%%)"
+        log("restored the best weights, from epoch %d (validation %.4f, explains %.1f%%)"
             % (best_epoch, best, 100 * (1 - best / baseline)))
     if len(top) > 1:
         averaged_state = average_states([state for _, state in top])
         model.load_state_dict(averaged_state)
-        averaged, _ = evaluate_heldout(te_t)
+        averaged, _ = evaluate(va_t)
         chosen, best, kept = pick_weights(averaged_state, averaged, best_state, best)
-        log("averaged the best %d epochs: held out %.4f against %.4f, %s"
+        log("averaged the best %d epochs: validation %.4f against %.4f, %s"
             % (len(top), averaged, best, kept))
         if chosen is not None:
             model.load_state_dict(chosen)
+    shipped, _ = evaluate(te_t)
+    log("shipped weights: test %.4f against constant %.4f and material %.4f"
+        % (shipped, test_constant, test_material))
 
     write_status(phase="done", epoch=best_epoch, epochs=args.epochs,
                  test_loss=best, explains=100 * (1 - best / baseline))
