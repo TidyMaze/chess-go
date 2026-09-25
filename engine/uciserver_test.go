@@ -99,6 +99,50 @@ func TestUCIPositionParsing(t *testing.T) {
 
 // A player with no score to give (a non-iterative search) sends its move
 // without an info line, rather than a made-up score.
+// A study of short-clock blunders replays each position many times: a seed
+// makes every run's tie-break repeatable, and the cut-off line says whether
+// the move came from an iteration the clock cut off.
+func TestServeUCISeedsTheSearchAndReportsCutOffMoves(t *testing.T) {
+	script := "setoption name Seed value 7\nposition startpos moves e2e4\ngo depth 3\nposition startpos moves e2e4\ngo depth 3\nquit\n"
+	var first, second bytes.Buffer
+	p := Strong(3)
+	ServeUCI(strings.NewReader(script), &first, p)
+	ServeUCI(strings.NewReader(script), &second, p)
+	// time and nps are wall-clock; the move, depth and score must repeat.
+	decisions := func(out string) []string {
+		var kept []string
+		for _, line := range strings.Split(out, "\n") {
+			if f := strings.Fields(line); len(f) > 5 && f[0] == "info" && f[1] == "depth" {
+				kept = append(kept, strings.Join(f[:6], " "))
+			} else if strings.HasPrefix(line, "bestmove") {
+				kept = append(kept, line)
+			}
+		}
+		return kept
+	}
+	if a, b := decisions(first.String()), decisions(second.String()); strings.Join(a, "|") != strings.Join(b, "|") {
+		t.Errorf("the same seed gave different decisions:\n%v\n%v", a, b)
+	}
+	if got := strings.Count(first.String(), "info string cutoff 0"); got != 2 {
+		t.Errorf("want one 'info string cutoff 0' per completed search, got %d in:\n%s", got, first.String())
+	}
+	// From the start, a material-only depth-1 search scores all 20 moves 0, so
+	// the move is the tie-break alone: seeded runs must agree, every time.
+	moves := map[string]bool{}
+	for i := 0; i < 5; i++ {
+		var out bytes.Buffer
+		ServeUCI(strings.NewReader("setoption name Seed value 3\nposition startpos\ngo depth 1\nquit\n"), &out, Player{Depth: 1})
+		for _, line := range strings.Split(out.String(), "\n") {
+			if strings.HasPrefix(line, "bestmove") {
+				moves[line] = true
+			}
+		}
+	}
+	if len(moves) != 1 {
+		t.Errorf("the same seed picked %d different moves among 20 tied ones: %v", len(moves), moves)
+	}
+}
+
 func TestServeUCIOmitsTheScoreItDoesNotHave(t *testing.T) {
 	var out bytes.Buffer
 	ServeUCI(strings.NewReader("position startpos\ngo depth 1\nquit\n"), &out, Player{Depth: 1, UsePST: true})

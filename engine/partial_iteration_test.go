@@ -78,6 +78,30 @@ func TestAbortedIterationKeepsACompletedBetterMove(t *testing.T) {
 	}
 }
 
+// A move taken from a cut-off iteration has to be visible from outside, so a
+// study of short-clock blunders can tell them from moves of completed depths.
+func TestTheSearchSaysWhenItsMoveCameFromACutOffIteration(t *testing.T) {
+	defer func() { testAbortAtNodes = 0 }()
+	g, err := game.ParseFEN(correctnessPositions[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := Strong(5)
+	p.MainSEE = true
+	SeedRandom(1)
+	PlayerPick(p, g)
+	if LastMoveFromCutOffIteration() {
+		t.Error("a search that completed every iteration reports a cut-off move")
+	}
+	total := LastSearchNodesValue()
+	testAbortAtNodes = int64(total*90/100) + 1 // the abort point that switches, see below
+	SeedRandom(1)
+	PlayerPick(p, g)
+	if !LastMoveFromCutOffIteration() {
+		t.Error("the move switched to inside a cut-off iteration is not reported as such")
+	}
+}
+
 func TestAbortedIterationRejectsFailLowStanding(t *testing.T) {
 	defer func() { testAbortAtNodes, testRootScores, testForceStandingFailLow = 0, nil, false }()
 	fen := correctnessPositions[0]

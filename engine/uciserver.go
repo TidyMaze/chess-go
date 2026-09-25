@@ -18,10 +18,12 @@ import (
 // just another engine to the Stockfish client, and a speedup can be
 // measured as Elo instead of as nodes.
 //
-// Handled: uci, isready, position, go depth N, go movetime N, quit. Every
-// other command, setoption included, is accepted and ignored.
+// Handled: uci, isready, position, go depth N, go movetime N, quit, and
+// setoption name Seed value N, which seeds the tie-break before every search.
+// Every other command is accepted and ignored.
 func ServeUCI(in io.Reader, out io.Writer, p Player) {
 	g := game.New()
+	seeded, seed := false, int64(0)
 	// One table for the whole game, as the in-process harness gives its
 	// players; a fresh table per move would handicap the UCI side.
 	var tt *TranspositionTable
@@ -44,6 +46,13 @@ func ServeUCI(in io.Reader, out io.Writer, p Player) {
 			if tt != nil {
 				tt = NewTranspositionTable(p.TTBits)
 			}
+		case "setoption":
+			// setoption name Seed value N
+			if len(fields) == 5 && fields[1] == "name" && strings.EqualFold(fields[2], "Seed") && fields[3] == "value" {
+				if n, err := strconv.ParseInt(fields[4], 10, 64); err == nil {
+					seeded, seed = true, n
+				}
+			}
 		case "position":
 			g = uciPosition(fields[1:])
 		case "go":
@@ -57,6 +66,9 @@ func ServeUCI(in io.Reader, out io.Writer, p Player) {
 				case "depth":
 					q.Depth = n
 				}
+			}
+			if seeded {
+				SeedRandom(seed)
 			}
 			ResetNodes()
 			started := time.Now()
@@ -78,6 +90,13 @@ func ServeUCI(in io.Reader, out io.Writer, p Player) {
 				if s := elapsed.Seconds(); s > 0 {
 					nps = int64(float64(nodes) / s)
 				}
+				// Before the depth line: the harness reads the score from the
+				// line just above bestmove.
+				cutoff := 0
+				if LastMoveFromCutOffIteration() {
+					cutoff = 1
+				}
+				fmt.Fprintf(out, "info string cutoff %d\n", cutoff)
 				fmt.Fprintf(out, "info depth %d score cp %d nodes %d nps %d time %d\n",
 					LastSearchDepth(), int(math.Round(score*100)), nodes, nps, ms)
 			}

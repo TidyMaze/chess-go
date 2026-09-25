@@ -1345,6 +1345,9 @@ func searchIterative(g *game.Game, color board.Color, maxDepth int, ev *Eval, us
 	ctx.path[0] = zobristHash(g)
 	ctx.fifty[0] = g.HalfmoveClock
 	completed := 0
+	if main {
+		atomic.StoreInt32(&lastCutOffMove, 0)
+	}
 	defer func() {
 		// Every thread adds its nodes; only the main thread's depth counts.
 		atomic.AddInt64(&lastSearchNodes, int64(ctx.nodes))
@@ -1459,6 +1462,9 @@ func searchIterative(g *game.Game, color board.Color, maxDepth int, ev *Eval, us
 			// moves that were never reached are no worse off than before.
 			if iterBest != (game.Move{}) && iterBest != ordered[0] && standingExact && bestScore > standingScore+0.01 && bestScore < beta {
 				best = iterBest
+				if main {
+					atomic.StoreInt32(&lastCutOffMove, 1)
+				}
 			}
 			break
 		}
@@ -1774,6 +1780,14 @@ func ResetOrderingStats() {
 	}
 	atomic.StoreInt64(&cutoffTotal, 0)
 }
+
+// lastCutOffMove is 1 when the main thread's most recent search played a move
+// taken from the iteration the clock cut off, 0 when it came from a completed one.
+var lastCutOffMove int32
+
+// LastMoveFromCutOffIteration reports whether the latest search's move came
+// from a cut-off iteration rather than from its deepest completed one.
+func LastMoveFromCutOffIteration() bool { return atomic.LoadInt32(&lastCutOffMove) == 1 }
 
 // testAbortAtNodes, when set by a test, aborts every search once that many
 // nodes have been visited. Zero in production.
