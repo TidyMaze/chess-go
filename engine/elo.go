@@ -384,6 +384,34 @@ func PlayMatch(a, b Player, games, maxMoves int) MatchResult {
 	return PlayMatchLive(a, b, games, maxMoves, nil)
 }
 
+// MatchDeadline, when set, stops a match from starting new games after it;
+// games already running finish. Zero means no deadline.
+var MatchDeadline time.Time
+
+// gameSkipped marks a game the deadline stopped before it started.
+const gameSkipped = -1.0
+
+// tallyPairs counts the games whose colour-reversed partner, the game sharing
+// its opening, was also played.
+func tallyPairs(scores []float64) MatchResult {
+	var res MatchResult
+	for i, s := range scores {
+		partner := i ^ 1
+		if s == gameSkipped || partner >= len(scores) || scores[partner] == gameSkipped {
+			continue
+		}
+		switch s {
+		case 1.0:
+			res.Wins++
+		case 0.5:
+			res.Draws++
+		default:
+			res.Losses++
+		}
+	}
+	return res
+}
+
 // PlayMatchLive is PlayMatch with a hook on the first game, so a UI can
 // watch one representative game of the match as it happens.
 func PlayMatchLive(a, b Player, games, maxMoves int, live LiveHook) MatchResult {
@@ -441,6 +469,10 @@ func PlayMatchLive(a, b Player, games, maxMoves int, live LiveHook) MatchResult 
 			sem <- struct{}{}
 			defer func() { <-sem }()
 			defer atomic.AddInt64(&done, 1)
+			if !MatchDeadline.IsZero() && time.Now().After(MatchDeadline) {
+				scores[i] = gameSkipped
+				return
+			}
 
 			white, black := a, b
 			aIsWhite := i%2 == 0
@@ -463,19 +495,7 @@ func PlayMatchLive(a, b Player, games, maxMoves int, live LiveHook) MatchResult 
 		}(i)
 	}
 	wg.Wait()
-
-	var res MatchResult
-	for _, s := range scores {
-		switch s {
-		case 1.0:
-			res.Wins++
-		case 0.5:
-			res.Draws++
-		default:
-			res.Losses++
-		}
-	}
-	return res
+	return tallyPairs(scores)
 }
 
 // PlayMatchSerial plays the games one at a time. Needed for an external

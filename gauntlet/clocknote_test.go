@@ -3,6 +3,7 @@ package main
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 // The gauntlet announced "the reference stays at depth N" whenever a clock
@@ -18,6 +19,18 @@ func TestClockNoteTellsTheTruthAboutTheReference(t *testing.T) {
 	atDepth := clockNote(1000, 4, false)
 	if !strings.Contains(atDepth, "depth 4") {
 		t.Errorf("an in-process reference stays at its depth, and the note must say so: %q", atDepth)
+	}
+}
+
+// A benchmark has a wall-clock budget, not a game count: -max-seconds 0 means
+// play every game, anything else stops starting games after that long.
+func TestMaxSecondsBecomesAMatchDeadline(t *testing.T) {
+	now := time.Date(2026, 9, 25, 20, 0, 0, 0, time.UTC)
+	if d := deadlineFor(0, now); !d.IsZero() {
+		t.Errorf("-max-seconds 0 gave deadline %v, want none", d)
+	}
+	if d := deadlineFor(540, now); !d.Equal(now.Add(540 * time.Second)) {
+		t.Errorf("-max-seconds 540 gave %v, want %v", d, now.Add(540*time.Second))
 	}
 }
 

@@ -140,6 +140,14 @@ func clockNote(timeMS, depth int, refIsUCI bool) string {
 	return fmt.Sprintf("challenger plays to %d ms per move; the reference stays at depth %d", timeMS, depth)
 }
 
+// deadlineFor turns -max-seconds into the match deadline; 0 means none.
+func deadlineFor(maxSeconds int, now time.Time) time.Time {
+	if maxSeconds <= 0 {
+		return time.Time{}
+	}
+	return now.Add(time.Duration(maxSeconds) * time.Second)
+}
+
 // networkAgainstChampion refuses a network on the plain challenger raced against a
 // champion reference: the sides then differ in every search feature, not just the network.
 func networkAgainstChampion(halfkp, net, champion, refChampion string) error {
@@ -174,6 +182,7 @@ func main() {
 	noLMR := flag.Bool("no-lmr", false, "challenger disables late move reductions")
 	features := flag.String("features", "", "comma-separated search features the challenger switches on: lmp, scaledlmr, rfp, nullgate, countermove, iir, see")
 	refFeatures := flag.String("ref-features", "", "search features the reference switches on too, so a feature can be measured on top of another")
+	maxSeconds := flag.Int("max-seconds", 0, "stop starting games after this many seconds and report the complete colour pairs played; 0 plays every game")
 	tuneFlag := flag.String("tune", "", "challenger's search margins, Name=value,... over the defaults (engine.SearchTune); needs -champion")
 	refTune := flag.String("ref-tune", "", "reference's search margins, same format as -tune")
 	scaledLMR := flag.Bool("scaled-lmr", strongDefaults.ScaledLMR, "challenger scales reductions with depth and move number")
@@ -507,8 +516,9 @@ func main() {
 		engine.GameSink = jsonlSink(f)
 	}
 
+	engine.MatchDeadline = deadlineFor(*maxSeconds, time.Now())
 	res := engine.PlayMatch(challenger, reference, *games, *maxMoves)
-	fmt.Printf("challenger (depth %d) vs reference (depth %d), %d games\n", cd, *depth, *games)
+	fmt.Printf("challenger (depth %d) vs reference (depth %d), %d games\n", cd, *depth, res.Wins+res.Draws+res.Losses)
 	fmt.Printf("  W-D-L %d-%d-%d   score %.3f\n", res.Wins, res.Draws, res.Losses, res.Score())
 	fmt.Printf("  Elo gap %+d +/- %d   (%.0fs)\n", res.Elo(), res.EloMargin(), time.Since(t0).Seconds())
 }

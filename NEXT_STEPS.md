@@ -1,58 +1,56 @@
 # Queue
 
-The absolute scale changed on 2026-09-18: the engine is about 1,985 at 10 ms,
-not the 2,493 the SF@2800 rung implied. See `analyses/elo-calibration/report.html`.
-Every A/B in LEARNINGS.md still stands, they are head to head at a fixed clock.
+Updated 2026-09-25. Every experiment below fits in 10 minutes (`timeout 600`).
 
-## 1. Chase the pawn finding
+## Where we stand
 
-moveaudit says the evaluation reaches for pieces where the oracle reaches for
-pawns (pawn push 51 against 24, develops 11 against 28, over 500 positions).
-Three ways to test whether that is the missing term, cheapest first:
+- Against Stockfish 2700 at 100 ms a move: -209 +/- 25 (1,000 games, rung 23,
+  qply 4). Goal: cut the gap by 25%, to about -157.
+- Adopted since: `nullpieces`, `drawscale` (both neutral), qply 16 (+17 +/- 15
+  champion against champion). Not yet re-measured against Stockfish.
+- 61% of losses are evaluation lag (Stockfish sees it 10+ plies first), 39% are
+  sudden collapses (`tools/lossaudit/loss_phases.py`).
+- Flat, do not retry without a new reason: more self-play data, from-scratch
+  nets, depth 8 labels at 200k, 128 hidden units, `singular`, `histgravity`,
+  `historyaging`, `drive2`, `tt_bits 20`, quiet checks in quiescence.
 
-- Label depth. The labels come from our own depth 6 to 8 search, which cannot
-  see what a pawn move is worth. Generate one pool at label depth 10 and one at
-  6 from the same games, train both, and rerun the audit on each: if the pawn
-  gap narrows with deeper labels, the teacher is the ceiling.
-- The hand evaluation still has a pawn `Structure` term that `hand_blend 0`
-  switched off. Blending it back costs 18% of nodes per second, which is why it
-  was dropped, but a pawn-only blend was never tried separately.
-- Feed the network something it cannot currently see. HalfKP is king-piece
-  pairs; passed pawns and pawn chains are not directly representable at 64
-  hidden units, and width is dead, so this means new inputs rather than more of
-  them.
+## Instruments
 
-## 2. Move agreement audit against Stockfish as a judge (built)
+| benchmark | games | time | precision |
+| --- | --- | --- | --- |
+| screen: candidate vs champion, 100 ms, `openings_balanced.txt` | 540 | 10 min | +/- 27 |
+| Stockfish 2700, 100 ms, 5 games in parallel | 250 | 10 min | +/- 45 |
 
-An engine that searches 12 plies at 1 s and rates 1,985 has evaluation defects,
-not diminishing returns. Find them: take a few hundred positions from the pools,
-ask for our best move and Stockfish's best move at a fixed depth, and bucket the
-disagreements by phase and by what the position contains (passed pawn, open file
-next to a king, material imbalance, locked centre).
+A change is adopted when pooled screens put its lower bound above zero. The
+Stockfish number is re-measured only once screens have banked about +40, and
+pooled over several 10-minute runs.
 
-Stockfish is a judge here, never a teacher: it scores nothing that reaches the
-training pool. The output is a list of themes where we choose badly, which is a
-list of evaluation features worth building.
+## Experiments, cheapest and most likely first
 
-## 3. Recalibrate at 100 ms and 1 s
+1. **Loss function.** Sigmoid (win probability) against squared error, both
+   from scratch on the same 3.2M positions. Running. If sigmoid wins, fine-tune
+   the champion with it on a 5M slice and screen.
+2. **Quiescence cap past 16.** qply 24 and 32 against 16. The cap already paid
+   once; find where it stops paying.
+3. **The SPSA directions, one at a time.** The 482-round SPSA read +12 +/- 21
+   together; screen its three largest moves alone: LMPBase 3 to 6.5, LMRDiv 2.5
+   to 2.2, NullBonusPer 1.5 to 1.15. A single parameter moves more Elo per game
+   than twelve at once.
+4. **SPSA, continued** in 9-minute chunks (`spsa.py JOURNAL N 40 9`) on the
+   qply 16 champion, screening the result every few chunks.
+5. **Stalemate at the stand-pat cutoff** (`9483013`): a failing test first,
+   then the cheap legal-move check, then a screen.
+6. **Stockfish check**, pooled 250-game runs, new champion against the qply 4
+   control on the same openings.
 
-Only 10 ms has a five-rung curve. The 100 ms and 1 s numbers still come from the
-2800 rung alone and are inflated the same way. 400 games per rung, SF@1800 to
-2400 is the bracket to try at 100 ms given the 10 ms crossover.
+## Decision still open
 
-## 4. Merge the overnight pool and retrain
+Letting Stockfish label training positions is the one lever that targets the
+61% evaluation lag directly. The project rule is that Stockfish judges and
+never teaches; nothing above breaks it.
 
-`/private/tmp/chesslogs/gen_fast.bin`, play depth 3, label depth 6, about 132
-positions a second. Merge into the deduplicated corpus and check the duplicate
-rate first: generation 1 of the slow run was 92.3% new, which is the number to
-beat.
+## Harness debt
 
-## Closed this session
-
-- deduplicated corpus: +15 +/- 11 over 3,600 games, adopted
-- razoring: +14 +/- 12 over 3,000 games, adopted
-- 128 hidden units: 1.3705 against 1.3618 held out, rejected
-- all five pools with duplicates: -19 +/- 20, rejected
-- self-play positions alone: -26 +/- 20, rejected
-- champion files can no longer drift apart (test)
-- generation is label-bound: depth 8 to 6 is 8.2x throughput
+`scripts/chunked_match.sh`, `ladder.sh`, `screen.sh` still write to
+`/tmp/chesslogs` (wiped by the 2026-09-25 reboot), and three of them pass the
+`-halfkp` flags `gauntlet-bin` now refuses.
