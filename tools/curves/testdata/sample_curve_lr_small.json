@@ -1,0 +1,23 @@
+{
+  "label": "sample, lr 0.0001 (hand-made values, not a real run)",
+  "loss": "mse",
+  "units": "pawns^2",
+  "baselines": {"constant": 1.62, "material": 1.05},
+  "best_epoch": 14,
+  "epochs": [
+    {"epoch": 1, "train": 0.951, "validation": 0.712, "test": 0.719},
+    {"epoch": 2, "train": 0.624, "validation": 0.491, "test": 0.497},
+    {"epoch": 3, "train": 0.452, "validation": 0.372, "test": 0.378},
+    {"epoch": 4, "train": 0.351, "validation": 0.301, "test": 0.306},
+    {"epoch": 5, "train": 0.289, "validation": 0.256, "test": 0.261},
+    {"epoch": 6, "train": 0.248, "validation": 0.226, "test": 0.231},
+    {"epoch": 7, "train": 0.221, "validation": 0.205, "test": 0.210},
+    {"epoch": 8, "train": 0.201, "validation": 0.190, "test": 0.195},
+    {"epoch": 9, "train": 0.186, "validation": 0.179, "test": 0.184},
+    {"epoch": 10, "train": 0.175, "validation": 0.170, "test": 0.175},
+    {"epoch": 11, "train": 0.166, "validation": 0.164, "test": 0.169},
+    {"epoch": 12, "train": 0.159, "validation": 0.159, "test": 0.164},
+    {"epoch": 13, "train": 0.154, "validation": 0.155, "test": 0.160},
+    {"epoch": 14, "train": 0.150, "validation": 0.152, "test": 0.157}
+  ]
+}

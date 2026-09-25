@@ -12,24 +12,46 @@
   --text-2: #52514e;
   --grid: #e6e5e1;
   --border: #dddcd7;
-  --train: #2a78d6;
-  --validation: #eb6834;
-  --test: #1baf7a;
+  --shade: rgba(26, 26, 25, 0.22);
+    --run-1: #2a78d6;
+    --run-2: #eb6834;
+    --run-3: #1baf7a;
+    --run-4: #eda100;
+    --run-5: #e87ba4;
+    --run-other: var(--text);
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg: #1a1a19;
     --surface: #1a1a19;
     --text: #f0efe9;
     --text-2: #c3c2b7;
     --grid: #33322f;
     --border: #3d3c39;
-    --train: #3987e5;
-    --validation: #d95926;
-    --test: #199e70;
+    --shade: rgba(240, 239, 233, 0.2);
     color-scheme: dark;
+    --run-1: #3987e5;
+    --run-2: #d95926;
+    --run-3: #199e70;
+    --run-4: #c98500;
+    --run-5: #d55181;
   }
+}
+:root[data-theme="dark"] {
+    --bg: #1a1a19;
+    --surface: #1a1a19;
+    --text: #f0efe9;
+    --text-2: #c3c2b7;
+    --grid: #33322f;
+    --border: #3d3c39;
+    --shade: rgba(240, 239, 233, 0.2);
+    color-scheme: dark;
+    --run-1: #3987e5;
+    --run-2: #d95926;
+    --run-3: #199e70;
+    --run-4: #c98500;
+    --run-5: #d55181;
 }
 * { box-sizing: border-box; }
 body {
@@ -47,19 +69,53 @@ h1 { font-size: 24px; margin: 0 0 4px; }
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr));
   gap: 24px;
 }
+.comparisons { display: grid; gap: 24px; margin-bottom: 24px; }
+.comparisons .plot { height: 380px; }
+.comparisons > .caption { margin: 0; }
+.swatch { display: inline-block; width: 16px; height: 3px; border-radius: 2px; margin-right: 8px; vertical-align: middle; background: var(--c); }
 .panel { min-width: 0; border: 1px solid var(--border); border-radius: 8px; padding: 16px; background: var(--surface); }
 .panel h2 { font-size: 16px; margin: 0; overflow-wrap: anywhere; }
-.meta { color: var(--text-2); font-size: 13px; margin: 2px 0 12px; }
+.meta { color: var(--text-2); font-size: 13px; margin: 2px 0 8px; }
+.key, .legend { display: flex; flex-wrap: wrap; gap: 2px 16px; margin: 0 0 8px; font-size: 13px; }
+.key { color: var(--text-2); }
+.key .line { display: inline-block; width: 24px; margin-right: 6px; vertical-align: middle; border-top: 2px solid var(--text-2); }
+.key .dashed { border-top-style: dashed; }
+.key .dotted { border-top: 3px dotted var(--text-2); }
+.legend button {
+  max-width: 100%;
+  padding: 2px 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.legend button[aria-pressed="false"] { color: var(--text-2); text-decoration: line-through; }
+.legend button:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
 .plot { position: relative; height: 320px; }
 .caption { color: var(--text-2); font-size: 13px; margin: 12px 0 0; }
 .caption strong { color: var(--text); font-weight: 600; }
 .nochart { color: var(--text-2); font-size: 13px; }
 details { margin-top: 32px; }
 summary { cursor: pointer; font-weight: 600; }
-.tablewrap { overflow-x: auto; margin-top: 16px; }
+/* The covers scroll with the table and the shades stay on the box edges, so an edge is shaded
+   only while more of the table lies past it. */
+.tablewrap {
+  overflow-x: auto;
+  margin-top: 16px;
+  background:
+    linear-gradient(to right, var(--surface) 40%, transparent) left / 32px 100% no-repeat local,
+    linear-gradient(to left, var(--surface) 40%, transparent) right / 32px 100% no-repeat local,
+    linear-gradient(to right, var(--shade), transparent) left / 12px 100% no-repeat scroll,
+    linear-gradient(to left, var(--shade), transparent) right / 12px 100% no-repeat scroll;
+}
 table { border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
 caption { text-align: left; font-weight: 600; padding: 0 0 6px; overflow-wrap: anywhere; }
 th, td { padding: 4px 12px 4px 0; text-align: right; border-bottom: 1px solid var(--grid); }
+td { white-space: nowrap; }
+.runcol { min-width: 11em; }
 th:first-child, td:first-child { text-align: left; }
 thead th { color: var(--text-2); font-weight: 600; }
 tr.best td, tr.best th { font-weight: 600; }
@@ -68,22 +124,41 @@ tr.best td, tr.best th { font-weight: 600; }
 <body>
 <main>
 <h1>Training curves</h1>
-<p class="lede">One panel per run, each in its own loss units, log scale. Baselines are measured on the test positions in the run's loss space; the best epoch is the one whose weights were restored, chosen on validation.</p>
+<p class="lede">Runs sharing loss units are compared first on one axis, then each run gets its own panel, log scale throughout. A colour names one run on every panel; the line style names the data split: solid validation, dashed training, dotted test. Baselines are measured on the test positions in the run's loss space; the best epoch is the one whose weights were restored, chosen on validation.</p>
+<div class="comparisons" id="comparisons"></div>
 <div class="panels" id="panels"></div>
 <details>
 <summary>Table view: every epoch, per run</summary>
 <div id="tables"></div>
 </details>
 </main>
-<script type="application/json" id="runs">[{"curve": {"label": "from scratch, 3.2M mid-opening positions, mse loss", "loss": "mse", "units": "pawns^2", "baselines": {"constant": 23.647354125976562, "material": 2.2096102237701416}, "best_epoch": 46, "epochs": [{"epoch": 1, "train": 3.167659749548554, "validation": 3.293778059022802, "test": 3.2132377257466755}, {"epoch": 2, "train": 2.275208384811475, "validation": 2.343407006229487, "test": 2.314634368306745}, {"epoch": 3, "train": 2.014147249427481, "validation": 2.081083246374931, "test": 2.057496367402274}, {"epoch": 4, "train": 1.8355248024581696, "validation": 1.8943074163807305, "test": 1.8806950589432838}, {"epoch": 5, "train": 1.7140879030481868, "validation": 1.7772557054386013, "test": 1.7595923263146365}, {"epoch": 6, "train": 1.6214419372820152, "validation": 1.6853611951183702, "test": 1.668957287419007}, {"epoch": 7, "train": 1.5522867043448938, "validation": 1.6206590017639446, "test": 1.604587702263694}, {"epoch": 8, "train": 1.5005439766731505, "validation": 1.5720699603874164, "test": 1.5557969726680942}, {"epoch": 9, "train": 1.4567973200106588, "validation": 1.5338584730008278, "test": 1.5178200168834266}, {"epoch": 10, "train": 1.4172231334240788, "validation": 1.5026105331467132, "test": 1.480619410750352}, {"epoch": 11, "train": 1.3813414199813063, "validation": 1.4688385944808182, "test": 1.4493185056238083}, {"epoch": 12, "train": 1.347617024511474, "validation": 1.4371958453144633, "test": 1.4206142550455774}, {"epoch": 13, "train": 1.3188624038492718, "validation": 1.4155243417645118, "test": 1.4011257915899342}, {"epoch": 14, "train": 1.2927150847124473, "validation": 1.3931627550050218, "test": 1.3767395290959457}, {"epoch": 15, "train": 1.266846902344171, "validation": 1.373656136470367, "test": 1.355301998492004}, {"epoch": 16, "train": 1.2445700754197984, "validation": 1.3579346379238615, "test": 1.340685624477147}, {"epoch": 17, "train": 1.2218785884454044, "validation": 1.3407002535998547, "test": 1.3257497630119195}, {"epoch": 18, "train": 1.2013269172596281, "validation": 1.3268471760472305, "test": 1.3094573555951927}, {"epoch": 19, "train": 1.182320329759544, "validation": 1.3132333914157677, "test": 1.2982403537968312}, {"epoch": 20, "train": 1.1668749206442623, "validation": 1.304225099845668, "test": 1.2902796548180697}, {"epoch": 21, "train": 1.148617540797535, "validation": 1.296647899695223, "test": 1.280758202520949}, {"epoch": 22, "train": 1.1358798328565496, "validation": 1.2869756625035196, "test": 1.2728509897042313}, {"epoch": 23, "train": 1.1205895844422957, "validation": 1.281521167728115, "test": 1.2647046091562781}, {"epoch": 24, "train": 1.1069040360407176, "validation": 1.2741529697881164, "test": 1.2610226016261425}, {"epoch": 25, "train": 1.0955732038322268, "validation": 1.2716087142430903, "test": 1.2580674681429485}, {"epoch": 26, "train": 1.0833430699292237, "validation": 1.266981478845273, "test": 1.2512390627757053}, {"epoch": 27, "train": 1.0738861788875205, "validation": 1.264888928753031, "test": 1.2507951020506891}, {"epoch": 28, "train": 1.0626063274764674, "validation": 1.2581548043193003, "test": 1.2459132880774886}, {"epoch": 29, "train": 1.0551031865421512, "validation": 1.257607474445655, "test": 1.241033826893341}, {"epoch": 30, "train": 1.0475193754995595, "validation": 1.259860584592906, "test": 1.242820593956246}, {"epoch": 31, "train": 1.0372925882175232, "validation": 1.252259142845361, "test": 1.238605897876351}, {"epoch": 32, "train": 1.0315971912227448, "validation": 1.2545197836055593, "test": 1.2403102387727292}, {"epoch": 33, "train": 1.022576431847292, "validation": 1.2508679534146352, "test": 1.2369754590670208}, {"epoch": 34, "train": 1.0176654171340276, "validation": 1.2503289831369426, "test": 1.2376291803332689}, {"epoch": 35, "train": 1.0107132080150505, "validation": 1.251071768325482, "test": 1.2366392360113865}, {"epoch": 36, "train": 1.0034108096254009, "validation": 1.2483830891669223, "test": 1.2354751071611723}, {"epoch": 37, "train": 0.9973952992503554, "validation": 1.249255798974149, "test": 1.2336132910214155}, {"epoch": 38, "train": 0.9916115165948771, "validation": 1.2474717372607802, "test": 1.233597727081247}, {"epoch": 39, "train": 0.9879120220968486, "validation": 1.2510753469055853, "test": 1.2354061298510701}, {"epoch": 40, "train": 0.9816209397103797, "validation": 1.2472489090911956, "test": 1.2327897391820364}, {"epoch": 41, "train": 0.9771378689903624, "validation": 1.2510743865985392, "test": 1.2359219372113452}, {"epoch": 42, "train": 0.9722479208072903, "validation": 1.2490243731837884, "test": 1.2342479872265952}, {"epoch": 43, "train": 0.9675489737750211, "validation": 1.2504745189009439, "test": 1.2331076737340563}, {"epoch": 44, "train": 0.963388268466883, "validation": 1.2524617019700708, "test": 1.2337394228869107}, {"epoch": 45, "train": 0.9619112898197354, "validation": 1.2523819390309756, "test": 1.2383590405017473}, {"epoch": 46, "train": 0.9479398493772825, "validation": 1.2437850323293522, "test": 1.2276132043486312}, {"epoch": 47, "train": 0.9462214110755658, "validation": 1.2445056401705532, "test": 1.2308523545505397}, {"epoch": 48, "train": 0.9444140936073175, "validation": 1.2460525511861713, "test": 1.2281964172029343}, {"epoch": 49, "train": 0.94162839342506, "validation": 1.246440363389379, "test": 1.2315756926281967}, {"epoch": 50, "train": 0.9388020061545046, "validation": 1.2471825453081071, "test": 1.2286408850051924}, {"epoch": 51, "train": 0.9368888703433053, "validation": 1.2466423808024214, "test": 1.2292039068908995}, {"epoch": 52, "train": 0.9317546338947386, "validation": 1.2435859450839633, "test": 1.227029728291218}, {"epoch": 53, "train": 0.9309000742614415, "validation": 1.2436013879703502, "test": 1.2270674518769962}, {"epoch": 54, "train": 0.9302673356293945, "validation": 1.2445856821732342, "test": 1.227818492082008}]}, "summary": {"final_epoch": 54, "final_test": 1.227818492082008, "test_at_best": 1.2276132043486312, "explained_pct": 94.80866570607111}}, {"curve": {"label": "from scratch, 3.2M mid-opening positions, sigmoid loss", "loss": "sigmoid", "units": "win-probability^2", "baselines": {"constant": 0.06482220441102982, "material": 0.005942773539572954}, "best_epoch": 56, "epochs": [{"epoch": 1, "train": 0.015695130417322085, "validation": 0.016478409277150458, "test": 0.016170366981249726}, {"epoch": 2, "train": 0.007621971959358077, "validation": 0.008122475008050163, "test": 0.007880035746153148}, {"epoch": 3, "train": 0.005086223632470748, "validation": 0.005394972731158054, "test": 0.00521707446916442}, {"epoch": 4, "train": 0.004342596893910979, "validation": 0.004573239848162282, "test": 0.004432454438966885}, {"epoch": 5, "train": 0.004141116770079196, "validation": 0.004346116667481423, "test": 0.004213437847257949}, {"epoch": 6, "train": 0.004079182019526851, "validation": 0.0042620456441998, "test": 0.004156667588647285}, {"epoch": 7, "train": 0.004059295655839081, "validation": 0.004232346564959022, "test": 0.004124394973982307}, {"epoch": 8, "train": 0.004040472855051422, "validation": 0.004222839526805584, "test": 0.004107037964231662}, {"epoch": 9, "train": 0.004019103024399988, "validation": 0.004200025701922995, "test": 0.004089799405519421}, {"epoch": 10, "train": 0.004004323482192135, "validation": 0.004189293584565873, "test": 0.004081652772859387}, {"epoch": 11, "train": 0.003989094040019394, "validation": 0.004177997224299171, "test": 0.004067367192719133}, {"epoch": 12, "train": 0.003982268700145877, "validation": 0.004181108331216007, "test": 0.004073139300864427}, {"epoch": 13, "train": 0.003959022589881115, "validation": 0.004158144594618979, "test": 0.004056398934040276}, {"epoch": 14, "train": 0.0039493384504049635, "validation": 0.004142440510935529, "test": 0.004047474443335785}, {"epoch": 15, "train": 0.003935445541545515, "validation": 0.0041460784289217905, "test": 0.004053131009749517}, {"epoch": 16, "train": 0.003921557291432526, "validation": 0.004140876765755347, "test": 0.004039862123913538}, {"epoch": 17, "train": 0.003900529746915717, "validation": 0.004110497605285089, "test": 0.004019301580174048}, {"epoch": 18, "train": 0.003886001089449903, "validation": 0.004109554659559271, "test": 0.004010022905860356}, {"epoch": 19, "train": 0.0038615660799406542, "validation": 0.004108897422172285, "test": 0.0040138523954492186}, {"epoch": 20, "train": 0.003851881513145, "validation": 0.004097625212255558, "test": 0.004002454320822103}, {"epoch": 21, "train": 0.0038264452458468966, "validation": 0.004077830341427649, "test": 0.003986285490619941}, {"epoch": 22, "train": 0.003807913398233748, "validation": 0.004074434968940982, "test": 0.0039743005472755956}, {"epoch": 23, "train": 0.0037882457578728096, "validation": 0.004061446352853153, "test": 0.003976647132163298}, {"epoch": 24, "train": 0.0037777193475597884, "validation": 0.004068397766185355, "test": 0.003963376284834413}, {"epoch": 25, "train": 0.00375751205246728, "validation": 0.004045979524516298, "test": 0.003961848996737683}, {"epoch": 26, "train": 0.00373268777256214, "validation": 0.004041546111795975, "test": 0.0039601011475189655}, {"epoch": 27, "train": 0.0037143017485325343, "validation": 0.0040383385637869015, "test": 0.003942604812332855}, {"epoch": 28, "train": 0.0036919856043840984, "validation": 0.004024446197197743, "test": 0.003937963709671748}, {"epoch": 29, "train": 0.003675518722041702, "validation": 0.0040125160124787635, "test": 0.0039275051291006976}, {"epoch": 30, "train": 0.003666547399690054, "validation": 0.004031811044002155, "test": 0.0039512694397663565}, {"epoch": 31, "train": 0.003648478533480555, "validation": 0.0040214723697512165, "test": 0.0039356749189435585}, {"epoch": 32, "train": 0.0036239739383638597, "validation": 0.004017491705958341, "test": 0.003934959070420929}, {"epoch": 33, "train": 0.0036042242108903235, "validation": 0.003992302249702596, "test": 0.003922502130195304}, {"epoch": 34, "train": 0.0035875879493784115, "validation": 0.003984954411541612, "test": 0.003922646103131978}, {"epoch": 35, "train": 0.003567631683609728, "validation": 0.00398807040784228, "test": 0.00392557692374193}, {"epoch": 36, "train": 0.0035558175845303358, "validation": 0.003990945878519952, "test": 0.003921172543233628}, {"epoch": 37, "train": 0.0035328031296299896, "validation": 0.003986314477815971, "test": 0.003907285559014503}, {"epoch": 38, "train": 0.003504009263597659, "validation": 0.003985343871002279, "test": 0.00391232992437552}, {"epoch": 39, "train": 0.0034830824588503897, "validation": 0.003978769982224963, "test": 0.003910880422886467}, {"epoch": 40, "train": 0.0034737497768135297, "validation": 0.003979381010927046, "test": 0.0039203138639704385}, {"epoch": 41, "train": 0.0034581241516290326, "validation": 0.003979520751120038, "test": 0.003909407971448482}, {"epoch": 42, "train": 0.003439242390388781, "validation": 0.003988051154891518, "test": 0.003911274329538317}, {"epoch": 43, "train": 0.0034186589930882156, "validation": 0.003982951591677945, "test": 0.0039053708110071434}, {"epoch": 44, "train": 0.0034098926668259906, "validation": 0.003986008378341946, "test": 0.003902614468484382}, {"epoch": 45, "train": 0.003363059954582461, "validation": 0.003948803573919331, "test": 0.003872222612255189}, {"epoch": 46, "train": 0.0033545773781088425, "validation": 0.003954211673283463, "test": 0.0038763101755138153}, {"epoch": 47, "train": 0.00334835776684339, "validation": 0.00395248268296053, "test": 0.003876905246837741}, {"epoch": 48, "train": 0.003343224350347052, "validation": 0.00395068100112617, "test": 0.0038773600352734815}, {"epoch": 49, "train": 0.003333270312017454, "validation": 0.003947892240865371, "test": 0.003875510379592932}, {"epoch": 50, "train": 0.0033250358041539635, "validation": 0.003956035838268067, "test": 0.003873697748095013}, {"epoch": 51, "train": 0.003316107199294411, "validation": 0.003950905335674835, "test": 0.003872232728160861}, {"epoch": 52, "train": 0.0033121576264994205, "validation": 0.003953892204150042, "test": 0.003874728397754628}, {"epoch": 53, "train": 0.00330886323410292, "validation": 0.003961628668171826, "test": 0.003881692171475927}, {"epoch": 54, "train": 0.003294328774088069, "validation": 0.0039555860870939845, "test": 0.003879188716956182}, {"epoch": 55, "train": 0.003276889306131574, "validation": 0.00394621205621154, "test": 0.0038723496386000042}, {"epoch": 56, "train": 0.0032729195898807753, "validation": 0.003941706256564355, "test": 0.0038609155872049794}, {"epoch": 57, "train": 0.003268492900402794, "validation": 0.003941607843687818, "test": 0.0038637991231448426}, {"epoch": 58, "train": 0.0032659855662717737, "validation": 0.003947580642838381, "test": 0.0038653890842331538}, {"epoch": 59, "train": 0.0032604565322391105, "validation": 0.00394176866433897, "test": 0.0038691903305732283}, {"epoch": 60, "train": 0.0032566449643659343, "validation": 0.003942552488674902, "test": 0.0038680797721666006}]}, "summary": {"final_epoch": 60, "final_test": 0.0038680797721666006, "test_at_best": 0.0038609155872049794, "explained_pct": 94.04383787579427}}]</script>
+<script type="application/json" id="runs">[{"curve": {"label": "from scratch, 3.2M positions, mse, lr 0.001", "loss": "mse", "units": "pawns^2", "baselines": {"constant": 23.647354125976562, "material": 2.2096102237701416}, "best_epoch": 46, "epochs": [{"epoch": 1, "train": 3.167659749548554, "validation": 3.293778059022802, "test": 3.2132377257466755}, {"epoch": 2, "train": 2.275208384811475, "validation": 2.343407006229487, "test": 2.314634368306745}, {"epoch": 3, "train": 2.014147249427481, "validation": 2.081083246374931, "test": 2.057496367402274}, {"epoch": 4, "train": 1.8355248024581696, "validation": 1.8943074163807305, "test": 1.8806950589432838}, {"epoch": 5, "train": 1.7140879030481868, "validation": 1.7772557054386013, "test": 1.7595923263146365}, {"epoch": 6, "train": 1.6214419372820152, "validation": 1.6853611951183702, "test": 1.668957287419007}, {"epoch": 7, "train": 1.5522867043448938, "validation": 1.6206590017639446, "test": 1.604587702263694}, {"epoch": 8, "train": 1.5005439766731505, "validation": 1.5720699603874164, "test": 1.5557969726680942}, {"epoch": 9, "train": 1.4567973200106588, "validation": 1.5338584730008278, "test": 1.5178200168834266}, {"epoch": 10, "train": 1.4172231334240788, "validation": 1.5026105331467132, "test": 1.480619410750352}, {"epoch": 11, "train": 1.3813414199813063, "validation": 1.4688385944808182, "test": 1.4493185056238083}, {"epoch": 12, "train": 1.347617024511474, "validation": 1.4371958453144633, "test": 1.4206142550455774}, {"epoch": 13, "train": 1.3188624038492718, "validation": 1.4155243417645118, "test": 1.4011257915899342}, {"epoch": 14, "train": 1.2927150847124473, "validation": 1.3931627550050218, "test": 1.3767395290959457}, {"epoch": 15, "train": 1.266846902344171, "validation": 1.373656136470367, "test": 1.355301998492004}, {"epoch": 16, "train": 1.2445700754197984, "validation": 1.3579346379238615, "test": 1.340685624477147}, {"epoch": 17, "train": 1.2218785884454044, "validation": 1.3407002535998547, "test": 1.3257497630119195}, {"epoch": 18, "train": 1.2013269172596281, "validation": 1.3268471760472305, "test": 1.3094573555951927}, {"epoch": 19, "train": 1.182320329759544, "validation": 1.3132333914157677, "test": 1.2982403537968312}, {"epoch": 20, "train": 1.1668749206442623, "validation": 1.304225099845668, "test": 1.2902796548180697}, {"epoch": 21, "train": 1.148617540797535, "validation": 1.296647899695223, "test": 1.280758202520949}, {"epoch": 22, "train": 1.1358798328565496, "validation": 1.2869756625035196, "test": 1.2728509897042313}, {"epoch": 23, "train": 1.1205895844422957, "validation": 1.281521167728115, "test": 1.2647046091562781}, {"epoch": 24, "train": 1.1069040360407176, "validation": 1.2741529697881164, "test": 1.2610226016261425}, {"epoch": 25, "train": 1.0955732038322268, "validation": 1.2716087142430903, "test": 1.2580674681429485}, {"epoch": 26, "train": 1.0833430699292237, "validation": 1.266981478845273, "test": 1.2512390627757053}, {"epoch": 27, "train": 1.0738861788875205, "validation": 1.264888928753031, "test": 1.2507951020506891}, {"epoch": 28, "train": 1.0626063274764674, "validation": 1.2581548043193003, "test": 1.2459132880774886}, {"epoch": 29, "train": 1.0551031865421512, "validation": 1.257607474445655, "test": 1.241033826893341}, {"epoch": 30, "train": 1.0475193754995595, "validation": 1.259860584592906, "test": 1.242820593956246}, {"epoch": 31, "train": 1.0372925882175232, "validation": 1.252259142845361, "test": 1.238605897876351}, {"epoch": 32, "train": 1.0315971912227448, "validation": 1.2545197836055593, "test": 1.2403102387727292}, {"epoch": 33, "train": 1.022576431847292, "validation": 1.2508679534146352, "test": 1.2369754590670208}, {"epoch": 34, "train": 1.0176654171340276, "validation": 1.2503289831369426, "test": 1.2376291803332689}, {"epoch": 35, "train": 1.0107132080150505, "validation": 1.251071768325482, "test": 1.2366392360113865}, {"epoch": 36, "train": 1.0034108096254009, "validation": 1.2483830891669223, "test": 1.2354751071611723}, {"epoch": 37, "train": 0.9973952992503554, "validation": 1.249255798974149, "test": 1.2336132910214155}, {"epoch": 38, "train": 0.9916115165948771, "validation": 1.2474717372607802, "test": 1.233597727081247}, {"epoch": 39, "train": 0.9879120220968486, "validation": 1.2510753469055853, "test": 1.2354061298510701}, {"epoch": 40, "train": 0.9816209397103797, "validation": 1.2472489090911956, "test": 1.2327897391820364}, {"epoch": 41, "train": 0.9771378689903624, "validation": 1.2510743865985392, "test": 1.2359219372113452}, {"epoch": 42, "train": 0.9722479208072903, "validation": 1.2490243731837884, "test": 1.2342479872265952}, {"epoch": 43, "train": 0.9675489737750211, "validation": 1.2504745189009439, "test": 1.2331076737340563}, {"epoch": 44, "train": 0.963388268466883, "validation": 1.2524617019700708, "test": 1.2337394228869107}, {"epoch": 45, "train": 0.9619112898197354, "validation": 1.2523819390309756, "test": 1.2383590405017473}, {"epoch": 46, "train": 0.9479398493772825, "validation": 1.2437850323293522, "test": 1.2276132043486312}, {"epoch": 47, "train": 0.9462214110755658, "validation": 1.2445056401705532, "test": 1.2308523545505397}, {"epoch": 48, "train": 0.9444140936073175, "validation": 1.2460525511861713, "test": 1.2281964172029343}, {"epoch": 49, "train": 0.94162839342506, "validation": 1.246440363389379, "test": 1.2315756926281967}, {"epoch": 50, "train": 0.9388020061545046, "validation": 1.2471825453081071, "test": 1.2286408850051924}, {"epoch": 51, "train": 0.9368888703433053, "validation": 1.2466423808024214, "test": 1.2292039068908995}, {"epoch": 52, "train": 0.9317546338947386, "validation": 1.2435859450839633, "test": 1.227029728291218}, {"epoch": 53, "train": 0.9309000742614415, "validation": 1.2436013879703502, "test": 1.2270674518769962}, {"epoch": 54, "train": 0.9302673356293945, "validation": 1.2445856821732342, "test": 1.227818492082008}]}, "summary": {"final_epoch": 54, "final_test": 1.227818492082008, "test_at_best": 1.2276132043486312, "explained_pct": 94.80866570607111}, "colour": "--run-1"}, {"curve": {"label": "from scratch, 3.2M positions, mse, lr 0.0003", "loss": "mse", "units": "pawns^2", "baselines": {"constant": 23.647354125976562, "material": 2.2096102237701416}, "best_epoch": 118, "epochs": [{"epoch": 1, "train": 11.213469408639464, "validation": 11.436566253241077, "test": 11.332173767904129}, {"epoch": 2, "train": 6.137006023034694, "validation": 6.355292299736091, "test": 6.195857402819095}, {"epoch": 3, "train": 3.9121034660901746, "validation": 4.074708334230714, "test": 3.9628040624320935}, {"epoch": 4, "train": 2.9027575299646213, "validation": 3.018610504321086, "test": 2.9506978996615523}, {"epoch": 5, "train": 2.477758886447651, "validation": 2.566822038327709, "test": 2.524201638672296}, {"epoch": 6, "train": 2.260283304392397, "validation": 2.335398184996701, "test": 2.3035292706007495}, {"epoch": 7, "train": 2.095779634854114, "validation": 2.1641913288837245, "test": 2.13722592018571}, {"epoch": 8, "train": 1.9552057069501307, "validation": 2.0160075756570928, "test": 1.9924405377126366}, {"epoch": 9, "train": 1.8687251704055896, "validation": 1.9267803797155836, "test": 1.9051442862013244}, {"epoch": 10, "train": 1.8035815558986028, "validation": 1.8600649108467353, "test": 1.8382412872137615}, {"epoch": 11, "train": 1.737230580196777, "validation": 1.7940959534860754, "test": 1.7737238567588665}, {"epoch": 12, "train": 1.688022778952658, "validation": 1.7441404526371969, "test": 1.7237022898960117}, {"epoch": 13, "train": 1.644195234216815, "validation": 1.6978559676007834, "test": 1.6785047705037328}, {"epoch": 14, "train": 1.6068821704423328, "validation": 1.6634328627839752, "test": 1.6444429749668574}, {"epoch": 15, "train": 1.576111828500433, "validation": 1.633661358078372, "test": 1.6137664645225107}, {"epoch": 16, "train": 1.5528967408861711, "validation": 1.6123514798971785, "test": 1.5920833892694777}, {"epoch": 17, "train": 1.5346222429671603, "validation": 1.594570734214325, "test": 1.5769021801462366}, {"epoch": 18, "train": 1.51725338582507, "validation": 1.5779246569684737, "test": 1.5599685001478676}, {"epoch": 19, "train": 1.5026093413494823, "validation": 1.5644468132383038, "test": 1.5469369456745095}, {"epoch": 20, "train": 1.4885844336627092, "validation": 1.5521873939558373, "test": 1.5362888796067387}, {"epoch": 21, "train": 1.4747789584089603, "validation": 1.5404704045187552, "test": 1.5231037370709368}, {"epoch": 22, "train": 1.462287963903378, "validation": 1.5309406333916062, "test": 1.5121945907904917}, {"epoch": 23, "train": 1.4504702248586283, "validation": 1.5188542253247381, "test": 1.5039501078632667}, {"epoch": 24, "train": 1.4398295802960572, "validation": 1.5102114783252298, "test": 1.492705510041304}, {"epoch": 25, "train": 1.4293607284035532, "validation": 1.500537230234156, "test": 1.4849207031210518}, {"epoch": 26, "train": 1.4192337814638263, "validation": 1.4940513000292064, "test": 1.476450880084742}, {"epoch": 27, "train": 1.4082264793409773, "validation": 1.485104250604616, "test": 1.4683926219943784}, {"epoch": 28, "train": 1.3989180208707959, "validation": 1.4773117528975337, "test": 1.4613685247034016}, {"epoch": 29, "train": 1.3898186361462306, "validation": 1.4695333889403095, "test": 1.4515343278905912}, {"epoch": 30, "train": 1.3804681219315782, "validation": 1.4631022577951325, "test": 1.4455806801165738}, {"epoch": 31, "train": 1.3715463359731903, "validation": 1.4558607752425818, "test": 1.4381433753277406}, {"epoch": 32, "train": 1.3627544308795996, "validation": 1.4480928638582058, "test": 1.4320821465724427}, {"epoch": 33, "train": 1.3542403119935973, "validation": 1.4409982344139376, "test": 1.42469169481602}, {"epoch": 34, "train": 1.3463077008992492, "validation": 1.4361324612081916, "test": 1.4179014222331405}, {"epoch": 35, "train": 1.336936563898398, "validation": 1.4279270273674047, "test": 1.4103423107461723}, {"epoch": 36, "train": 1.3285870267397515, "validation": 1.4220796028550897, "test": 1.40372715994145}, {"epoch": 37, "train": 1.3201031844365263, "validation": 1.4152569167715507, "test": 1.3986718893610197}, {"epoch": 38, "train": 1.3109272043168363, "validation": 1.4086282455423367, "test": 1.3903374658184702}, {"epoch": 39, "train": 1.3028124410425033, "validation": 1.4016219438269297, "test": 1.3846907091697227}, {"epoch": 40, "train": 1.2937277060385532, "validation": 1.3967879387273545, "test": 1.3787369158114846}, {"epoch": 41, "train": 1.2849146295447806, "validation": 1.3889690941346482, "test": 1.3723313404833073}, {"epoch": 42, "train": 1.2781628989448504, "validation": 1.3842036442880872, "test": 1.3685944185029997}, {"epoch": 43, "train": 1.2693301110056485, "validation": 1.3772386809183017, "test": 1.361147580004007}, {"epoch": 44, "train": 1.2610920362516487, "validation": 1.3710760212545332, "test": 1.3549164988790705}, {"epoch": 45, "train": 1.2534946751839369, "validation": 1.3651193679715374, "test": 1.350362263384352}, {"epoch": 46, "train": 1.2454372893651309, "validation": 1.359585159503553, "test": 1.3437640233794637}, {"epoch": 47, "train": 1.2381742710958346, "validation": 1.3548947203073718, "test": 1.338883606439022}, {"epoch": 48, "train": 1.230146255454095, "validation": 1.3483366562693047, "test": 1.3325993031776617}, {"epoch": 49, "train": 1.223269396450527, "validation": 1.3449678170740162, "test": 1.3293174046780984}, {"epoch": 50, "train": 1.2162500738284725, "validation": 1.3390950223986284, "test": 1.324111561355856}, {"epoch": 51, "train": 1.2092132605372312, "validation": 1.3331722466142035, "test": 1.318907251191731}, {"epoch": 52, "train": 1.2028037589589076, "validation": 1.32865792937183, "test": 1.3157143136984164}, {"epoch": 53, "train": 1.1960397532239222, "validation": 1.325924115782103, "test": 1.311381508101576}, {"epoch": 54, "train": 1.1891784857145986, "validation": 1.3203940686446518, "test": 1.3077382543506422}, {"epoch": 55, "train": 1.1831563829241507, "validation": 1.3164813632472863, "test": 1.3031117844073319}, {"epoch": 56, "train": 1.1773597432079912, "validation": 1.3134699019088212, "test": 1.2995314711564134}, {"epoch": 57, "train": 1.1711182088070287, "validation": 1.3080499289405616, "test": 1.2960494741372939}, {"epoch": 58, "train": 1.1655039227857353, "validation": 1.3054640847134615, "test": 1.2917632501446565}, {"epoch": 59, "train": 1.1601084095446712, "validation": 1.3014730486298174, "test": 1.2905500318581045}, {"epoch": 60, "train": 1.155035019075119, "validation": 1.2999529195107076, "test": 1.2848970615596806}, {"epoch": 61, "train": 1.1497639285243528, "validation": 1.2956806160594594, "test": 1.283231994268647}, {"epoch": 62, "train": 1.1448236044997415, "validation": 1.2928566526198095, "test": 1.2806816614114656}, {"epoch": 63, "train": 1.1398024491549497, "validation": 1.291761791782582, "test": 1.2804110511899254}, {"epoch": 64, "train": 1.134607000710543, "validation": 1.2872416757630452, "test": 1.2756483785721136}, {"epoch": 65, "train": 1.131120729108411, "validation": 1.2862750282281026, "test": 1.2740056222684781}, {"epoch": 66, "train": 1.1263174376706082, "validation": 1.2833348060777292, "test": 1.2712847235144764}, {"epoch": 67, "train": 1.1210469220541361, "validation": 1.2808715118036673, "test": 1.2684507790246178}, {"epoch": 68, "train": 1.1173295482510786, "validation": 1.2788494950327995, "test": 1.2677391415589763}, {"epoch": 69, "train": 1.113593150620717, "validation": 1.2760049834846887, "test": 1.2647885520307278}, {"epoch": 70, "train": 1.109567200781229, "validation": 1.273944579055234, "test": 1.2625777701035061}, {"epoch": 71, "train": 1.10615418518476, "validation": 1.2720540751031681, "test": 1.260640342701504}, {"epoch": 72, "train": 1.10107797268436, "validation": 1.2708125786631002, "test": 1.2597251809633245}, {"epoch": 73, "train": 1.0973157013657504, "validation": 1.2683742728916187, "test": 1.2582104215659733}, {"epoch": 74, "train": 1.094504896953087, "validation": 1.267891234343548, "test": 1.2556047120081577}, {"epoch": 75, "train": 1.0900018709135084, "validation": 1.2657516784525615, "test": 1.2551734561795247}, {"epoch": 76, "train": 1.0866244132347262, "validation": 1.2640406082824496, "test": 1.2531310765373063}, {"epoch": 77, "train": 1.0835173227258619, "validation": 1.2625746913688063, "test": 1.2530527213826366}, {"epoch": 78, "train": 1.0806204928441392, "validation": 1.261504987293086, "test": 1.2511533169599505}, {"epoch": 79, "train": 1.0772551433309385, "validation": 1.2602358553502464, "test": 1.2497616453196223}, {"epoch": 80, "train": 1.0733542133238048, "validation": 1.2589372001215535, "test": 1.2482814819148405}, {"epoch": 81, "train": 1.0705538934425367, "validation": 1.2574415424166145, "test": 1.2476380794442792}, {"epoch": 82, "train": 1.0684925936092389, "validation": 1.2571131666533593, "test": 1.2467076959299745}, {"epoch": 83, "train": 1.064657476717316, "validation": 1.2559844119020553, "test": 1.2451923418580961}, {"epoch": 84, "train": 1.0619224542376648, "validation": 1.2558091928010262, "test": 1.2458682293500316}, {"epoch": 85, "train": 1.059425878148225, "validation": 1.252968136716731, "test": 1.244490898166664}, {"epoch": 86, "train": 1.0559705888422095, "validation": 1.2525642537340678, "test": 1.243353834410027}, {"epoch": 87, "train": 1.0525828571945202, "validation": 1.2509795583296737, "test": 1.2418249089277758}, {"epoch": 88, "train": 1.0506003332296137, "validation": 1.2524802104520278, "test": 1.2414061453767637}, {"epoch": 89, "train": 1.0478539461331673, "validation": 1.2515502392592694, "test": 1.2419814604927393}, {"epoch": 90, "train": 1.0450474985544884, "validation": 1.2505357282154428, "test": 1.2389701977125176}, {"epoch": 91, "train": 1.042816463970442, "validation": 1.248533455193288, "test": 1.2392713958367638}, {"epoch": 92, "train": 1.0403812627337665, "validation": 1.2483161631527855, "test": 1.2384422957580712}, {"epoch": 93, "train": 1.0377534017554384, "validation": 1.2480366153093363, "test": 1.2389823169819805}, {"epoch": 94, "train": 1.0354046076323322, "validation": 1.2466034924709302, "test": 1.2369982137984126}, {"epoch": 95, "train": 1.0335235879468978, "validation": 1.2464375891690236, "test": 1.2355528733988828}, {"epoch": 96, "train": 1.030506253811181, "validation": 1.2459552605915465, "test": 1.2359109316200425}, {"epoch": 97, "train": 1.0279411947399806, "validation": 1.2463708806603289, "test": 1.233929771787506}, {"epoch": 98, "train": 1.026062615440884, "validation": 1.2465570365916054, "test": 1.2351036046073915}, {"epoch": 99, "train": 1.0238025939693007, "validation": 1.245252775467934, "test": 1.2357040231312633}, {"epoch": 100, "train": 1.021630375410281, "validation": 1.2452231947278125, "test": 1.2326652482234317}, {"epoch": 101, "train": 1.0196117547838217, "validation": 1.2452000324501704, "test": 1.2330882629159294}, {"epoch": 102, "train": 1.0172076271418415, "validation": 1.2439842016522666, "test": 1.2323570743942538}, {"epoch": 103, "train": 1.015097947286839, "validation": 1.244747104042259, "test": 1.2342965432653799}, {"epoch": 104, "train": 1.0136749191084722, "validation": 1.2439755794082328, "test": 1.2344970571523446}, {"epoch": 105, "train": 1.0101942307023164, "validation": 1.245100103063107, "test": 1.2327591138551381}, {"epoch": 106, "train": 1.009397645666603, "validation": 1.2451233310027694, "test": 1.2339761049937736}, {"epoch": 107, "train": 1.0062517516166989, "validation": 1.243728920029175, "test": 1.2320959316708406}, {"epoch": 108, "train": 1.0051746356584625, "validation": 1.2433358589682237, "test": 1.2313279888910915}, {"epoch": 109, "train": 1.002449108231014, "validation": 1.2441984239933224, "test": 1.231427723129647}, {"epoch": 110, "train": 1.0013235826407232, "validation": 1.2433393800940595, "test": 1.2317075697240831}, {"epoch": 111, "train": 0.9991556526473812, "validation": 1.2434010490427003, "test": 1.231308359696634}, {"epoch": 112, "train": 0.9975714874123639, "validation": 1.2441134819623805, "test": 1.2301526340169702}, {"epoch": 113, "train": 0.9957136386482394, "validation": 1.2451966180251175, "test": 1.2308586023343695}, {"epoch": 114, "train": 0.9918484713637121, "validation": 1.2418086875974423, "test": 1.2276998429986867}, {"epoch": 115, "train": 0.9905369335553224, "validation": 1.241520603691361, "test": 1.2284425162235766}, {"epoch": 116, "train": 0.9898459645251689, "validation": 1.241073272970676, "test": 1.2285628506293134}, {"epoch": 117, "train": 0.9887241163758342, "validation": 1.2410530860033262, "test": 1.2282423584833204}, {"epoch": 118, "train": 0.9874499098160863, "validation": 1.2406070151726543, "test": 1.227828224428265}, {"epoch": 119, "train": 0.9864863725800054, "validation": 1.2410365679013577, "test": 1.227610999611328}, {"epoch": 120, "train": 0.9861185667961591, "validation": 1.2423729049219199, "test": 1.2291864096416352}]}, "summary": {"final_epoch": 120, "final_test": 1.2291864096416352, "test_at_best": 1.227828224428265, "explained_pct": 94.8077564285321}, "colour": "--run-2"}, {"curve": {"label": "from scratch, 3.2M positions, mse, lr 0.0001", "loss": "mse", "units": "pawns^2", "baselines": {"constant": 23.647354125976562, "material": 2.2096102237701416}, "best_epoch": 150, "epochs": [{"epoch": 1, "train": 20.092212735914213, "validation": 20.030518393770407, "test": 20.093185179285538}, {"epoch": 2, "train": 16.481458604257067, "validation": 16.537601946852636, "test": 16.584949540805326}, {"epoch": 3, "train": 13.638560711166381, "validation": 13.781714755779308, "test": 13.777810932230674}, {"epoch": 4, "train": 11.338820475528006, "validation": 11.54003551264703, "test": 11.48343363433592}, {"epoch": 5, "train": 9.504488672422463, "validation": 9.736334879980333, "test": 9.63809730590034}, {"epoch": 6, "train": 8.064317746480237, "validation": 8.305703307868727, "test": 8.182177792937692}, {"epoch": 7, "train": 6.930771817853341, "validation": 7.167999069437849, "test": 7.032746559724786}, {"epoch": 8, "train": 6.020884864115604, "validation": 6.247213829156879, "test": 6.110768642373616}, {"epoch": 9, "train": 5.273291307122444, "validation": 5.485060544322389, "test": 5.354633326877838}, {"epoch": 10, "train": 4.6505856256043145, "validation": 4.8481330383445185, "test": 4.7265957705181565}, {"epoch": 11, "train": 4.131743734160437, "validation": 4.314707212395098, "test": 4.204844913884154}, {"epoch": 12, "train": 3.7023588091659536, "validation": 3.8717588077720717, "test": 3.77244005562324}, {"epoch": 13, "train": 3.350900185563457, "validation": 3.5072436288798374, "test": 3.41800731830326}, {"epoch": 14, "train": 3.064979399618966, "validation": 3.2091778727659155, "test": 3.129416684726787}, {"epoch": 15, "train": 2.8344004843121473, "validation": 2.9665848112978597, "test": 2.895959789815998}, {"epoch": 16, "train": 2.6491053170265673, "validation": 2.7704165381879804, "test": 2.7082644610303053}, {"epoch": 17, "train": 2.4996854130625388, "validation": 2.61263007974521, "test": 2.5566925681338097}, {"epoch": 18, "train": 2.3776221428907576, "validation": 2.482285618100235, "test": 2.4324909684484743}, {"epoch": 19, "train": 2.2776233424389325, "validation": 2.37555618193475, "test": 2.3316044562865956}, {"epoch": 20, "train": 2.1950836317354727, "validation": 2.287354351789789, "test": 2.246530114436501}, {"epoch": 21, "train": 2.125875545146282, "validation": 2.2134713686341985, "test": 2.176415980750588}, {"epoch": 22, "train": 2.0664266712713175, "validation": 2.1491911850839003, "test": 2.1149914525118945}, {"epoch": 23, "train": 2.014797529724317, "validation": 2.094826939209576, "test": 2.0620296815397654}, {"epoch": 24, "train": 1.9696728024422197, "validation": 2.046893721883523, "test": 2.0168292397704533}, {"epoch": 25, "train": 1.9305925814703115, "validation": 2.0050234071969775, "test": 1.9758323984249189}, {"epoch": 26, "train": 1.894981516495781, "validation": 1.9671421012792012, "test": 1.9401107264558501}, {"epoch": 27, "train": 1.8636107761814977, "validation": 1.9342654150128593, "test": 1.908232252536699}, {"epoch": 28, "train": 1.835127304073447, "validation": 1.9041879417084102, "test": 1.8779476001166726}, {"epoch": 29, "train": 1.8086559975355767, "validation": 1.8770592225130904, "test": 1.8515244638605284}, {"epoch": 30, "train": 1.7836465482149144, "validation": 1.8506828833690185, "test": 1.825924138362506}, {"epoch": 31, "train": 1.7600451302529023, "validation": 1.8258019351779282, "test": 1.80273452140673}, {"epoch": 32, "train": 1.737954945589074, "validation": 1.8031604435377542, "test": 1.7800482466764291}, {"epoch": 33, "train": 1.7173063070874386, "validation": 1.7822496673233743, "test": 1.7594512342311068}, {"epoch": 34, "train": 1.6972515419885816, "validation": 1.7608637361072297, "test": 1.7394178778264855}, {"epoch": 35, "train": 1.6783388521980829, "validation": 1.741239586660209, "test": 1.7206749774836319}, {"epoch": 36, "train": 1.6606377652850468, "validation": 1.7232984327657683, "test": 1.703059662295407}, {"epoch": 37, "train": 1.643974214340032, "validation": 1.706663206168763, "test": 1.6861879859584825}, {"epoch": 38, "train": 1.6286192689562564, "validation": 1.6906996076497305, "test": 1.671088910599563}, {"epoch": 39, "train": 1.6139079349605112, "validation": 1.6755233131689646, "test": 1.6562715546897109}, {"epoch": 40, "train": 1.6001282947370539, "validation": 1.662035086631843, "test": 1.64376413137499}, {"epoch": 41, "train": 1.588123426506006, "validation": 1.6494983971572548, "test": 1.6300567576780032}, {"epoch": 42, "train": 1.5760256212567254, "validation": 1.6383950234032572, "test": 1.6188316961068996}, {"epoch": 43, "train": 1.5648400656499621, "validation": 1.6272174023198653, "test": 1.6080510805415467}, {"epoch": 44, "train": 1.5540736198708032, "validation": 1.616790220154248, "test": 1.5976762213585007}, {"epoch": 45, "train": 1.5434266584335856, "validation": 1.6064675308861012, "test": 1.5874650514797648}, {"epoch": 46, "train": 1.533689869801844, "validation": 1.5961648972612634, "test": 1.5778411625884046}, {"epoch": 47, "train": 1.5244986066290547, "validation": 1.5873375291802019, "test": 1.5699728511913835}, {"epoch": 48, "train": 1.51492334492357, "validation": 1.578409710519791, "test": 1.560714429688737}, {"epoch": 49, "train": 1.5062963365785575, "validation": 1.570412868501824, "test": 1.5524984931950943}, {"epoch": 50, "train": 1.4973987505011388, "validation": 1.5626091713164132, "test": 1.5436055649902172}, {"epoch": 51, "train": 1.4892968372961544, "validation": 1.5540138651265334, "test": 1.5358181490691347}, {"epoch": 52, "train": 1.4817033905521981, "validation": 1.546816667502763, "test": 1.5287268868682231}, {"epoch": 53, "train": 1.473611525125948, "validation": 1.5390559337979752, "test": 1.5211195697316107}, {"epoch": 54, "train": 1.4660938792327272, "validation": 1.53175040204855, "test": 1.5138542525476482}, {"epoch": 55, "train": 1.4588047948079081, "validation": 1.524321729387904, "test": 1.5067563284292629}, {"epoch": 56, "train": 1.4515196337544514, "validation": 1.517990326539853, "test": 1.5000931118015484}, {"epoch": 57, "train": 1.4449678215444486, "validation": 1.51251887454772, "test": 1.4944877973050212}, {"epoch": 58, "train": 1.4379887410329333, "validation": 1.5048613122922454, "test": 1.4874704725590755}, {"epoch": 59, "train": 1.4311072241568237, "validation": 1.4988083861759385, "test": 1.4814750104471894}, {"epoch": 60, "train": 1.4249727796988387, "validation": 1.4927585092396969, "test": 1.4754617928179872}, {"epoch": 61, "train": 1.4185703895395503, "validation": 1.487095365187205, "test": 1.470384275817172}, {"epoch": 62, "train": 1.412417163894629, "validation": 1.4810045685007207, "test": 1.4647868302711318}, {"epoch": 63, "train": 1.4068773273406021, "validation": 1.475814092500977, "test": 1.458130575365684}, {"epoch": 64, "train": 1.4008866419539125, "validation": 1.4706525652444098, "test": 1.4526996506136634}, {"epoch": 65, "train": 1.3950416978869422, "validation": 1.4652062248711448, "test": 1.447962029585635}, {"epoch": 66, "train": 1.3891406512545101, "validation": 1.4591085747112973, "test": 1.4422897882957366}, {"epoch": 67, "train": 1.3839078164533107, "validation": 1.4544078347856897, "test": 1.4375014237643247}, {"epoch": 68, "train": 1.378227929524314, "validation": 1.450188060950639, "test": 1.4319559855078525}, {"epoch": 69, "train": 1.3729829931376105, "validation": 1.445230217280878, "test": 1.4269917572945163}, {"epoch": 70, "train": 1.3678851675493096, "validation": 1.4402206319391624, "test": 1.4230581851666517}, {"epoch": 71, "train": 1.3628065804633491, "validation": 1.4359105030603754, "test": 1.418548231950215}, {"epoch": 72, "train": 1.3580382637838415, "validation": 1.4315494286616295, "test": 1.4143280020249267}, {"epoch": 73, "train": 1.3532857861740037, "validation": 1.4271833967803547, "test": 1.4095216566085353}, {"epoch": 74, "train": 1.3488773775400154, "validation": 1.42206207519956, "test": 1.4057253251624384}, {"epoch": 75, "train": 1.344193864080124, "validation": 1.4187174899130004, "test": 1.40161030163287}, {"epoch": 76, "train": 1.3400548685047788, "validation": 1.4156998563446321, "test": 1.3975759794669462}, {"epoch": 77, "train": 1.3355405387141244, "validation": 1.410948072406035, "test": 1.3930065028671241}, {"epoch": 78, "train": 1.3310722900305083, "validation": 1.4068624501822253, "test": 1.3888435907654084}, {"epoch": 79, "train": 1.3271720130960918, "validation": 1.402953569597539, "test": 1.385814561363989}, {"epoch": 80, "train": 1.3232976452178415, "validation": 1.4005919365463249, "test": 1.3825494868894845}, {"epoch": 81, "train": 1.319372068706961, "validation": 1.3962083195552528, "test": 1.3784721363613466}, {"epoch": 82, "train": 1.3152358162015305, "validation": 1.3927957945971188, "test": 1.3755531484790335}, {"epoch": 83, "train": 1.3115200898854413, "validation": 1.389718864120591, "test": 1.3716374034268308}, {"epoch": 84, "train": 1.3077615313757058, "validation": 1.386895512158505, "test": 1.368164270594959}, {"epoch": 85, "train": 1.3041158409397278, "validation": 1.3838266006562, "test": 1.3662775620210492}, {"epoch": 86, "train": 1.3008837643214077, "validation": 1.3806502414655133, "test": 1.3627061215937306}, {"epoch": 87, "train": 1.2972312651499711, "validation": 1.378643462387219, "test": 1.359925659564622}, {"epoch": 88, "train": 1.2938226039199576, "validation": 1.3753598689097164, "test": 1.3576258903108407}, {"epoch": 89, "train": 1.290385497013803, "validation": 1.3716946559782905, "test": 1.3535927089658981}, {"epoch": 90, "train": 1.2867448650126, "validation": 1.3691995812864293, "test": 1.3507122478501044}, {"epoch": 91, "train": 1.2834498137601111, "validation": 1.3667480979682596, "test": 1.3481871339634346}, {"epoch": 92, "train": 1.2801647074726417, "validation": 1.3635043531292943, "test": 1.3450906139382313}, {"epoch": 93, "train": 1.2770395184599082, "validation": 1.3611628783182959, "test": 1.3432674393050996}, {"epoch": 94, "train": 1.2739944863093848, "validation": 1.359318153105971, "test": 1.3404509793156045}, {"epoch": 95, "train": 1.2709401252536225, "validation": 1.3569857437576431, "test": 1.3381289044207383}, {"epoch": 96, "train": 1.2678283999024884, "validation": 1.354064789306336, "test": 1.3356025238691005}, {"epoch": 97, "train": 1.2649409762419186, "validation": 1.3510028626014348, "test": 1.3321232567597403}, {"epoch": 98, "train": 1.2622722118552365, "validation": 1.3489487412065422, "test": 1.3301068733597181}, {"epoch": 99, "train": 1.2590805467844581, "validation": 1.3473213736967402, "test": 1.3283514875101439}, {"epoch": 100, "train": 1.2562593590090951, "validation": 1.345238205065641, "test": 1.3263026075736115}, {"epoch": 101, "train": 1.253431630636442, "validation": 1.3424412081969315, "test": 1.323558455647328}, {"epoch": 102, "train": 1.2506913432720759, "validation": 1.3406040423246877, "test": 1.321847585257541}, {"epoch": 103, "train": 1.24775868075442, "validation": 1.3375029646402141, "test": 1.3188089764966728}, {"epoch": 104, "train": 1.2453798888793317, "validation": 1.3354333962550586, "test": 1.3166410711786225}, {"epoch": 105, "train": 1.2426503015439074, "validation": 1.3336847427861078, "test": 1.314330681679342}, {"epoch": 106, "train": 1.2399058127998936, "validation": 1.332807424325835, "test": 1.3125513204939523}, {"epoch": 107, "train": 1.2376287184940613, "validation": 1.329602892024586, "test": 1.3106633575927202}, {"epoch": 108, "train": 1.234823636281517, "validation": 1.328071707062817, "test": 1.3078275089928606}, {"epoch": 109, "train": 1.2319375705844942, "validation": 1.3260037473971575, "test": 1.3067309883853204}, {"epoch": 110, "train": 1.2299357357363918, "validation": 1.3244951501703535, "test": 1.30533260753321}, {"epoch": 111, "train": 1.227009165548229, "validation": 1.3222194563920138, "test": 1.3022354624006198}, {"epoch": 112, "train": 1.2251230388999457, "validation": 1.3203691991544833, "test": 1.3008115989636324}, {"epoch": 113, "train": 1.2225259035947018, "validation": 1.318340328910252, "test": 1.2988707342935124}, {"epoch": 114, "train": 1.219783424241933, "validation": 1.3169750226271322, "test": 1.2970392095417076}, {"epoch": 115, "train": 1.217762978466406, "validation": 1.315204101525565, "test": 1.296077735571258}, {"epoch": 116, "train": 1.2152427831878592, "validation": 1.3137160606149747, "test": 1.2948940700589302}, {"epoch": 117, "train": 1.2129866003691372, "validation": 1.3119372764864832, "test": 1.2921877029953988}, {"epoch": 118, "train": 1.2106532315933116, "validation": 1.3110068128285728, "test": 1.2910327965354154}, {"epoch": 119, "train": 1.208399895480729, "validation": 1.3086073994924587, "test": 1.2889967461054888}, {"epoch": 120, "train": 1.2060896540331982, "validation": 1.3067246313471534, "test": 1.2871340601617036}, {"epoch": 121, "train": 1.203960108100939, "validation": 1.305407459428751, "test": 1.2858318759338447}, {"epoch": 122, "train": 1.2016782654464957, "validation": 1.3040677326063934, "test": 1.284238689823478}, {"epoch": 123, "train": 1.1999349470482719, "validation": 1.303208089541196, "test": 1.2829993383468612}, {"epoch": 124, "train": 1.1977954298306825, "validation": 1.3007869174531226, "test": 1.2808848114420814}, {"epoch": 125, "train": 1.1956153875592102, "validation": 1.3004440591105264, "test": 1.2796796813048568}, {"epoch": 126, "train": 1.1932056635610981, "validation": 1.2978111721497956, "test": 1.2775997919293873}, {"epoch": 127, "train": 1.1912404484907302, "validation": 1.2976532344717202, "test": 1.2774986145975287}, {"epoch": 128, "train": 1.1895249613538874, "validation": 1.2959759761381593, "test": 1.2761063454038895}, {"epoch": 129, "train": 1.187294894041271, "validation": 1.2940001484946588, "test": 1.2747717662194706}, {"epoch": 130, "train": 1.185337457445321, "validation": 1.2929971611353857, "test": 1.2730624034899996}, {"epoch": 131, "train": 1.1831853854393724, "validation": 1.2914314789897294, "test": 1.271140525222991}, {"epoch": 132, "train": 1.1812058027692232, "validation": 1.289725903909937, "test": 1.2702333294914452}, {"epoch": 133, "train": 1.1795408267767684, "validation": 1.289254200268111, "test": 1.2696702105495912}, {"epoch": 134, "train": 1.177190889365152, "validation": 1.2877591088980966, "test": 1.267328048322354}, {"epoch": 135, "train": 1.1759014655530824, "validation": 1.2867238322403671, "test": 1.2671824057038008}, {"epoch": 136, "train": 1.1734194010026249, "validation": 1.2847025746866083, "test": 1.264896499440088}, {"epoch": 137, "train": 1.1718334920470022, "validation": 1.2840362200896365, "test": 1.2642653906110501}, {"epoch": 138, "train": 1.1697477743676599, "validation": 1.2827122685676435, "test": 1.2629192494075034}, {"epoch": 139, "train": 1.1680387793000335, "validation": 1.2813924209219159, "test": 1.2609999102279992}, {"epoch": 140, "train": 1.1662265477474656, "validation": 1.280206429408338, "test": 1.260315055735101}, {"epoch": 141, "train": 1.1643202803036796, "validation": 1.2794848161174521, "test": 1.2587067555973825}, {"epoch": 142, "train": 1.1626068494411357, "validation": 1.2777955785690722, "test": 1.2583330038907736}, {"epoch": 143, "train": 1.1607119943197084, "validation": 1.2761987315870562, "test": 1.2563564645065868}, {"epoch": 144, "train": 1.1588983266651702, "validation": 1.275256891984138, "test": 1.2558019819167883}, {"epoch": 145, "train": 1.1571388146955877, "validation": 1.2744552695215812, "test": 1.2545899118538049}, {"epoch": 146, "train": 1.1555372574925502, "validation": 1.2737766115035658, "test": 1.2535906168301754}, {"epoch": 147, "train": 1.1540906117700958, "validation": 1.272365514169076, "test": 1.2534959426714147}, {"epoch": 148, "train": 1.152132203790167, "validation": 1.2716184650530968, "test": 1.2517310017264283}, {"epoch": 149, "train": 1.1503651855968835, "validation": 1.2709240563579747, "test": 1.2507347734302883}, {"epoch": 150, "train": 1.148687162955257, "validation": 1.269500745887719, "test": 1.2492759710141785}]}, "summary": {"final_epoch": 150, "final_test": 1.2492759710141785, "test_at_best": 1.2492759710141785, "explained_pct": 94.71705813530382}, "colour": "--run-3"}, {"curve": {"label": "from scratch, 3.2M positions, sigmoid, lr 0.001", "loss": "sigmoid", "units": "win-probability^2", "baselines": {"constant": 0.06482220441102982, "material": 0.005942773539572954}, "best_epoch": 56, "epochs": [{"epoch": 1, "train": 0.015695130417322085, "validation": 0.016478409277150458, "test": 0.016170366981249726}, {"epoch": 2, "train": 0.007621971959358077, "validation": 0.008122475008050163, "test": 0.007880035746153148}, {"epoch": 3, "train": 0.005086223632470748, "validation": 0.005394972731158054, "test": 0.00521707446916442}, {"epoch": 4, "train": 0.004342596893910979, "validation": 0.004573239848162282, "test": 0.004432454438966885}, {"epoch": 5, "train": 0.004141116770079196, "validation": 0.004346116667481423, "test": 0.004213437847257949}, {"epoch": 6, "train": 0.004079182019526851, "validation": 0.0042620456441998, "test": 0.004156667588647285}, {"epoch": 7, "train": 0.004059295655839081, "validation": 0.004232346564959022, "test": 0.004124394973982307}, {"epoch": 8, "train": 0.004040472855051422, "validation": 0.004222839526805584, "test": 0.004107037964231662}, {"epoch": 9, "train": 0.004019103024399988, "validation": 0.004200025701922995, "test": 0.004089799405519421}, {"epoch": 10, "train": 0.004004323482192135, "validation": 0.004189293584565873, "test": 0.004081652772859387}, {"epoch": 11, "train": 0.003989094040019394, "validation": 0.004177997224299171, "test": 0.004067367192719133}, {"epoch": 12, "train": 0.003982268700145877, "validation": 0.004181108331216007, "test": 0.004073139300864427}, {"epoch": 13, "train": 0.003959022589881115, "validation": 0.004158144594618979, "test": 0.004056398934040276}, {"epoch": 14, "train": 0.0039493384504049635, "validation": 0.004142440510935529, "test": 0.004047474443335785}, {"epoch": 15, "train": 0.003935445541545515, "validation": 0.0041460784289217905, "test": 0.004053131009749517}, {"epoch": 16, "train": 0.003921557291432526, "validation": 0.004140876765755347, "test": 0.004039862123913538}, {"epoch": 17, "train": 0.003900529746915717, "validation": 0.004110497605285089, "test": 0.004019301580174048}, {"epoch": 18, "train": 0.003886001089449903, "validation": 0.004109554659559271, "test": 0.004010022905860356}, {"epoch": 19, "train": 0.0038615660799406542, "validation": 0.004108897422172285, "test": 0.0040138523954492186}, {"epoch": 20, "train": 0.003851881513145, "validation": 0.004097625212255558, "test": 0.004002454320822103}, {"epoch": 21, "train": 0.0038264452458468966, "validation": 0.004077830341427649, "test": 0.003986285490619941}, {"epoch": 22, "train": 0.003807913398233748, "validation": 0.004074434968940982, "test": 0.0039743005472755956}, {"epoch": 23, "train": 0.0037882457578728096, "validation": 0.004061446352853153, "test": 0.003976647132163298}, {"epoch": 24, "train": 0.0037777193475597884, "validation": 0.004068397766185355, "test": 0.003963376284834413}, {"epoch": 25, "train": 0.00375751205246728, "validation": 0.004045979524516298, "test": 0.003961848996737683}, {"epoch": 26, "train": 0.00373268777256214, "validation": 0.004041546111795975, "test": 0.0039601011475189655}, {"epoch": 27, "train": 0.0037143017485325343, "validation": 0.0040383385637869015, "test": 0.003942604812332855}, {"epoch": 28, "train": 0.0036919856043840984, "validation": 0.004024446197197743, "test": 0.003937963709671748}, {"epoch": 29, "train": 0.003675518722041702, "validation": 0.0040125160124787635, "test": 0.0039275051291006976}, {"epoch": 30, "train": 0.003666547399690054, "validation": 0.004031811044002155, "test": 0.0039512694397663565}, {"epoch": 31, "train": 0.003648478533480555, "validation": 0.0040214723697512165, "test": 0.0039356749189435585}, {"epoch": 32, "train": 0.0036239739383638597, "validation": 0.004017491705958341, "test": 0.003934959070420929}, {"epoch": 33, "train": 0.0036042242108903235, "validation": 0.003992302249702596, "test": 0.003922502130195304}, {"epoch": 34, "train": 0.0035875879493784115, "validation": 0.003984954411541612, "test": 0.003922646103131978}, {"epoch": 35, "train": 0.003567631683609728, "validation": 0.00398807040784228, "test": 0.00392557692374193}, {"epoch": 36, "train": 0.0035558175845303358, "validation": 0.003990945878519952, "test": 0.003921172543233628}, {"epoch": 37, "train": 0.0035328031296299896, "validation": 0.003986314477815971, "test": 0.003907285559014503}, {"epoch": 38, "train": 0.003504009263597659, "validation": 0.003985343871002279, "test": 0.00391232992437552}, {"epoch": 39, "train": 0.0034830824588503897, "validation": 0.003978769982224963, "test": 0.003910880422886467}, {"epoch": 40, "train": 0.0034737497768135297, "validation": 0.003979381010927046, "test": 0.0039203138639704385}, {"epoch": 41, "train": 0.0034581241516290326, "validation": 0.003979520751120038, "test": 0.003909407971448482}, {"epoch": 42, "train": 0.003439242390388781, "validation": 0.003988051154891518, "test": 0.003911274329538317}, {"epoch": 43, "train": 0.0034186589930882156, "validation": 0.003982951591677945, "test": 0.0039053708110071434}, {"epoch": 44, "train": 0.0034098926668259906, "validation": 0.003986008378341946, "test": 0.003902614468484382}, {"epoch": 45, "train": 0.003363059954582461, "validation": 0.003948803573919331, "test": 0.003872222612255189}, {"epoch": 46, "train": 0.0033545773781088425, "validation": 0.003954211673283463, "test": 0.0038763101755138153}, {"epoch": 47, "train": 0.00334835776684339, "validation": 0.00395248268296053, "test": 0.003876905246837741}, {"epoch": 48, "train": 0.003343224350347052, "validation": 0.00395068100112617, "test": 0.0038773600352734815}, {"epoch": 49, "train": 0.003333270312017454, "validation": 0.003947892240865371, "test": 0.003875510379592932}, {"epoch": 50, "train": 0.0033250358041539635, "validation": 0.003956035838268067, "test": 0.003873697748095013}, {"epoch": 51, "train": 0.003316107199294411, "validation": 0.003950905335674835, "test": 0.003872232728160861}, {"epoch": 52, "train": 0.0033121576264994205, "validation": 0.003953892204150042, "test": 0.003874728397754628}, {"epoch": 53, "train": 0.00330886323410292, "validation": 0.003961628668171826, "test": 0.003881692171475927}, {"epoch": 54, "train": 0.003294328774088069, "validation": 0.0039555860870939845, "test": 0.003879188716956182}, {"epoch": 55, "train": 0.003276889306131574, "validation": 0.00394621205621154, "test": 0.0038723496386000042}, {"epoch": 56, "train": 0.0032729195898807753, "validation": 0.003941706256564355, "test": 0.0038609155872049794}, {"epoch": 57, "train": 0.003268492900402794, "validation": 0.003941607843687818, "test": 0.0038637991231448426}, {"epoch": 58, "train": 0.0032659855662717737, "validation": 0.003947580642838381, "test": 0.0038653890842331538}, {"epoch": 59, "train": 0.0032604565322391105, "validation": 0.00394176866433897, "test": 0.0038691903305732283}, {"epoch": 60, "train": 0.0032566449643659343, "validation": 0.003942552488674902, "test": 0.0038680797721666006}]}, "summary": {"final_epoch": 60, "final_test": 0.0038680797721666006, "test_at_best": 0.0038609155872049794, "explained_pct": 94.04383787579427}, "colour": "--run-4"}, {"curve": {"label": "from scratch, 3.2M positions, sigmoid, lr 0.0003", "loss": "sigmoid", "units": "win-probability^2", "baselines": {"constant": 0.06482220441102982, "material": 0.005942773539572954}, "best_epoch": 101, "epochs": [{"epoch": 1, "train": 0.04128862620588808, "validation": 0.04205744490369647, "test": 0.04223371579557552}, {"epoch": 2, "train": 0.02563206244680665, "validation": 0.02649601779443211, "test": 0.026527228768076262}, {"epoch": 3, "train": 0.018350723210465273, "validation": 0.01916125977719793, "test": 0.019053966566015438}, {"epoch": 4, "train": 0.01400878021178135, "validation": 0.014744739861983111, "test": 0.014564026257671977}, {"epoch": 5, "train": 0.011092165411378105, "validation": 0.011738578968268598, "test": 0.011520020213727439}, {"epoch": 6, "train": 0.009031076603230352, "validation": 0.009595100605172368, "test": 0.00936963639612632}, {"epoch": 7, "train": 0.007552239646379046, "validation": 0.008040601522339466, "test": 0.00782360627805885}, {"epoch": 8, "train": 0.006491169622219904, "validation": 0.00691306680856325, "test": 0.006700219147173802}, {"epoch": 9, "train": 0.005732662847471781, "validation": 0.006104060863435704, "test": 0.00590456847768233}, {"epoch": 10, "train": 0.005197592046104493, "validation": 0.005519807998230359, "test": 0.005340058771493322}, {"epoch": 11, "train": 0.00482248558245126, "validation": 0.0051090215903350335, "test": 0.004939952916900825}, {"epoch": 12, "train": 0.004562748643814308, "validation": 0.004825191768802845, "test": 0.004666265074436874}, {"epoch": 13, "train": 0.00438188415098919, "validation": 0.004620522578400698, "test": 0.004474083503307982}, {"epoch": 14, "train": 0.004264099968767126, "validation": 0.004487153781557413, "test": 0.00434737479343275}, {"epoch": 15, "train": 0.004182489333479076, "validation": 0.004391377324905411, "test": 0.004261019274677141}, {"epoch": 16, "train": 0.004127181579079477, "validation": 0.004329285917470826, "test": 0.004201598043143356}, {"epoch": 17, "train": 0.004092332484847249, "validation": 0.004288430570833204, "test": 0.004164722092186406}, {"epoch": 18, "train": 0.004067333256160879, "validation": 0.004255930427718214, "test": 0.004134368322012743}, {"epoch": 19, "train": 0.00405402161749059, "validation": 0.004239097866230985, "test": 0.004120825312322218}, {"epoch": 20, "train": 0.0040380856298299584, "validation": 0.004222217308628371, "test": 0.004109593946920959}, {"epoch": 21, "train": 0.004026220894995955, "validation": 0.004210576575432237, "test": 0.004099239425074684}, {"epoch": 22, "train": 0.004016551181569182, "validation": 0.00419294833485713, "test": 0.004084915853660293}, {"epoch": 23, "train": 0.004007713002978388, "validation": 0.004186675944723807, "test": 0.004079269356564769}, {"epoch": 24, "train": 0.003998928557405368, "validation": 0.004179788229642935, "test": 0.004072983713190893}, {"epoch": 25, "train": 0.003989701566261008, "validation": 0.004171434484920068, "test": 0.004062314235987061}, {"epoch": 26, "train": 0.003976585932299477, "validation": 0.004163068011768472, "test": 0.004055102494862884}, {"epoch": 27, "train": 0.003969528127403538, "validation": 0.004160254700388531, "test": 0.004050132875072633}, {"epoch": 28, "train": 0.003962777378880213, "validation": 0.004152153656655939, "test": 0.004043719047093184}, {"epoch": 29, "train": 0.0039519101330698254, "validation": 0.004143567850554876, "test": 0.004041185810331855}, {"epoch": 30, "train": 0.003947422471845953, "validation": 0.004135930584917194, "test": 0.004032986633437627}, {"epoch": 31, "train": 0.003940207021395717, "validation": 0.0041389543401864895, "test": 0.004029991027335544}, {"epoch": 32, "train": 0.003930585341251395, "validation": 0.004127400237253397, "test": 0.004021684181991268}, {"epoch": 33, "train": 0.003923797219942687, "validation": 0.004119893245640994, "test": 0.0040285451628816575}, {"epoch": 34, "train": 0.003913628477659925, "validation": 0.004109268021435974, "test": 0.00401152145431083}, {"epoch": 35, "train": 0.003914492980356188, "validation": 0.004112336558651939, "test": 0.004012640806503014}, {"epoch": 36, "train": 0.003899356330774115, "validation": 0.004103281588118366, "test": 0.004015153265255139}, {"epoch": 37, "train": 0.003890470517304015, "validation": 0.004094175872192924, "test": 0.004008821466555574}, {"epoch": 38, "train": 0.003885114301880926, "validation": 0.004090116753828006, "test": 0.003997342148209616}, {"epoch": 39, "train": 0.0038751358195906, "validation": 0.004086105102563173, "test": 0.0039923848066259785}, {"epoch": 40, "train": 0.0038662590312369153, "validation": 0.004083980072149859, "test": 0.003982970246316879}, {"epoch": 41, "train": 0.0038560373912978146, "validation": 0.004072019805697239, "test": 0.003987698732603368}, {"epoch": 42, "train": 0.003848688009919219, "validation": 0.0040670116899920875, "test": 0.003974921436087223}, {"epoch": 43, "train": 0.0038398914869476213, "validation": 0.004061566840095383, "test": 0.003966602895682871}, {"epoch": 44, "train": 0.003828942697009568, "validation": 0.004060528270846428, "test": 0.003963012472078221}, {"epoch": 45, "train": 0.0038193065072797245, "validation": 0.004052158078556966, "test": 0.003965711332095542}, {"epoch": 46, "train": 0.003810011508075856, "validation": 0.0040512239176912785, "test": 0.0039572107037826295}, {"epoch": 47, "train": 0.0038021644665488523, "validation": 0.004045854300182519, "test": 0.003953784100981031}, {"epoch": 48, "train": 0.003792853728814276, "validation": 0.004038485125071108, "test": 0.003947881507773292}, {"epoch": 49, "train": 0.0037784440926816897, "validation": 0.0040279904794759324, "test": 0.003938313816074566}, {"epoch": 50, "train": 0.0037694779527838607, "validation": 0.004027703648983434, "test": 0.003941916982154013}, {"epoch": 51, "train": 0.003762104257568145, "validation": 0.004015937619315073, "test": 0.003932729015240331}, {"epoch": 52, "train": 0.003751490304589776, "validation": 0.00401547978061921, "test": 0.003931711360270407}, {"epoch": 53, "train": 0.0037404506369664967, "validation": 0.0040094213932054396, "test": 0.0039205179636527835}, {"epoch": 54, "train": 0.0037342387383361296, "validation": 0.004016175355584668, "test": 0.003921674768953565}, {"epoch": 55, "train": 0.003724627570894161, "validation": 0.004003775397264046, "test": 0.0039249202380863945}, {"epoch": 56, "train": 0.003712292085795172, "validation": 0.004002213487606647, "test": 0.003905222094181403}, {"epoch": 57, "train": 0.0037055184724655217, "validation": 0.0040038157627345005, "test": 0.003913298185387734}, {"epoch": 58, "train": 0.0036928691404693403, "validation": 0.003984519849518942, "test": 0.003904828852605772}, {"epoch": 59, "train": 0.003684031766717159, "validation": 0.003989406187505146, "test": 0.003906503397252198}, {"epoch": 60, "train": 0.0036759929727923886, "validation": 0.003983823921876617, "test": 0.0038996170117354305}, {"epoch": 61, "train": 0.0036641963938126086, "validation": 0.0039744353270426604, "test": 0.003894397977117971}, {"epoch": 62, "train": 0.003655369736783746, "validation": 0.00397632815981626, "test": 0.00390067428050843}, {"epoch": 63, "train": 0.0036489653258980005, "validation": 0.003973324250636093, "test": 0.0038939180876776057}, {"epoch": 64, "train": 0.0036416983432860767, "validation": 0.003962104862095517, "test": 0.0038821446048350095}, {"epoch": 65, "train": 0.0036291706334888184, "validation": 0.0039625855526492565, "test": 0.0038862772599399607}, {"epoch": 66, "train": 0.0036226946947802924, "validation": 0.003953330694486177, "test": 0.003883937486460873}, {"epoch": 67, "train": 0.0036165723966960365, "validation": 0.0039615644008282784, "test": 0.0038821915521475964}, {"epoch": 68, "train": 0.003607366167496238, "validation": 0.00396014583828637, "test": 0.0038766494238244567}, {"epoch": 69, "train": 0.0036015692218064627, "validation": 0.00395818620530809, "test": 0.003886030568069735}, {"epoch": 70, "train": 0.003593701734808363, "validation": 0.003952085793239516, "test": 0.003876744698402461}, {"epoch": 71, "train": 0.0035851807204635338, "validation": 0.003949401313115853, "test": 0.0038765853997964027}, {"epoch": 72, "train": 0.003579693751698462, "validation": 0.003951280720122373, "test": 0.003874579597392744}, {"epoch": 73, "train": 0.00356846782257238, "validation": 0.00394119152467761, "test": 0.0038746496472683726}, {"epoch": 74, "train": 0.003562971947569251, "validation": 0.003944855660982746, "test": 0.0038756608056966834}, {"epoch": 75, "train": 0.00355317853478522, "validation": 0.003938729567625979, "test": 0.0038759530729589875}, {"epoch": 76, "train": 0.0035438252450243706, "validation": 0.003940350927381544, "test": 0.0038715148378221107}, {"epoch": 77, "train": 0.0035433213967754943, "validation": 0.00394013006349386, "test": 0.003872379366221802}, {"epoch": 78, "train": 0.0035333229461339682, "validation": 0.003941447023036666, "test": 0.003876728516487607}, {"epoch": 79, "train": 0.003525214531259537, "validation": 0.003941491837044869, "test": 0.0038746776688250877}, {"epoch": 80, "train": 0.0035149127191132787, "validation": 0.003928593442111813, "test": 0.003868006989695205}, {"epoch": 81, "train": 0.0035094653031056394, "validation": 0.003937729392063179, "test": 0.0038703393702256023}, {"epoch": 82, "train": 0.0035041836565422426, "validation": 0.003936369261665753, "test": 0.00387385062566328}, {"epoch": 83, "train": 0.003495936716251565, "validation": 0.003933829803872696, "test": 0.0038678525891987854}, {"epoch": 84, "train": 0.0034903786534090727, "validation": 0.003931543247454497, "test": 0.003872559699871352}, {"epoch": 85, "train": 0.0034836181247311134, "validation": 0.003927403702733236, "test": 0.0038635599688050934}, {"epoch": 86, "train": 0.003478586676949501, "validation": 0.003930615987833857, "test": 0.0038585429004853945}, {"epoch": 87, "train": 0.0034706084178123334, "validation": 0.0039317520882671845, "test": 0.0038727038029316343}, {"epoch": 88, "train": 0.003464296349707252, "validation": 0.0039241015251085575, "test": 0.003865842115196954}, {"epoch": 89, "train": 0.0034598777005830725, "validation": 0.003926867329311496, "test": 0.0038651280418173714}, {"epoch": 90, "train": 0.003448875674024713, "validation": 0.003925356413522848, "test": 0.003864667815499989}, {"epoch": 91, "train": 0.0034444040244304788, "validation": 0.003920874996671756, "test": 0.003861647032889459}, {"epoch": 92, "train": 0.0034409808674947953, "validation": 0.003936454457175177, "test": 0.00386804736978175}, {"epoch": 93, "train": 0.0034324493067118627, "validation": 0.003920727513618467, "test": 0.0038628157228131027}, {"epoch": 94, "train": 0.0034264901241928317, "validation": 0.003922977880580927, "test": 0.0038696920229470194}, {"epoch": 95, "train": 0.003424782160269656, "validation": 0.003927407790578734, "test": 0.003871963370685882}, {"epoch": 96, "train": 0.003414481029264259, "validation": 0.0039205021370699675, "test": 0.0038671986265002315}, {"epoch": 97, "train": 0.003402928032039828, "validation": 0.003918938271659036, "test": 0.0038579867939529684}, {"epoch": 98, "train": 0.0034003920160952665, "validation": 0.003918936748736203, "test": 0.0038623983906988886}, {"epoch": 99, "train": 0.003397245119611642, "validation": 0.003916401883757795, "test": 0.0038569762218841255}, {"epoch": 100, "train": 0.0033943833625082395, "validation": 0.003916100280913819, "test": 0.0038591302977293786}, {"epoch": 101, "train": 0.003391789794980273, "validation": 0.003914290912326843, "test": 0.003858528988504591}, {"epoch": 102, "train": 0.003388981194173962, "validation": 0.003918262246213521, "test": 0.0038581416410464623}, {"epoch": 103, "train": 0.003387375973281303, "validation": 0.003917930737974338, "test": 0.003858556904034663}, {"epoch": 104, "train": 0.003385747148608742, "validation": 0.00392219081803013, "test": 0.0038677768668977284}, {"epoch": 105, "train": 0.0033797058966482207, "validation": 0.0039146796584183935, "test": 0.0038595218942855704}, {"epoch": 106, "train": 0.0033777316194999072, "validation": 0.0039202990112255955, "test": 0.003861951490002842}, {"epoch": 107, "train": 0.0033721641540218903, "validation": 0.003913776845716914, "test": 0.0038581912390251378}, {"epoch": 108, "train": 0.0033708595861351607, "validation": 0.003915909995713542, "test": 0.0038590266117043202}, {"epoch": 109, "train": 0.0033707248648263675, "validation": 0.003916248373136241, "test": 0.0038603182025724668}]}, "summary": {"final_epoch": 109, "final_test": 0.0038603182025724668, "test_at_best": 0.003858528988504591, "explained_pct": 94.04751963688534}, "colour": "--run-5"}]</script>
+<script type="application/json" id="comparison-data">[{"units": "pawns^2", "runs": [{"index": 0, "label": "from scratch, 3.2M positions, mse, lr 0.001", "short": "lr 0.001", "colour": "--run-1", "best_epoch": 46, "validation_at_best": 1.2437850323293522, "test_at_best": 1.2276132043486312, "epochs_run": 54}, {"index": 1, "label": "from scratch, 3.2M positions, mse, lr 0.0003", "short": "lr 0.0003", "colour": "--run-2", "best_epoch": 118, "validation_at_best": 1.2406070151726543, "test_at_best": 1.227828224428265, "epochs_run": 120}, {"index": 2, "label": "from scratch, 3.2M positions, mse, lr 0.0001", "short": "lr 0.0001", "colour": "--run-3", "best_epoch": 150, "validation_at_best": 1.269500745887719, "test_at_best": 1.2492759710141785, "epochs_run": 150}], "folded": [], "baselines": {"constant": 23.647354125976562, "material": 2.2096102237701416}, "notes": []}, {"units": "win-probability^2", "runs": [{"index": 3, "label": "from scratch, 3.2M positions, sigmoid, lr 0.001", "short": "lr 0.001", "colour": "--run-4", "best_epoch": 56, "validation_at_best": 0.003941706256564355, "test_at_best": 0.0038609155872049794, "epochs_run": 60}, {"index": 4, "label": "from scratch, 3.2M positions, sigmoid, lr 0.0003", "short": "lr 0.0003", "colour": "--run-5", "best_epoch": 101, "validation_at_best": 0.003914290912326843, "test_at_best": 0.003858528988504591, "epochs_run": 109}], "folded": [], "baselines": {"constant": 0.06482220441102982, "material": 0.005942773539572954}, "notes": []}]</script>
+<script type="application/json" id="page-notes">[]</script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script>
 (() => {
-  const runs = JSON.parse(document.getElementById("runs").textContent);
+  const data = (id) => JSON.parse(document.getElementById(id).textContent);
+  const runs = data("runs");
+  const comparisons = data("comparison-data");
+  const notes = data("page-notes");
   const SERIES = ["train", "validation", "test"];
+  // The colour names the run and the line style names the data split, on every panel.
+  // Chart.js draws the lowest order last, so the dotted test line stays on top of validation.
+  const SPLITS = {
+    validation: { name: "validation", key: "solid", style: { borderWidth: 2, borderDash: [], borderCapStyle: "round", order: 1 } },
+    train: { name: "training", key: "dashed", style: { borderWidth: 2, borderDash: [6, 4], borderCapStyle: "butt", order: 2 } },
+    test: { name: "test", key: "dotted", style: { borderWidth: 2.5, borderDash: [0, 5], borderCapStyle: "round", order: 0 } },
+  };
   const UNITS = { "pawns^2": "pawns\u00b2", "win-probability^2": "win-probability\u00b2" };
   const BASELINES = [["constant", "constant (mean)"], ["material", "material only (P1 N3 B3 R5 Q9)"]];
+  const LABEL_FONT = "12px system-ui, -apple-system, sans-serif";
+  const LINE = 14; // label line height, and the least distance between two label centres
+  const LEADER = 16; // room for the leader line between the plot and the gutter labels
+  const MARK = 14; // a run-colour stroke before a comparison label, since not every label has a leader
+  const DOT = 4; // best-epoch dot radius; a leader starts clear of a dot on the plot's right edge
   const fmt = (v) => Number(v.toPrecision(3)).toString();
+  const lastEpoch = (curve) => curve.epochs[curve.epochs.length - 1].epoch;
   const token = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
   const el = (tag, attrs, text) => {
     const node = document.createElement(tag);
@@ -91,14 +166,89 @@ tr.best td, tr.best th { font-weight: 600; }
     if (text !== undefined) node.textContent = text;
     return node;
   };
+  const measure = document.createElement("canvas").getContext("2d");
+  const textWidth = (text) => {
+    measure.font = LABEL_FONT;
+    return measure.measureText(text).width;
+  };
+  const swatch = (colour) => el("span", { class: "swatch", style: `--c: var(${colour})` });
+  const key = (splits) => {
+    const p = el("p", { class: "key" });
+    splits.forEach((s) => {
+      const item = el("span");
+      item.append(el("span", { class: `line ${SPLITS[s].key}` }), SPLITS[s].name);
+      p.append(item);
+    });
+    return p;
+  };
 
+  const comparisonsRoot = document.getElementById("comparisons");
   const panelsRoot = document.getElementById("panels");
   const tablesRoot = document.getElementById("tables");
+
+  // Runs the reader switched off, per comparison; kept when a theme change redraws the charts.
+  const hidden = comparisons.map(() => new Set());
+  let compareCharts = [];
+  const toggleRun = (n, index, button) => {
+    const off = !hidden[n].has(index);
+    if (off) hidden[n].add(index);
+    else hidden[n].delete(index);
+    button.setAttribute("aria-pressed", String(!off));
+    const chart = compareCharts[n];
+    if (!chart) return;
+    chart.data.datasets.forEach((ds, i) => { if (ds.runIndex === index) chart.setDatasetVisibility(i, !off); });
+    chart.update();
+  };
+
+  const compareCanvases = comparisons.map((cmp, n) => {
+    const units = UNITS[cmp.units];
+    const panel = el("section", { class: "panel" });
+    panel.append(el("h2", {}, `Validation and training loss, ${units}`));
+    panel.append(el("p", { class: "meta" }, `${cmp.runs.length} runs on one axis, log scale; the dot marks each run's best epoch`));
+    panel.append(key(["validation", "train"]));
+    const legend = el("div", { class: "legend", role: "group", "aria-label": "Runs: press one to hide or show it" });
+    cmp.runs.forEach((r) => {
+      const button = el("button", { type: "button", "aria-pressed": "true", title: r.label });
+      button.append(swatch(r.colour), r.short);
+      button.addEventListener("click", () => toggleRun(n, r.index, button));
+      legend.append(button);
+    });
+    panel.append(legend);
+    const plot = el("div", { class: "plot" });
+    const canvas = el("canvas", { role: "img", "aria-label": `Validation and training loss per epoch for ${cmp.runs.map((r) => r.label).join("; ")}` });
+    plot.append(canvas);
+    panel.append(plot);
+    cmp.notes.forEach((note) => panel.append(el("p", { class: "caption" }, note)));
+    const wrap = el("div", { class: "tablewrap" });
+    const table = el("table");
+    const head = el("tr");
+    ["run", "best epoch", `validation at best (${units})`, `test at best (${units})`, "epochs run"]
+      .forEach((h) => head.append(el("th", { scope: "col" }, h)));
+    table.appendChild(el("thead")).append(head);
+    const body = table.appendChild(el("tbody"));
+    cmp.runs.forEach((r) => {
+      const name = el("th", { scope: "row", class: "runcol" });
+      name.append(swatch(r.colour), r.label);
+      const row = el("tr");
+      row.append(name, el("td", {}, String(r.best_epoch)), el("td", {}, fmt(r.validation_at_best)),
+        el("td", {}, fmt(r.test_at_best)), el("td", {}, String(r.epochs_run)));
+      body.append(row);
+    });
+    wrap.append(table);
+    panel.append(wrap);
+    comparisonsRoot.append(panel);
+    return canvas;
+  });
+  notes.forEach((note) => comparisonsRoot.append(el("p", { class: "caption" }, note)));
+
   const canvases = runs.map((run) => {
     const c = run.curve, s = run.summary, units = UNITS[c.units];
     const panel = el("section", { class: "panel" });
-    panel.append(el("h2", {}, c.label));
+    const title = el("h2");
+    title.append(swatch(run.colour), c.label);
+    panel.append(title);
     panel.append(el("p", { class: "meta" }, `loss ${c.loss}, ${units}, log scale`));
+    panel.append(key(["validation", "train", "test"]));
     const plot = el("div", { class: "plot" });
     const canvas = el("canvas", { role: "img", "aria-label": `Train, validation and test loss per epoch for ${c.label}` });
     plot.append(canvas);
@@ -114,7 +264,9 @@ tr.best td, tr.best th { font-weight: 600; }
 
     const wrap = el("div", { class: "tablewrap" });
     const table = el("table");
-    table.append(el("caption", {}, `${c.label} (${units})`));
+    const caption = el("caption");
+    caption.append(swatch(run.colour), `${c.label} (${units})`);
+    table.append(caption);
     const head = el("tr");
     ["epoch", ...SERIES].forEach((h) => head.append(el("th", { scope: "col" }, h)));
     table.appendChild(el("thead")).append(head);
@@ -132,7 +284,8 @@ tr.best td, tr.best th { font-weight: 600; }
   });
 
   if (!window.Chart) {
-    panelsRoot.querySelectorAll(".plot").forEach((p) => p.replaceChildren(
+    document.body.dataset.chartError = "Chart.js did not load";
+    document.querySelectorAll(".plot").forEach((p) => p.replaceChildren(
       el("p", { class: "nochart" }, "Chart.js did not load (offline?). The table view below has every number.")));
     return;
   }
@@ -142,143 +295,286 @@ tr.best td, tr.best th { font-weight: 600; }
     return [1, 2, 5].some((k) => Math.abs(m - k) < 1e-6);
   };
 
-  // Baselines, best epoch and end labels, drawn over the chart. Closes over its run.
-  const overlay = (curve, ink) => ({
-    id: "overlay",
-    afterDatasetsDraw(chart) {
-      const { ctx, chartArea: area, scales: { x, y } } = chart;
-      ctx.save();
-      ctx.font = "12px system-ui, -apple-system, sans-serif";
-      ctx.lineWidth = 1.5;
-      ctx.strokeStyle = ink.text2;
-      ctx.fillStyle = ink.text2;
-      ctx.setLineDash([6, 4]);
-      // Text on a surface-coloured knockout, so no dashed line strikes through it.
-      const label = (text, lx, ly, align, baseline, color) => {
-        const w = ctx.measureText(text).width, h = 15;
-        const left = align === "right" ? lx - w : lx;
-        const top = baseline === "bottom" ? ly - h : baseline === "top" ? ly : ly - h / 2;
-        ctx.fillStyle = ink.surface;
-        ctx.fillRect(left - 2, top, w + 4, h);
-        ctx.fillStyle = color;
-        ctx.textAlign = align;
-        ctx.textBaseline = baseline;
-        ctx.fillText(text, lx, ly);
-      };
-      const texts = [];
+  // Lines no wider than max: a parenthetical stays whole when it fits, a word is never cut.
+  const wrapText = (text, max) => {
+    const chunks = (text.match(/\([^)]*\)|[^\s(]+/g) || [text])
+      .flatMap((c) => (textWidth(c) > max ? c.split(" ") : [c]));
+    return chunks.reduce((lines, c) => {
+      const last = lines[lines.length - 1];
+      if (last !== undefined && textWidth(`${last} ${c}`) <= max) lines[lines.length - 1] = `${last} ${c}`;
+      else lines.push(c);
+      return lines;
+    }, []);
+  };
 
-      const base = BASELINES.map(([k, text]) => ({ value: curve.baselines[k], text }))
-        .sort((a, b) => b.value - a.value);
-      base.forEach((b, i) => {
-        const py = y.getPixelForValue(b.value);
-        if (py < area.top || py > area.bottom) return;
-        ctx.beginPath(); ctx.moveTo(area.left, py); ctx.lineTo(area.right, py); ctx.stroke();
-        // On a narrow panel the long label spills into the right margin rather than over the y axis.
-        const edge = Math.min(chart.width - 2, Math.max(area.right - 2, area.left + ctx.measureText(b.text).width + 8));
-        texts.push([b.text, edge, i === 0 ? py - 3 : py + 3, "right", i === 0 ? "bottom" : "top", ink.text2]);
-      });
+  // Right padding that holds the widest label, at most 35% of the canvas but never below its longest word.
+  const gutter = (texts, canvasWidth, indent) => {
+    const longestWord = Math.max(...texts.flatMap((t) => t.split(" ")).map(textWidth));
+    const cap = Math.max(longestWord, canvasWidth * 0.35);
+    return Math.ceil(Math.min(Math.max(...texts.map(textWidth)), cap)) + LEADER + indent + 2;
+  };
 
-      const bx = x.getPixelForValue(curve.best_epoch);
+  // Heights y for labels sorted by anchor ay: as near their anchors as the others allow, never
+  // closer than half their heights added, inside [top, bottom].
+  const stack = (labels, top, bottom) => {
+    labels.sort((a, b) => a.ay - b.ay);
+    labels.forEach((l, i) => {
+      const prev = labels[i - 1];
+      l.y = Math.max(l.ay, prev ? prev.y + (prev.h + l.h) / 2 : top + l.h / 2);
+    });
+    for (let i = labels.length - 1; i >= 0; i -= 1) {
+      const l = labels[i], next = labels[i + 1];
+      l.y = Math.min(l.y, next ? next.y - (next.h + l.h) / 2 : bottom - l.h / 2);
+    }
+    return labels;
+  };
+
+  // Labels ({ text, ax, ay, color, mark, kind }) in the right gutter, off the plot. Nothing is
+  // drawn on the plot after the data: a leader runs in the gutter only, so only a label whose
+  // anchor sits on the plot's right edge gets one. The gutter stops above the x tick labels.
+  const drawGutter = (chart, ink, items) => {
+    const { ctx, chartArea: area } = chart;
+    const x = area.right + LEADER;
+    const labels = stack(items.map((item) => {
+      const indent = item.mark ? MARK : 0;
+      const lines = wrapText(item.text, chart.width - x - indent - 1);
+      const leader = item.ax >= area.right - 0.5;
+      return { ...item, indent, lines, leader, h: lines.length * LINE, w: indent + Math.max(...lines.map(textWidth)) };
+    }), 0, area.bottom + 4);
+    ctx.save();
+    ctx.font = LABEL_FONT;
+    ctx.setLineDash([]);
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    labels.forEach((l) => {
+      const top = l.y - l.h / 2 + LINE / 2;
+      if (l.leader) {
+        ctx.globalAlpha = 0.6;
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = ink.text2;
+        ctx.beginPath(); ctx.moveTo(area.right + DOT + 2, l.ay); ctx.lineTo(x - 3, l.y); ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
+      if (l.mark) {
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = l.mark;
+        ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x + MARK - 4, top); ctx.stroke();
+      }
+      ctx.fillStyle = l.color;
+      l.lines.forEach((text, k) => ctx.fillText(text, x + l.indent, top + LINE * k));
+    });
+    ctx.restore();
+    return labels.map(({ text, lines, kind, leader, y, w, h }) => ({ text, lines, kind, leader, x, y, w, h }));
+  };
+
+  const endLabel = (chart, i, text, color, mark) => {
+    const points = chart.getDatasetMeta(i).data;
+    const p = points[points.length - 1];
+    return { text, ax: p.x, ay: p.y, color, mark, kind: "end" };
+  };
+
+  const baselineLabels = (chart, ink, baselines) => {
+    const { chartArea: area, scales: { y } } = chart;
+    return BASELINES.flatMap(([k, text]) => {
+      const py = y.getPixelForValue(baselines[k]);
+      return py >= area.top && py <= area.bottom ? [{ text, ax: area.right, ay: py, color: ink.text2, kind: "baseline" }] : [];
+    });
+  };
+
+  // Baselines and the best-epoch line, drawn under the data.
+  const referenceLines = (chart, ink, baselines, bestEpoch) => {
+    const { ctx, chartArea: area, scales: { x, y } } = chart;
+    ctx.save();
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = ink.text2;
+    ctx.setLineDash([10, 4]);
+    if (baselines) BASELINES.forEach(([k]) => {
+      const py = y.getPixelForValue(baselines[k]);
+      if (py < area.top || py > area.bottom) return;
+      ctx.beginPath(); ctx.moveTo(area.left, py); ctx.lineTo(area.right, py); ctx.stroke();
+    });
+    if (bestEpoch !== undefined) {
+      const bx = x.getPixelForValue(bestEpoch);
       ctx.beginPath(); ctx.moveTo(bx, area.top); ctx.lineTo(bx, area.bottom); ctx.stroke();
-      const right = bx > (area.left + area.right) / 2;
-      texts.push(["best (validation)", right ? bx - 4 : bx + 4, area.top + 2, right ? "right" : "left", "top", ink.text2]);
-      texts.forEach((t) => label(...t));
+    }
+    ctx.restore();
+  };
 
-      ctx.setLineDash([]);
-      ctx.lineWidth = 1;
-      ctx.strokeStyle = ink.text2;
-      const ends = chart.data.datasets.map((ds, i) => {
-        if (!chart.isDatasetVisible(i)) return null;
-        const pts = chart.getDatasetMeta(i).data;
-        const p = pts[pts.length - 1];
-        return { text: ds.label, x: p.x, y: p.y, ly: p.y };
-      }).filter(Boolean).sort((a, b) => a.y - b.y);
-      const GAP = 14;
-      ends.forEach((e, i) => { if (i > 0) e.ly = Math.max(e.y, ends[i - 1].ly + GAP); });
-      const overflow = ends.length ? ends[ends.length - 1].ly - (area.bottom + 6) : 0;
-      if (overflow > 0) ends.forEach((e) => { e.ly -= overflow; });
-      ends.forEach((e) => {
-        ctx.beginPath(); ctx.moveTo(e.x + 7, e.y); ctx.lineTo(e.x + 14, e.ly); ctx.stroke();
-        label(e.text, e.x + 17, e.ly, "left", "middle", ink.text);
-      });
-      ctx.restore();
+  // The best-epoch caption, in the top padding above its line.
+  const bestLabel = (chart, ink, epoch) => {
+    const { ctx, chartArea: area, scales: { x } } = chart;
+    const text = "best (validation)", w = textWidth(text);
+    const left = Math.max(area.left, Math.min(x.getPixelForValue(epoch) - w / 2, area.right - w));
+    const y = area.top - LINE / 2 - 2;
+    ctx.save();
+    ctx.font = LABEL_FONT;
+    ctx.fillStyle = ink.text2;
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    ctx.fillText(text, left, y);
+    ctx.restore();
+    return { text, lines: [text], kind: "top", leader: false, x: left, y, w, h: LINE };
+  };
+
+  // Every placed label is kept on its chart, so a page test can read back where each one went.
+  const runOverlay = (curve, ink) => ({
+    id: "runOverlay",
+    beforeDatasetsDraw(chart) { referenceLines(chart, ink, curve.baselines, curve.best_epoch); },
+    afterDatasetsDraw(chart) {
+      const ends = chart.data.datasets.map((ds, i) => endLabel(chart, i, SPLITS[ds.series].name, ink.text));
+      const gutterLabels = drawGutter(chart, ink, [...baselineLabels(chart, ink, curve.baselines), ...ends]);
+      chart.$labels = [bestLabel(chart, ink, curve.best_epoch), ...gutterLabels];
     },
   });
 
-  let charts = [];
-  const build = () => {
-    charts.forEach((c) => c.destroy());
-    const ink = { text: token("--text"), text2: token("--text-2"), grid: token("--grid"), surface: token("--surface") };
-    Chart.defaults.color = ink.text2;
-    Chart.defaults.font.family = "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
-    charts = runs.map((run, i) => {
-      const c = run.curve;
-      const last = c.epochs.length - 1;
-      const values = c.epochs.flatMap((e) => SERIES.map((k) => e[k]));
-      const top = Math.max(c.baselines.constant, c.baselines.material, ...values) * 3;
-      const bottom = Math.min(...values) * 0.7;
-      return new Chart(canvases[i], {
-        type: "line",
-        data: {
-          datasets: SERIES.map((k) => ({
-            label: k,
-            data: c.epochs.map((e) => ({ x: e.epoch, y: e[k] })),
-            borderColor: token(`--${k}`),
-            backgroundColor: token(`--${k}`),
-            borderWidth: 2,
-            borderCapStyle: "round",
-            borderJoinStyle: "round",
-            pointRadius: (ctx) => (ctx.dataIndex === last ? 4 : 0),
-            pointHoverRadius: 5,
-            pointBorderColor: ink.surface,
-            pointBorderWidth: 2,
-            pointHitRadius: 8,
-          })),
+  const compareOverlay = (cmp, ink) => ({
+    id: "compareOverlay",
+    beforeDatasetsDraw(chart) { referenceLines(chart, ink, cmp.baselines); },
+    afterDatasetsDraw(chart) {
+      const ends = chart.data.datasets.map((ds, i) => ({ ds, i }))
+        .filter(({ ds, i }) => ds.series === "validation" && chart.isDatasetVisible(i))
+        .map(({ ds, i }) => endLabel(chart, i, ds.short, ink.text, ds.borderColor));
+      const refs = cmp.baselines ? baselineLabels(chart, ink, cmp.baselines) : [];
+      chart.$labels = drawGutter(chart, ink, [...refs, ...ends]);
+    },
+  });
+
+  const line = (split, curve, colour, extra) => ({
+    ...SPLITS[split].style,
+    series: split,
+    data: curve.epochs.map((e) => ({ x: e.epoch, y: e[split] })),
+    borderColor: colour,
+    backgroundColor: colour,
+    borderJoinStyle: "round",
+    pointRadius: 0,
+    pointHoverRadius: 4,
+    pointHitRadius: 8,
+    ...extra,
+  });
+
+  const logAxis = (ink, units, min, max) => ({
+    type: "logarithmic",
+    min,
+    max,
+    title: { display: true, text: `loss (${UNITS[units]})` },
+    ticks: { autoSkip: false, callback: (v) => (isLabelledTick(v) ? fmt(v) : "") },
+    grid: { color: (ctx) => (ctx.tick && isLabelledTick(ctx.tick.value) ? ink.grid : "transparent") },
+    border: { color: ink.grid },
+  });
+
+  const epochAxis = (ink, min, max) => ({
+    type: "linear",
+    min,
+    max,
+    title: { display: true, text: "epoch" },
+    ticks: { precision: 0 },
+    grid: { color: ink.grid },
+    border: { color: ink.grid },
+  });
+
+  const byDataset = (a, b) => a.datasetIndex - b.datasetIndex;
+
+  const compareChart = (canvas, cmp, n, ink) => {
+    const curves = cmp.runs.map((r) => runs[r.index].curve);
+    const end = Math.max(...curves.map(lastEpoch));
+    const datasets = cmp.runs.flatMap((r, m) => {
+      const c = curves[m], colour = token(r.colour);
+      const best = c.epochs.findIndex((e) => e.epoch === r.best_epoch);
+      // Only the best epoch gets a mark; a run that stops early simply ends.
+      const run = { runIndex: r.index, runLabel: r.label, short: r.short, hidden: hidden[n].has(r.index) };
+      return [
+        line("validation", c, colour, {
+          ...run,
+          clip: false, // the x axis ends on the last epoch, where a clip would halve its dot
+          pointStyle: "circle",
+          pointRadius: (ctx) => (ctx.dataIndex === best ? DOT : 0),
+          pointBorderColor: colour,
+          pointBorderWidth: 0,
+        }),
+        line("train", c, colour, run),
+      ];
+    });
+    const values = curves.flatMap((c) => c.epochs.flatMap((e) => [e.train, e.validation]));
+    const refs = cmp.baselines ? [cmp.baselines.constant, cmp.baselines.material] : [];
+    const texts = [...cmp.runs.map((r) => r.short), ...(cmp.baselines ? BASELINES.map(([, t]) => t) : [])];
+    return new Chart(canvas, {
+      type: "line",
+      data: { datasets },
+      options: {
+        animation: false,
+        maintainAspectRatio: false,
+        layout: { padding: ({ chart }) => ({ top: 4, right: gutter(texts, chart.width, MARK) }) },
+        interaction: { mode: "index", intersect: false },
+        scales: {
+          x: epochAxis(ink, Math.min(...curves.map((c) => c.epochs[0].epoch)), end),
+          y: logAxis(ink, cmp.units, Math.min(...values) * 0.7, Math.max(...refs, ...values) * 3),
         },
-        options: {
-          animation: false,
-          maintainAspectRatio: false,
-          layout: { padding: { right: 84 } },
-          interaction: { mode: "index", intersect: false },
-          scales: {
-            x: {
-              type: "linear",
-              min: c.epochs[0].epoch,
-              max: c.epochs[last].epoch,
-              title: { display: true, text: "epoch" },
-              ticks: { precision: 0 },
-              grid: { color: ink.grid },
-              border: { color: ink.grid },
-            },
-            y: {
-              type: "logarithmic",
-              min: bottom,
-              max: top,
-              title: { display: true, text: `loss (${UNITS[c.units]})` },
-              ticks: { autoSkip: false, callback: (v) => (isLabelledTick(v) ? fmt(v) : "") },
-              grid: { color: (ctx) => (ctx.tick && isLabelledTick(ctx.tick.value) ? ink.grid : "transparent") },
-              border: { color: ink.grid },
-            },
-          },
-          plugins: {
-            legend: { position: "top", align: "start", labels: { boxWidth: 16, boxHeight: 2, color: ink.text2 } },
-            tooltip: {
-              mode: "index",
-              intersect: false,
-              callbacks: {
-                title: (items) => `epoch ${items[0].parsed.x}${items[0].parsed.x === c.best_epoch ? " (best)" : ""}`,
-                label: (item) => ` ${item.dataset.label}: ${fmt(item.parsed.y)}`,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            itemSort: byDataset,
+            callbacks: {
+              title: (items) => `epoch ${items[0].parsed.x}`,
+              label: (item) => {
+                const ds = item.dataset;
+                const best = ds.series === "validation" && item.parsed.x === runs[ds.runIndex].curve.best_epoch ? " (best)" : "";
+                return ` ${ds.runLabel}, ${SPLITS[ds.series].name}: ${fmt(item.parsed.y)}${best}`;
               },
             },
           },
         },
-        plugins: [overlay(c, ink)],
-      });
+      },
+      plugins: [compareOverlay(cmp, ink)],
     });
+  };
+
+  const runChart = (canvas, run, index, ink) => {
+    const c = run.curve, colour = token(run.colour);
+    const datasets = ["validation", "train", "test"].map((k) => line(k, c, colour, { runIndex: index }));
+    const values = c.epochs.flatMap((e) => SERIES.map((k) => e[k]));
+    const texts = [...Object.values(SPLITS).map((s) => s.name), ...BASELINES.map(([, t]) => t)];
+    return new Chart(canvas, {
+      type: "line",
+      data: { datasets },
+      options: {
+        animation: false,
+        maintainAspectRatio: false,
+        layout: { padding: ({ chart }) => ({ top: LINE + 4, right: gutter(texts, chart.width, 0) }) },
+        interaction: { mode: "index", intersect: false },
+        scales: {
+          x: epochAxis(ink, c.epochs[0].epoch, c.epochs[c.epochs.length - 1].epoch),
+          y: logAxis(ink, c.units, Math.min(...values) * 0.7, Math.max(c.baselines.constant, c.baselines.material, ...values) * 3),
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            itemSort: byDataset,
+            callbacks: {
+              title: (items) => `epoch ${items[0].parsed.x}${items[0].parsed.x === c.best_epoch ? " (best)" : ""}`,
+              label: (item) => ` ${SPLITS[item.dataset.series].name}: ${fmt(item.parsed.y)}`,
+            },
+          },
+        },
+      },
+      plugins: [runOverlay(c, ink)],
+    });
+  };
+
+  let charts = [];
+  const build = () => {
+    charts.forEach((c) => c.destroy());
+    const ink = { text: token("--text"), text2: token("--text-2"), grid: token("--grid") };
+    Chart.defaults.color = ink.text2;
+    Chart.defaults.font.family = "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
+    compareCharts = comparisons.map((cmp, n) => compareChart(compareCanvases[n], cmp, n, ink));
+    const own = runs.map((run, i) => runChart(canvases[i], run, i, ink));
+    charts = [...compareCharts, ...own];
     document.body.dataset.rendered = String(charts.length);
   };
   build();
+  // Colours live in CSS tokens: a theme change only has to redraw with the values they now hold.
   matchMedia("(prefers-color-scheme: dark)").addEventListener("change", build);
+  new MutationObserver(build).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 })();
 </script>
 </body>

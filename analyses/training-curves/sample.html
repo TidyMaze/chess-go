@@ -12,24 +12,46 @@
   --text-2: #52514e;
   --grid: #e6e5e1;
   --border: #dddcd7;
-  --train: #2a78d6;
-  --validation: #eb6834;
-  --test: #1baf7a;
+  --shade: rgba(26, 26, 25, 0.22);
+    --run-1: #2a78d6;
+    --run-2: #eb6834;
+    --run-3: #1baf7a;
+    --run-4: #eda100;
+    --run-5: #e87ba4;
+    --run-other: var(--text);
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg: #1a1a19;
     --surface: #1a1a19;
     --text: #f0efe9;
     --text-2: #c3c2b7;
     --grid: #33322f;
     --border: #3d3c39;
-    --train: #3987e5;
-    --validation: #d95926;
-    --test: #199e70;
+    --shade: rgba(240, 239, 233, 0.2);
     color-scheme: dark;
+    --run-1: #3987e5;
+    --run-2: #d95926;
+    --run-3: #199e70;
+    --run-4: #c98500;
+    --run-5: #d55181;
   }
+}
+:root[data-theme="dark"] {
+    --bg: #1a1a19;
+    --surface: #1a1a19;
+    --text: #f0efe9;
+    --text-2: #c3c2b7;
+    --grid: #33322f;
+    --border: #3d3c39;
+    --shade: rgba(240, 239, 233, 0.2);
+    color-scheme: dark;
+    --run-1: #3987e5;
+    --run-2: #d95926;
+    --run-3: #199e70;
+    --run-4: #c98500;
+    --run-5: #d55181;
 }
 * { box-sizing: border-box; }
 body {
@@ -47,19 +69,53 @@ h1 { font-size: 24px; margin: 0 0 4px; }
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr));
   gap: 24px;
 }
+.comparisons { display: grid; gap: 24px; margin-bottom: 24px; }
+.comparisons .plot { height: 380px; }
+.comparisons > .caption { margin: 0; }
+.swatch { display: inline-block; width: 16px; height: 3px; border-radius: 2px; margin-right: 8px; vertical-align: middle; background: var(--c); }
 .panel { min-width: 0; border: 1px solid var(--border); border-radius: 8px; padding: 16px; background: var(--surface); }
 .panel h2 { font-size: 16px; margin: 0; overflow-wrap: anywhere; }
-.meta { color: var(--text-2); font-size: 13px; margin: 2px 0 12px; }
+.meta { color: var(--text-2); font-size: 13px; margin: 2px 0 8px; }
+.key, .legend { display: flex; flex-wrap: wrap; gap: 2px 16px; margin: 0 0 8px; font-size: 13px; }
+.key { color: var(--text-2); }
+.key .line { display: inline-block; width: 24px; margin-right: 6px; vertical-align: middle; border-top: 2px solid var(--text-2); }
+.key .dashed { border-top-style: dashed; }
+.key .dotted { border-top: 3px dotted var(--text-2); }
+.legend button {
+  max-width: 100%;
+  padding: 2px 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.legend button[aria-pressed="false"] { color: var(--text-2); text-decoration: line-through; }
+.legend button:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
 .plot { position: relative; height: 320px; }
 .caption { color: var(--text-2); font-size: 13px; margin: 12px 0 0; }
 .caption strong { color: var(--text); font-weight: 600; }
 .nochart { color: var(--text-2); font-size: 13px; }
 details { margin-top: 32px; }
 summary { cursor: pointer; font-weight: 600; }
-.tablewrap { overflow-x: auto; margin-top: 16px; }
+/* The covers scroll with the table and the shades stay on the box edges, so an edge is shaded
+   only while more of the table lies past it. */
+.tablewrap {
+  overflow-x: auto;
+  margin-top: 16px;
+  background:
+    linear-gradient(to right, var(--surface) 40%, transparent) left / 32px 100% no-repeat local,
+    linear-gradient(to left, var(--surface) 40%, transparent) right / 32px 100% no-repeat local,
+    linear-gradient(to right, var(--shade), transparent) left / 12px 100% no-repeat scroll,
+    linear-gradient(to left, var(--shade), transparent) right / 12px 100% no-repeat scroll;
+}
 table { border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
 caption { text-align: left; font-weight: 600; padding: 0 0 6px; overflow-wrap: anywhere; }
 th, td { padding: 4px 12px 4px 0; text-align: right; border-bottom: 1px solid var(--grid); }
+td { white-space: nowrap; }
+.runcol { min-width: 11em; }
 th:first-child, td:first-child { text-align: left; }
 thead th { color: var(--text-2); font-weight: 600; }
 tr.best td, tr.best th { font-weight: 600; }
@@ -68,22 +124,41 @@ tr.best td, tr.best th { font-weight: 600; }
 <body>
 <main>
 <h1>Training curves</h1>
-<p class="lede">One panel per run, each in its own loss units, log scale. Baselines are measured on the test positions in the run's loss space; the best epoch is the one whose weights were restored, chosen on validation.</p>
+<p class="lede">Runs sharing loss units are compared first on one axis, then each run gets its own panel, log scale throughout. A colour names one run on every panel; the line style names the data split: solid validation, dashed training, dotted test. Baselines are measured on the test positions in the run's loss space; the best epoch is the one whose weights were restored, chosen on validation.</p>
+<div class="comparisons" id="comparisons"></div>
 <div class="panels" id="panels"></div>
 <details>
 <summary>Table view: every epoch, per run</summary>
 <div id="tables"></div>
 </details>
 </main>
-<script type="application/json" id="runs">[{"curve": {"label": "sample (hand-made values, not a real run)", "loss": "mse", "units": "pawns^2", "baselines": {"constant": 1.62, "material": 1.05}, "best_epoch": 8, "epochs": [{"epoch": 1, "train": 0.612, "validation": 0.438, "test": 0.445}, {"epoch": 2, "train": 0.371, "validation": 0.297, "test": 0.301}, {"epoch": 3, "train": 0.268, "validation": 0.232, "test": 0.236}, {"epoch": 4, "train": 0.214, "validation": 0.198, "test": 0.203}, {"epoch": 5, "train": 0.183, "validation": 0.179, "test": 0.184}, {"epoch": 6, "train": 0.162, "validation": 0.168, "test": 0.172}, {"epoch": 7, "train": 0.147, "validation": 0.161, "test": 0.166}, {"epoch": 8, "train": 0.135, "validation": 0.158, "test": 0.163}, {"epoch": 9, "train": 0.126, "validation": 0.159, "test": 0.165}, {"epoch": 10, "train": 0.118, "validation": 0.161, "test": 0.167}]}, "summary": {"final_epoch": 10, "final_test": 0.167, "test_at_best": 0.163, "explained_pct": 89.93827160493827}}]</script>
+<script type="application/json" id="runs">[{"curve": {"label": "sample (hand-made values, not a real run)", "loss": "mse", "units": "pawns^2", "baselines": {"constant": 1.62, "material": 1.05}, "best_epoch": 8, "epochs": [{"epoch": 1, "train": 0.612, "validation": 0.438, "test": 0.445}, {"epoch": 2, "train": 0.371, "validation": 0.297, "test": 0.301}, {"epoch": 3, "train": 0.268, "validation": 0.232, "test": 0.236}, {"epoch": 4, "train": 0.214, "validation": 0.198, "test": 0.203}, {"epoch": 5, "train": 0.183, "validation": 0.179, "test": 0.184}, {"epoch": 6, "train": 0.162, "validation": 0.168, "test": 0.172}, {"epoch": 7, "train": 0.147, "validation": 0.161, "test": 0.166}, {"epoch": 8, "train": 0.135, "validation": 0.158, "test": 0.163}, {"epoch": 9, "train": 0.126, "validation": 0.159, "test": 0.165}, {"epoch": 10, "train": 0.118, "validation": 0.161, "test": 0.167}]}, "summary": {"final_epoch": 10, "final_test": 0.167, "test_at_best": 0.163, "explained_pct": 89.93827160493827}, "colour": "--run-1"}, {"curve": {"label": "sample, lr 0.0001 (hand-made values, not a real run)", "loss": "mse", "units": "pawns^2", "baselines": {"constant": 1.62, "material": 1.05}, "best_epoch": 14, "epochs": [{"epoch": 1, "train": 0.951, "validation": 0.712, "test": 0.719}, {"epoch": 2, "train": 0.624, "validation": 0.491, "test": 0.497}, {"epoch": 3, "train": 0.452, "validation": 0.372, "test": 0.378}, {"epoch": 4, "train": 0.351, "validation": 0.301, "test": 0.306}, {"epoch": 5, "train": 0.289, "validation": 0.256, "test": 0.261}, {"epoch": 6, "train": 0.248, "validation": 0.226, "test": 0.231}, {"epoch": 7, "train": 0.221, "validation": 0.205, "test": 0.21}, {"epoch": 8, "train": 0.201, "validation": 0.19, "test": 0.195}, {"epoch": 9, "train": 0.186, "validation": 0.179, "test": 0.184}, {"epoch": 10, "train": 0.175, "validation": 0.17, "test": 0.175}, {"epoch": 11, "train": 0.166, "validation": 0.164, "test": 0.169}, {"epoch": 12, "train": 0.159, "validation": 0.159, "test": 0.164}, {"epoch": 13, "train": 0.154, "validation": 0.155, "test": 0.16}, {"epoch": 14, "train": 0.15, "validation": 0.152, "test": 0.157}]}, "summary": {"final_epoch": 14, "final_test": 0.157, "test_at_best": 0.157, "explained_pct": 90.30864197530865}, "colour": "--run-2"}, {"curve": {"label": "sample, lr 0.003 (hand-made values, not a real run)", "loss": "mse", "units": "pawns^2", "baselines": {"constant": 1.62, "material": 1.05}, "best_epoch": 5, "epochs": [{"epoch": 1, "train": 0.482, "validation": 0.331, "test": 0.337}, {"epoch": 2, "train": 0.271, "validation": 0.216, "test": 0.221}, {"epoch": 3, "train": 0.192, "validation": 0.183, "test": 0.188}, {"epoch": 4, "train": 0.151, "validation": 0.172, "test": 0.177}, {"epoch": 5, "train": 0.125, "validation": 0.169, "test": 0.174}, {"epoch": 6, "train": 0.106, "validation": 0.174, "test": 0.18}, {"epoch": 7, "train": 0.091, "validation": 0.182, "test": 0.188}, {"epoch": 8, "train": 0.079, "validation": 0.191, "test": 0.197}]}, "summary": {"final_epoch": 8, "final_test": 0.197, "test_at_best": 0.174, "explained_pct": 89.25925925925927}, "colour": "--run-3"}]</script>
+<script type="application/json" id="comparison-data">[{"units": "pawns^2", "runs": [{"index": 0, "label": "sample (hand-made values, not a real run)", "short": "sample (hand-made values, not a real run)", "colour": "--run-1", "best_epoch": 8, "validation_at_best": 0.158, "test_at_best": 0.163, "epochs_run": 10}, {"index": 1, "label": "sample, lr 0.0001 (hand-made values, not a real run)", "short": "lr 0.0001", "colour": "--run-2", "best_epoch": 14, "validation_at_best": 0.152, "test_at_best": 0.157, "epochs_run": 14}, {"index": 2, "label": "sample, lr 0.003 (hand-made values, not a real run)", "short": "lr 0.003", "colour": "--run-3", "best_epoch": 5, "validation_at_best": 0.169, "test_at_best": 0.174, "epochs_run": 8}], "folded": [], "baselines": {"constant": 1.62, "material": 1.05}, "notes": []}]</script>
+<script type="application/json" id="page-notes">[]</script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script>
 (() => {
-  const runs = JSON.parse(document.getElementById("runs").textContent);
+  const data = (id) => JSON.parse(document.getElementById(id).textContent);
+  const runs = data("runs");
+  const comparisons = data("comparison-data");
+  const notes = data("page-notes");
   const SERIES = ["train", "validation", "test"];
+  // The colour names the run and the line style names the data split, on every panel.
+  // Chart.js draws the lowest order last, so the dotted test line stays on top of validation.
+  const SPLITS = {
+    validation: { name: "validation", key: "solid", style: { borderWidth: 2, borderDash: [], borderCapStyle: "round", order: 1 } },
+    train: { name: "training", key: "dashed", style: { borderWidth: 2, borderDash: [6, 4], borderCapStyle: "butt", order: 2 } },
+    test: { name: "test", key: "dotted", style: { borderWidth: 2.5, borderDash: [0, 5], borderCapStyle: "round", order: 0 } },
+  };
   const UNITS = { "pawns^2": "pawns\u00b2", "win-probability^2": "win-probability\u00b2" };
   const BASELINES = [["constant", "constant (mean)"], ["material", "material only (P1 N3 B3 R5 Q9)"]];
+  const LABEL_FONT = "12px system-ui, -apple-system, sans-serif";
+  const LINE = 14; // label line height, and the least distance between two label centres
+  const LEADER = 16; // room for the leader line between the plot and the gutter labels
+  const MARK = 14; // a run-colour stroke before a comparison label, since not every label has a leader
+  const DOT = 4; // best-epoch dot radius; a leader starts clear of a dot on the plot's right edge
   const fmt = (v) => Number(v.toPrecision(3)).toString();
+  const lastEpoch = (curve) => curve.epochs[curve.epochs.length - 1].epoch;
   const token = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
   const el = (tag, attrs, text) => {
     const node = document.createElement(tag);
@@ -91,14 +166,89 @@ tr.best td, tr.best th { font-weight: 600; }
     if (text !== undefined) node.textContent = text;
     return node;
   };
+  const measure = document.createElement("canvas").getContext("2d");
+  const textWidth = (text) => {
+    measure.font = LABEL_FONT;
+    return measure.measureText(text).width;
+  };
+  const swatch = (colour) => el("span", { class: "swatch", style: `--c: var(${colour})` });
+  const key = (splits) => {
+    const p = el("p", { class: "key" });
+    splits.forEach((s) => {
+      const item = el("span");
+      item.append(el("span", { class: `line ${SPLITS[s].key}` }), SPLITS[s].name);
+      p.append(item);
+    });
+    return p;
+  };
 
+  const comparisonsRoot = document.getElementById("comparisons");
   const panelsRoot = document.getElementById("panels");
   const tablesRoot = document.getElementById("tables");
+
+  // Runs the reader switched off, per comparison; kept when a theme change redraws the charts.
+  const hidden = comparisons.map(() => new Set());
+  let compareCharts = [];
+  const toggleRun = (n, index, button) => {
+    const off = !hidden[n].has(index);
+    if (off) hidden[n].add(index);
+    else hidden[n].delete(index);
+    button.setAttribute("aria-pressed", String(!off));
+    const chart = compareCharts[n];
+    if (!chart) return;
+    chart.data.datasets.forEach((ds, i) => { if (ds.runIndex === index) chart.setDatasetVisibility(i, !off); });
+    chart.update();
+  };
+
+  const compareCanvases = comparisons.map((cmp, n) => {
+    const units = UNITS[cmp.units];
+    const panel = el("section", { class: "panel" });
+    panel.append(el("h2", {}, `Validation and training loss, ${units}`));
+    panel.append(el("p", { class: "meta" }, `${cmp.runs.length} runs on one axis, log scale; the dot marks each run's best epoch`));
+    panel.append(key(["validation", "train"]));
+    const legend = el("div", { class: "legend", role: "group", "aria-label": "Runs: press one to hide or show it" });
+    cmp.runs.forEach((r) => {
+      const button = el("button", { type: "button", "aria-pressed": "true", title: r.label });
+      button.append(swatch(r.colour), r.short);
+      button.addEventListener("click", () => toggleRun(n, r.index, button));
+      legend.append(button);
+    });
+    panel.append(legend);
+    const plot = el("div", { class: "plot" });
+    const canvas = el("canvas", { role: "img", "aria-label": `Validation and training loss per epoch for ${cmp.runs.map((r) => r.label).join("; ")}` });
+    plot.append(canvas);
+    panel.append(plot);
+    cmp.notes.forEach((note) => panel.append(el("p", { class: "caption" }, note)));
+    const wrap = el("div", { class: "tablewrap" });
+    const table = el("table");
+    const head = el("tr");
+    ["run", "best epoch", `validation at best (${units})`, `test at best (${units})`, "epochs run"]
+      .forEach((h) => head.append(el("th", { scope: "col" }, h)));
+    table.appendChild(el("thead")).append(head);
+    const body = table.appendChild(el("tbody"));
+    cmp.runs.forEach((r) => {
+      const name = el("th", { scope: "row", class: "runcol" });
+      name.append(swatch(r.colour), r.label);
+      const row = el("tr");
+      row.append(name, el("td", {}, String(r.best_epoch)), el("td", {}, fmt(r.validation_at_best)),
+        el("td", {}, fmt(r.test_at_best)), el("td", {}, String(r.epochs_run)));
+      body.append(row);
+    });
+    wrap.append(table);
+    panel.append(wrap);
+    comparisonsRoot.append(panel);
+    return canvas;
+  });
+  notes.forEach((note) => comparisonsRoot.append(el("p", { class: "caption" }, note)));
+
   const canvases = runs.map((run) => {
     const c = run.curve, s = run.summary, units = UNITS[c.units];
     const panel = el("section", { class: "panel" });
-    panel.append(el("h2", {}, c.label));
+    const title = el("h2");
+    title.append(swatch(run.colour), c.label);
+    panel.append(title);
     panel.append(el("p", { class: "meta" }, `loss ${c.loss}, ${units}, log scale`));
+    panel.append(key(["validation", "train", "test"]));
     const plot = el("div", { class: "plot" });
     const canvas = el("canvas", { role: "img", "aria-label": `Train, validation and test loss per epoch for ${c.label}` });
     plot.append(canvas);
@@ -114,7 +264,9 @@ tr.best td, tr.best th { font-weight: 600; }
 
     const wrap = el("div", { class: "tablewrap" });
     const table = el("table");
-    table.append(el("caption", {}, `${c.label} (${units})`));
+    const caption = el("caption");
+    caption.append(swatch(run.colour), `${c.label} (${units})`);
+    table.append(caption);
     const head = el("tr");
     ["epoch", ...SERIES].forEach((h) => head.append(el("th", { scope: "col" }, h)));
     table.appendChild(el("thead")).append(head);
@@ -132,7 +284,8 @@ tr.best td, tr.best th { font-weight: 600; }
   });
 
   if (!window.Chart) {
-    panelsRoot.querySelectorAll(".plot").forEach((p) => p.replaceChildren(
+    document.body.dataset.chartError = "Chart.js did not load";
+    document.querySelectorAll(".plot").forEach((p) => p.replaceChildren(
       el("p", { class: "nochart" }, "Chart.js did not load (offline?). The table view below has every number.")));
     return;
   }
@@ -142,143 +295,286 @@ tr.best td, tr.best th { font-weight: 600; }
     return [1, 2, 5].some((k) => Math.abs(m - k) < 1e-6);
   };
 
-  // Baselines, best epoch and end labels, drawn over the chart. Closes over its run.
-  const overlay = (curve, ink) => ({
-    id: "overlay",
-    afterDatasetsDraw(chart) {
-      const { ctx, chartArea: area, scales: { x, y } } = chart;
-      ctx.save();
-      ctx.font = "12px system-ui, -apple-system, sans-serif";
-      ctx.lineWidth = 1.5;
-      ctx.strokeStyle = ink.text2;
-      ctx.fillStyle = ink.text2;
-      ctx.setLineDash([6, 4]);
-      // Text on a surface-coloured knockout, so no dashed line strikes through it.
-      const label = (text, lx, ly, align, baseline, color) => {
-        const w = ctx.measureText(text).width, h = 15;
-        const left = align === "right" ? lx - w : lx;
-        const top = baseline === "bottom" ? ly - h : baseline === "top" ? ly : ly - h / 2;
-        ctx.fillStyle = ink.surface;
-        ctx.fillRect(left - 2, top, w + 4, h);
-        ctx.fillStyle = color;
-        ctx.textAlign = align;
-        ctx.textBaseline = baseline;
-        ctx.fillText(text, lx, ly);
-      };
-      const texts = [];
+  // Lines no wider than max: a parenthetical stays whole when it fits, a word is never cut.
+  const wrapText = (text, max) => {
+    const chunks = (text.match(/\([^)]*\)|[^\s(]+/g) || [text])
+      .flatMap((c) => (textWidth(c) > max ? c.split(" ") : [c]));
+    return chunks.reduce((lines, c) => {
+      const last = lines[lines.length - 1];
+      if (last !== undefined && textWidth(`${last} ${c}`) <= max) lines[lines.length - 1] = `${last} ${c}`;
+      else lines.push(c);
+      return lines;
+    }, []);
+  };
 
-      const base = BASELINES.map(([k, text]) => ({ value: curve.baselines[k], text }))
-        .sort((a, b) => b.value - a.value);
-      base.forEach((b, i) => {
-        const py = y.getPixelForValue(b.value);
-        if (py < area.top || py > area.bottom) return;
-        ctx.beginPath(); ctx.moveTo(area.left, py); ctx.lineTo(area.right, py); ctx.stroke();
-        // On a narrow panel the long label spills into the right margin rather than over the y axis.
-        const edge = Math.min(chart.width - 2, Math.max(area.right - 2, area.left + ctx.measureText(b.text).width + 8));
-        texts.push([b.text, edge, i === 0 ? py - 3 : py + 3, "right", i === 0 ? "bottom" : "top", ink.text2]);
-      });
+  // Right padding that holds the widest label, at most 35% of the canvas but never below its longest word.
+  const gutter = (texts, canvasWidth, indent) => {
+    const longestWord = Math.max(...texts.flatMap((t) => t.split(" ")).map(textWidth));
+    const cap = Math.max(longestWord, canvasWidth * 0.35);
+    return Math.ceil(Math.min(Math.max(...texts.map(textWidth)), cap)) + LEADER + indent + 2;
+  };
 
-      const bx = x.getPixelForValue(curve.best_epoch);
+  // Heights y for labels sorted by anchor ay: as near their anchors as the others allow, never
+  // closer than half their heights added, inside [top, bottom].
+  const stack = (labels, top, bottom) => {
+    labels.sort((a, b) => a.ay - b.ay);
+    labels.forEach((l, i) => {
+      const prev = labels[i - 1];
+      l.y = Math.max(l.ay, prev ? prev.y + (prev.h + l.h) / 2 : top + l.h / 2);
+    });
+    for (let i = labels.length - 1; i >= 0; i -= 1) {
+      const l = labels[i], next = labels[i + 1];
+      l.y = Math.min(l.y, next ? next.y - (next.h + l.h) / 2 : bottom - l.h / 2);
+    }
+    return labels;
+  };
+
+  // Labels ({ text, ax, ay, color, mark, kind }) in the right gutter, off the plot. Nothing is
+  // drawn on the plot after the data: a leader runs in the gutter only, so only a label whose
+  // anchor sits on the plot's right edge gets one. The gutter stops above the x tick labels.
+  const drawGutter = (chart, ink, items) => {
+    const { ctx, chartArea: area } = chart;
+    const x = area.right + LEADER;
+    const labels = stack(items.map((item) => {
+      const indent = item.mark ? MARK : 0;
+      const lines = wrapText(item.text, chart.width - x - indent - 1);
+      const leader = item.ax >= area.right - 0.5;
+      return { ...item, indent, lines, leader, h: lines.length * LINE, w: indent + Math.max(...lines.map(textWidth)) };
+    }), 0, area.bottom + 4);
+    ctx.save();
+    ctx.font = LABEL_FONT;
+    ctx.setLineDash([]);
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    labels.forEach((l) => {
+      const top = l.y - l.h / 2 + LINE / 2;
+      if (l.leader) {
+        ctx.globalAlpha = 0.6;
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = ink.text2;
+        ctx.beginPath(); ctx.moveTo(area.right + DOT + 2, l.ay); ctx.lineTo(x - 3, l.y); ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
+      if (l.mark) {
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = l.mark;
+        ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x + MARK - 4, top); ctx.stroke();
+      }
+      ctx.fillStyle = l.color;
+      l.lines.forEach((text, k) => ctx.fillText(text, x + l.indent, top + LINE * k));
+    });
+    ctx.restore();
+    return labels.map(({ text, lines, kind, leader, y, w, h }) => ({ text, lines, kind, leader, x, y, w, h }));
+  };
+
+  const endLabel = (chart, i, text, color, mark) => {
+    const points = chart.getDatasetMeta(i).data;
+    const p = points[points.length - 1];
+    return { text, ax: p.x, ay: p.y, color, mark, kind: "end" };
+  };
+
+  const baselineLabels = (chart, ink, baselines) => {
+    const { chartArea: area, scales: { y } } = chart;
+    return BASELINES.flatMap(([k, text]) => {
+      const py = y.getPixelForValue(baselines[k]);
+      return py >= area.top && py <= area.bottom ? [{ text, ax: area.right, ay: py, color: ink.text2, kind: "baseline" }] : [];
+    });
+  };
+
+  // Baselines and the best-epoch line, drawn under the data.
+  const referenceLines = (chart, ink, baselines, bestEpoch) => {
+    const { ctx, chartArea: area, scales: { x, y } } = chart;
+    ctx.save();
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = ink.text2;
+    ctx.setLineDash([10, 4]);
+    if (baselines) BASELINES.forEach(([k]) => {
+      const py = y.getPixelForValue(baselines[k]);
+      if (py < area.top || py > area.bottom) return;
+      ctx.beginPath(); ctx.moveTo(area.left, py); ctx.lineTo(area.right, py); ctx.stroke();
+    });
+    if (bestEpoch !== undefined) {
+      const bx = x.getPixelForValue(bestEpoch);
       ctx.beginPath(); ctx.moveTo(bx, area.top); ctx.lineTo(bx, area.bottom); ctx.stroke();
-      const right = bx > (area.left + area.right) / 2;
-      texts.push(["best (validation)", right ? bx - 4 : bx + 4, area.top + 2, right ? "right" : "left", "top", ink.text2]);
-      texts.forEach((t) => label(...t));
+    }
+    ctx.restore();
+  };
 
-      ctx.setLineDash([]);
-      ctx.lineWidth = 1;
-      ctx.strokeStyle = ink.text2;
-      const ends = chart.data.datasets.map((ds, i) => {
-        if (!chart.isDatasetVisible(i)) return null;
-        const pts = chart.getDatasetMeta(i).data;
-        const p = pts[pts.length - 1];
-        return { text: ds.label, x: p.x, y: p.y, ly: p.y };
-      }).filter(Boolean).sort((a, b) => a.y - b.y);
-      const GAP = 14;
-      ends.forEach((e, i) => { if (i > 0) e.ly = Math.max(e.y, ends[i - 1].ly + GAP); });
-      const overflow = ends.length ? ends[ends.length - 1].ly - (area.bottom + 6) : 0;
-      if (overflow > 0) ends.forEach((e) => { e.ly -= overflow; });
-      ends.forEach((e) => {
-        ctx.beginPath(); ctx.moveTo(e.x + 7, e.y); ctx.lineTo(e.x + 14, e.ly); ctx.stroke();
-        label(e.text, e.x + 17, e.ly, "left", "middle", ink.text);
-      });
-      ctx.restore();
+  // The best-epoch caption, in the top padding above its line.
+  const bestLabel = (chart, ink, epoch) => {
+    const { ctx, chartArea: area, scales: { x } } = chart;
+    const text = "best (validation)", w = textWidth(text);
+    const left = Math.max(area.left, Math.min(x.getPixelForValue(epoch) - w / 2, area.right - w));
+    const y = area.top - LINE / 2 - 2;
+    ctx.save();
+    ctx.font = LABEL_FONT;
+    ctx.fillStyle = ink.text2;
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    ctx.fillText(text, left, y);
+    ctx.restore();
+    return { text, lines: [text], kind: "top", leader: false, x: left, y, w, h: LINE };
+  };
+
+  // Every placed label is kept on its chart, so a page test can read back where each one went.
+  const runOverlay = (curve, ink) => ({
+    id: "runOverlay",
+    beforeDatasetsDraw(chart) { referenceLines(chart, ink, curve.baselines, curve.best_epoch); },
+    afterDatasetsDraw(chart) {
+      const ends = chart.data.datasets.map((ds, i) => endLabel(chart, i, SPLITS[ds.series].name, ink.text));
+      const gutterLabels = drawGutter(chart, ink, [...baselineLabels(chart, ink, curve.baselines), ...ends]);
+      chart.$labels = [bestLabel(chart, ink, curve.best_epoch), ...gutterLabels];
     },
   });
 
-  let charts = [];
-  const build = () => {
-    charts.forEach((c) => c.destroy());
-    const ink = { text: token("--text"), text2: token("--text-2"), grid: token("--grid"), surface: token("--surface") };
-    Chart.defaults.color = ink.text2;
-    Chart.defaults.font.family = "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
-    charts = runs.map((run, i) => {
-      const c = run.curve;
-      const last = c.epochs.length - 1;
-      const values = c.epochs.flatMap((e) => SERIES.map((k) => e[k]));
-      const top = Math.max(c.baselines.constant, c.baselines.material, ...values) * 3;
-      const bottom = Math.min(...values) * 0.7;
-      return new Chart(canvases[i], {
-        type: "line",
-        data: {
-          datasets: SERIES.map((k) => ({
-            label: k,
-            data: c.epochs.map((e) => ({ x: e.epoch, y: e[k] })),
-            borderColor: token(`--${k}`),
-            backgroundColor: token(`--${k}`),
-            borderWidth: 2,
-            borderCapStyle: "round",
-            borderJoinStyle: "round",
-            pointRadius: (ctx) => (ctx.dataIndex === last ? 4 : 0),
-            pointHoverRadius: 5,
-            pointBorderColor: ink.surface,
-            pointBorderWidth: 2,
-            pointHitRadius: 8,
-          })),
+  const compareOverlay = (cmp, ink) => ({
+    id: "compareOverlay",
+    beforeDatasetsDraw(chart) { referenceLines(chart, ink, cmp.baselines); },
+    afterDatasetsDraw(chart) {
+      const ends = chart.data.datasets.map((ds, i) => ({ ds, i }))
+        .filter(({ ds, i }) => ds.series === "validation" && chart.isDatasetVisible(i))
+        .map(({ ds, i }) => endLabel(chart, i, ds.short, ink.text, ds.borderColor));
+      const refs = cmp.baselines ? baselineLabels(chart, ink, cmp.baselines) : [];
+      chart.$labels = drawGutter(chart, ink, [...refs, ...ends]);
+    },
+  });
+
+  const line = (split, curve, colour, extra) => ({
+    ...SPLITS[split].style,
+    series: split,
+    data: curve.epochs.map((e) => ({ x: e.epoch, y: e[split] })),
+    borderColor: colour,
+    backgroundColor: colour,
+    borderJoinStyle: "round",
+    pointRadius: 0,
+    pointHoverRadius: 4,
+    pointHitRadius: 8,
+    ...extra,
+  });
+
+  const logAxis = (ink, units, min, max) => ({
+    type: "logarithmic",
+    min,
+    max,
+    title: { display: true, text: `loss (${UNITS[units]})` },
+    ticks: { autoSkip: false, callback: (v) => (isLabelledTick(v) ? fmt(v) : "") },
+    grid: { color: (ctx) => (ctx.tick && isLabelledTick(ctx.tick.value) ? ink.grid : "transparent") },
+    border: { color: ink.grid },
+  });
+
+  const epochAxis = (ink, min, max) => ({
+    type: "linear",
+    min,
+    max,
+    title: { display: true, text: "epoch" },
+    ticks: { precision: 0 },
+    grid: { color: ink.grid },
+    border: { color: ink.grid },
+  });
+
+  const byDataset = (a, b) => a.datasetIndex - b.datasetIndex;
+
+  const compareChart = (canvas, cmp, n, ink) => {
+    const curves = cmp.runs.map((r) => runs[r.index].curve);
+    const end = Math.max(...curves.map(lastEpoch));
+    const datasets = cmp.runs.flatMap((r, m) => {
+      const c = curves[m], colour = token(r.colour);
+      const best = c.epochs.findIndex((e) => e.epoch === r.best_epoch);
+      // Only the best epoch gets a mark; a run that stops early simply ends.
+      const run = { runIndex: r.index, runLabel: r.label, short: r.short, hidden: hidden[n].has(r.index) };
+      return [
+        line("validation", c, colour, {
+          ...run,
+          clip: false, // the x axis ends on the last epoch, where a clip would halve its dot
+          pointStyle: "circle",
+          pointRadius: (ctx) => (ctx.dataIndex === best ? DOT : 0),
+          pointBorderColor: colour,
+          pointBorderWidth: 0,
+        }),
+        line("train", c, colour, run),
+      ];
+    });
+    const values = curves.flatMap((c) => c.epochs.flatMap((e) => [e.train, e.validation]));
+    const refs = cmp.baselines ? [cmp.baselines.constant, cmp.baselines.material] : [];
+    const texts = [...cmp.runs.map((r) => r.short), ...(cmp.baselines ? BASELINES.map(([, t]) => t) : [])];
+    return new Chart(canvas, {
+      type: "line",
+      data: { datasets },
+      options: {
+        animation: false,
+        maintainAspectRatio: false,
+        layout: { padding: ({ chart }) => ({ top: 4, right: gutter(texts, chart.width, MARK) }) },
+        interaction: { mode: "index", intersect: false },
+        scales: {
+          x: epochAxis(ink, Math.min(...curves.map((c) => c.epochs[0].epoch)), end),
+          y: logAxis(ink, cmp.units, Math.min(...values) * 0.7, Math.max(...refs, ...values) * 3),
         },
-        options: {
-          animation: false,
-          maintainAspectRatio: false,
-          layout: { padding: { right: 84 } },
-          interaction: { mode: "index", intersect: false },
-          scales: {
-            x: {
-              type: "linear",
-              min: c.epochs[0].epoch,
-              max: c.epochs[last].epoch,
-              title: { display: true, text: "epoch" },
-              ticks: { precision: 0 },
-              grid: { color: ink.grid },
-              border: { color: ink.grid },
-            },
-            y: {
-              type: "logarithmic",
-              min: bottom,
-              max: top,
-              title: { display: true, text: `loss (${UNITS[c.units]})` },
-              ticks: { autoSkip: false, callback: (v) => (isLabelledTick(v) ? fmt(v) : "") },
-              grid: { color: (ctx) => (ctx.tick && isLabelledTick(ctx.tick.value) ? ink.grid : "transparent") },
-              border: { color: ink.grid },
-            },
-          },
-          plugins: {
-            legend: { position: "top", align: "start", labels: { boxWidth: 16, boxHeight: 2, color: ink.text2 } },
-            tooltip: {
-              mode: "index",
-              intersect: false,
-              callbacks: {
-                title: (items) => `epoch ${items[0].parsed.x}${items[0].parsed.x === c.best_epoch ? " (best)" : ""}`,
-                label: (item) => ` ${item.dataset.label}: ${fmt(item.parsed.y)}`,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            itemSort: byDataset,
+            callbacks: {
+              title: (items) => `epoch ${items[0].parsed.x}`,
+              label: (item) => {
+                const ds = item.dataset;
+                const best = ds.series === "validation" && item.parsed.x === runs[ds.runIndex].curve.best_epoch ? " (best)" : "";
+                return ` ${ds.runLabel}, ${SPLITS[ds.series].name}: ${fmt(item.parsed.y)}${best}`;
               },
             },
           },
         },
-        plugins: [overlay(c, ink)],
-      });
+      },
+      plugins: [compareOverlay(cmp, ink)],
     });
+  };
+
+  const runChart = (canvas, run, index, ink) => {
+    const c = run.curve, colour = token(run.colour);
+    const datasets = ["validation", "train", "test"].map((k) => line(k, c, colour, { runIndex: index }));
+    const values = c.epochs.flatMap((e) => SERIES.map((k) => e[k]));
+    const texts = [...Object.values(SPLITS).map((s) => s.name), ...BASELINES.map(([, t]) => t)];
+    return new Chart(canvas, {
+      type: "line",
+      data: { datasets },
+      options: {
+        animation: false,
+        maintainAspectRatio: false,
+        layout: { padding: ({ chart }) => ({ top: LINE + 4, right: gutter(texts, chart.width, 0) }) },
+        interaction: { mode: "index", intersect: false },
+        scales: {
+          x: epochAxis(ink, c.epochs[0].epoch, c.epochs[c.epochs.length - 1].epoch),
+          y: logAxis(ink, c.units, Math.min(...values) * 0.7, Math.max(c.baselines.constant, c.baselines.material, ...values) * 3),
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            itemSort: byDataset,
+            callbacks: {
+              title: (items) => `epoch ${items[0].parsed.x}${items[0].parsed.x === c.best_epoch ? " (best)" : ""}`,
+              label: (item) => ` ${SPLITS[item.dataset.series].name}: ${fmt(item.parsed.y)}`,
+            },
+          },
+        },
+      },
+      plugins: [runOverlay(c, ink)],
+    });
+  };
+
+  let charts = [];
+  const build = () => {
+    charts.forEach((c) => c.destroy());
+    const ink = { text: token("--text"), text2: token("--text-2"), grid: token("--grid") };
+    Chart.defaults.color = ink.text2;
+    Chart.defaults.font.family = "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
+    compareCharts = comparisons.map((cmp, n) => compareChart(compareCanvases[n], cmp, n, ink));
+    const own = runs.map((run, i) => runChart(canvases[i], run, i, ink));
+    charts = [...compareCharts, ...own];
     document.body.dataset.rendered = String(charts.length);
   };
   build();
+  // Colours live in CSS tokens: a theme change only has to redraw with the values they now hold.
   matchMedia("(prefers-color-scheme: dark)").addEventListener("change", build);
+  new MutationObserver(build).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 })();
 </script>
 </body>
