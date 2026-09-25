@@ -136,7 +136,10 @@ func halfKPPieceIndex(pt board.PieceType, owner, perspective board.Color) (int, 
 // Squares are mirrored vertically for Black so that "my side of the
 // board" means the same thing to both perspectives. Without that the
 // network has to learn every pattern twice.
-func halfKPIndex(kingSq board.Sq, pt board.PieceType, owner board.Color, sq board.Sq, perspective board.Color, buckets int) (int, bool) {
+//
+// With mirror set, a king on files e-h flips every piece square left-right
+// too, so the king is always read on the queenside, as HalfKA does.
+func halfKPIndex(kingSq board.Sq, pt board.PieceType, owner board.Color, sq board.Sq, perspective board.Color, buckets int, mirror bool) (int, bool) {
 	pi, ok := halfKPPieceIndex(pt, owner, perspective)
 	if !ok {
 		return 0, false
@@ -145,6 +148,9 @@ func halfKPIndex(kingSq board.Sq, pt board.PieceType, owner board.Color, sq boar
 	if perspective == board.Black {
 		ks = board.Sq{File: ks.File, Rank: 7 - ks.Rank}
 		ps = board.Sq{File: ps.File, Rank: 7 - ps.Rank}
+	}
+	if mirror && ks.File > 3 {
+		ps.File = 7 - ps.File
 	}
 	k := kingSlot(ks, buckets)
 	s := ps.Rank*8 + ps.File
@@ -155,17 +161,17 @@ func halfKPIndex(kingSq board.Sq, pt board.PieceType, owner board.Color, sq boar
 // perspective. At most 30 of 40,960 are ever set, which is what makes
 // the first layer affordable: it costs one column addition per piece.
 func AppendHalfKPFeatures(dst []int32, b *board.Board, perspective board.Color) []int32 {
-	return AppendHalfKPFeaturesN(dst, b, perspective, FeatureKingBuckets)
+	return AppendHalfKPFeaturesN(dst, b, perspective, FeatureKingBuckets, FeatureKingMirror)
 }
 
-// AppendHalfKPFeaturesN is the same with an explicit king granularity, so
-// a network trained on 32 canonical king squares and one trained on 8
-// buckets can coexist rather than one silently mis-indexing the other.
-func AppendHalfKPFeaturesN(dst []int32, b *board.Board, perspective board.Color, buckets int) []int32 {
+// AppendHalfKPFeaturesN is the same with an explicit king granularity and
+// mirroring, so networks trained on different feature layouts can coexist
+// rather than one silently mis-indexing the other.
+func AppendHalfKPFeaturesN(dst []int32, b *board.Board, perspective board.Color, buckets int, mirror bool) []int32 {
 	king := b.KingSquare(perspective)
 	var buf [32]board.ColoredPiece
 	for _, p := range b.AppendAllPieces(buf[:0]) {
-		if i, ok := halfKPIndex(king, p.Type, p.Color, p.Sq, perspective, buckets); ok {
+		if i, ok := halfKPIndex(king, p.Type, p.Color, p.Sq, perspective, buckets, mirror); ok {
 			dst = append(dst, int32(i))
 		}
 	}
@@ -176,6 +182,10 @@ func AppendHalfKPFeaturesN(dst []int32, b *board.Board, perspective board.Color,
 // data and when a network does not say which it wants. Set by the
 // training command; 8 is what every network before today used.
 var FeatureKingBuckets = halfKPKingBuckets
+
+// FeatureKingMirror is FeatureKingBuckets' companion: generate features with
+// the board flipped left-right whenever the king is on files e-h.
+var FeatureKingMirror = false
 
 // HalfKPInputsFor is the input count for a given granularity.
 func HalfKPInputsFor(buckets int) int { return buckets * halfKPPerKing }
@@ -210,6 +220,9 @@ type HalfKPNet struct {
 	// 32. Zero means 8, which is what every network written before this
 	// field existed used.
 	Buckets int `json:"buckets,omitempty"`
+	// Mirror marks a network trained with piece squares flipped left-right
+	// whenever that perspective's king is on files e-h. Absent means off.
+	Mirror bool `json:"mirror,omitempty"`
 	// H2 is the width of an optional second hidden layer between the
 	// concatenated accumulators and the output, clipped like the first.
 	// Zero, and the three fields absent from the file, is the original
@@ -297,7 +310,7 @@ func (n *HalfKPNet) Evaluate(b *board.Board) float64 {
 	var buf [32]int32
 	for side, persp := range [2]board.Color{board.White, board.Black} {
 		off := side * h
-		for _, f := range AppendHalfKPFeaturesN(buf[:0], b, persp, n.buckets()) {
+		for _, f := range AppendHalfKPFeaturesN(buf[:0], b, persp, n.buckets(), n.Mirror) {
 			col := int(f) * h
 			w := n.W1[col : col+h : col+h]
 			a := acc[off : off+h]
@@ -526,8 +539,7 @@ func (n *HalfKPNet) refresh(b *board.Board, self, parent *halfKPAcc, st *halfKPA
 	self.kings = [2]board.Sq{b.KingSquare(board.White), b.KingSquare(board.Black)}
 	for side, persp := range [2]board.Color{board.White, board.Black} {
 		a := self.acc[side][:h]
-		if parent != nil && parent.valid &&
-			perspectiveKingSlot(parent.kings[side], persp, buckets) == perspectiveKingSlot(self.kings[side], persp, buckets) {
+		if parent != nil && parent.valid && n.sameKingFrame(parent.kings[side], self.kings[side], persp, buckets) {
 			if !n.fusedDelta(a, parent.acc[side][:h], parent, self, persp, buckets) {
 				copy(a, parent.acc[side][:h])
 				n.applyDelta(a, parent, self, persp, buckets)
@@ -539,7 +551,7 @@ func (n *HalfKPNet) refresh(b *board.Board, self, parent *halfKPAcc, st *halfKPA
 		}
 		copy(a, n.B1)
 		var buf [32]int32
-		for _, f := range AppendHalfKPFeaturesN(buf[:0], b, persp, buckets) {
+		for _, f := range AppendHalfKPFeaturesN(buf[:0], b, persp, buckets, n.Mirror) {
 			n.addRow(a, f, 1)
 		}
 		if st != nil {
@@ -564,7 +576,7 @@ func (n *HalfKPNet) applyDelta(a []float32, parent, self *halfKPAcc, persp board
 				sq := board.Sq{File: i % 8, Rank: i / 8}
 				// Never !ok: the loop stops short of the king, the only
 				// piece halfKPIndex refuses.
-				f, _ := halfKPIndex(king, t, owner, sq, persp, buckets)
+				f, _ := halfKPIndex(king, t, owner, sq, persp, buckets, n.Mirror)
 				sign := float32(-1)
 				if self.pieces[c][t]&(1<<uint(i)) != 0 {
 					sign = 1
@@ -595,7 +607,7 @@ func (n *HalfKPNet) fusedDelta(dst, src []float32, parent, self *halfKPAcc, pers
 				}
 				i := bits.TrailingZeros64(changed)
 				changed &= changed - 1
-				f, _ := halfKPIndex(king, t, owner, board.Sq{File: i % 8, Rank: i / 8}, persp, buckets)
+				f, _ := halfKPIndex(king, t, owner, board.Sq{File: i % 8, Rank: i / 8}, persp, buckets, n.Mirror)
 				col := f * h
 				rows[k] = n.W1[col : col+h : col+h]
 				signs[k] = -1
@@ -635,6 +647,16 @@ func perspectiveKingSlot(king board.Sq, persp board.Color, buckets int) int {
 		king = board.Sq{File: king.File, Rank: 7 - king.Rank}
 	}
 	return kingSlot(king, buckets)
+}
+
+// sameKingFrame reports whether a perspective's rows carry over between two
+// king squares: same slot and, on a mirrored net, the board flipped the same
+// way. d1 and e1 share an 8-bucket slot yet flip every piece.
+func (n *HalfKPNet) sameKingFrame(from, to board.Sq, persp board.Color, buckets int) bool {
+	if n.Mirror && (from.File > 3) != (to.File > 3) {
+		return false
+	}
+	return perspectiveKingSlot(from, persp, buckets) == perspectiveKingSlot(to, persp, buckets)
 }
 
 // addRow adds (sign +1) or subtracts (sign -1) one feature's first-layer

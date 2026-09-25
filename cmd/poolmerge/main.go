@@ -29,6 +29,11 @@ func main() {
 		fmt.Fprintln(os.Stderr, "usage: poolmerge -out merged.bin [-min-men N] [-max-men N] pool.bin ...")
 		os.Exit(1)
 	}
+	lay, err := sameLayout(flag.Args())
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 
 	f, err := os.Create(*out)
 	if err != nil {
@@ -84,7 +89,7 @@ func main() {
 
 	// A merged pool inherits its sources' provenance, and says so, so the
 	// next reader does not have to work out what went into it.
-	if err := pool.WriteProvenance(*out, mergedProvenance(flag.Args(), read, written, dupes)); err != nil {
+	if err := writeMergedProvenance(*out, mergedProvenance(flag.Args(), read, written, dupes), lay.KingMirror); err != nil {
 		fmt.Fprintln(os.Stderr, "provenance:", err)
 	}
 }

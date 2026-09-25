@@ -447,7 +447,7 @@ func (n *net) export(k float64, sigmoidOut bool) *engine.HalfKPNet {
 		B1: append([]float32(nil), n.b1...),
 		W2: append([]float32(nil), n.w2...),
 		B2: n.b2, Scale: 1, Sigmoid: sigmoidOut, K: k,
-		Buckets: engine.FeatureKingBuckets,
+		Buckets: engine.FeatureKingBuckets, Mirror: engine.FeatureKingMirror,
 	}
 }
 
@@ -811,8 +811,15 @@ func run(args []string) int {
 	openingMinPieces := fs.Int("opening-min-pieces", 28, "pieces a position must still have to count as an opening")
 	openingMax := fs.Int("opening-max", 200000, "how many opening positions to write")
 	kingBuckets := fs.Int("king-buckets", 8, "king granularity in the feature set: 8 buckets or 32 canonical squares")
+	kingMirror := fs.Bool("king-mirror", false, "flip every piece square left-right for a perspective whose king is on files e-h (HalfKA-style); recorded in the pool meta and the network")
 	openingBook := fs.String("opening-book", "", "start each self-play game from a position in this book instead of ten random plies")
 	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	// 64 slots is the raw king square, the unmirrored source rebucket.py
+	// derives every coarser scheme from, b8m and b32m included.
+	if *kingMirror && *kingBuckets == 64 {
+		fmt.Println("-king-mirror with -king-buckets 64 is refused: a 64-slot pool is the raw, unmirrored source for rebucket.py")
 		return 2
 	}
 
@@ -844,6 +851,20 @@ func run(args []string) int {
 	}
 
 	engine.FeatureKingBuckets = *kingBuckets
+	engine.FeatureKingMirror = *kingMirror
+	// Called before each mode writes positions: a pool of another layout is
+	// refused, and a mirrored pool is never on disk without its meta saying so.
+	claimPool := func() bool {
+		err := checkPoolLayout(*poolFile, *kingBuckets, *kingMirror)
+		if err == nil && *kingMirror {
+			err = recordKingMirror(*poolFile, *kingBuckets)
+		}
+		if err != nil {
+			fmt.Println("pool meta:", err)
+			return false
+		}
+		return true
+	}
 
 	// The opening book, if one was asked for. Loaded before anything else
 	// so a missing or empty book is reported now rather than after a
@@ -913,6 +934,9 @@ func run(args []string) int {
 			fmt.Printf("%s  labelling with the champion: %s\n",
 				time.Now().Format("15:04:05"), c.Label)
 		}
+		if !claimPool() {
+			return 1
+		}
 		if err := ImportPGN(src, *poolFile, *importMax, *labelDepth, *pgnSkipPlies,
 			*lambda, *quietTol, 10*time.Second, *importResume, labeller, *blendK); err != nil {
 			fmt.Println("import-pgn:", err)
@@ -950,6 +974,9 @@ func run(args []string) int {
 				return 1
 			}
 			return 0
+		}
+		if !claimPool() {
+			return 1
 		}
 		if err := ImportLichess(src, *poolFile, *importMax, *quietTol, *importQuiet, *importResume); err != nil {
 			fmt.Println("import:", err)
@@ -1016,7 +1043,7 @@ func run(args []string) int {
 	inputCount := engine.HalfKPInputsFor(engine.FeatureKingBuckets)
 	params := inputCount*(*hidden) + *hidden + 2*(*hidden) + 1
 	arch := map[string]any{
-		"features":      fmt.Sprintf("HalfKP (%d king slots x piece x square)", engine.FeatureKingBuckets),
+		"features":      fmt.Sprintf("HalfKP (%d king slots x piece x square, mirror %v)", engine.FeatureKingBuckets, engine.FeatureKingMirror),
 		"inputs":        inputCount,
 		"hidden":        *hidden,
 		"layers":        fmt.Sprintf("%d -> %d (shared, both perspectives) -> %d -> 1", inputCount, *hidden, 2**hidden),
@@ -1043,6 +1070,9 @@ func run(args []string) int {
 		_ = json.Unmarshal(data, &history)
 	}
 
+	if *generations > 0 && !claimPool() {
+		return 1
+	}
 	for gen := startGen; gen < startGen+*generations; gen++ {
 		t0 := time.Now()
 		stats := &genStats{}
@@ -1087,7 +1117,7 @@ func run(args []string) int {
 		// killed before its first sidecar lands leaves a pool nobody
 		// can date, which is the whole failure this records against.
 		if err := recordSelfPlayProvenance(*poolFile, *playDepth, *labelDepth,
-			*lambda, *kingBuckets, *quietTol); err != nil {
+			*lambda, *kingBuckets, *kingMirror, *quietTol); err != nil {
 			fmt.Println("pool provenance:", err)
 		}
 		pool = append(pool, freshSamples...)

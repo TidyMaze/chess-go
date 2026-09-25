@@ -56,8 +56,8 @@ func emitEvalCheck(outPath, netPath string) error {
 			return fmt.Errorf("%s: %w", fen, err)
 		}
 		var own, opp []int32
-		own = engine.AppendHalfKPFeaturesN(own, &g.Board, board.White, n.Buckets)
-		opp = engine.AppendHalfKPFeaturesN(opp, &g.Board, board.Black, n.Buckets)
+		own = engine.AppendHalfKPFeaturesN(own, &g.Board, board.White, n.Buckets, n.Mirror)
+		opp = engine.AppendHalfKPFeaturesN(opp, &g.Board, board.Black, n.Buckets, n.Mirror)
 		cases = append(cases, evalCheckCase{
 			FEN: fen, Own: own, Opp: opp, Eval: n.Evaluate(&g.Board),
 		})

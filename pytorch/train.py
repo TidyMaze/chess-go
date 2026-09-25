@@ -88,6 +88,26 @@ def load_pool(path: Path, limit: int = 0):
     return own_idx, opp_idx, targets, games
 
 
+def pools_mirrored(paths) -> bool:
+    """Whether every pool's features were written with piece files flipped for
+    a kingside king, as each <pool>.meta.json says; no sidecar means not.
+
+    The same index names another square in each layout, so pools that
+    disagree are refused rather than trained into one network."""
+    flags = {str(p): _sidecar_king_mirror(Path(p)) for p in paths}
+    if len(set(flags.values())) > 1:
+        raise SystemExit(
+            "pools disagree on king_mirror (%s): a mirrored and an unmirrored pool give "
+            "the same feature index different squares and cannot be mixed"
+            % ", ".join("%s %s" % (p, "mirrored" if m else "unmirrored") for p, m in flags.items()))
+    return any(flags.values())
+
+
+def _sidecar_king_mirror(pool: Path) -> bool:
+    meta = Path(str(pool) + ".meta.json")
+    return meta.exists() and json.loads(meta.read_text()).get("king_mirror", False) is True
+
+
 def neighbour_index(inputs: int, device):
     """For every feature, the indices of the same piece on adjacent squares.
 
@@ -178,11 +198,14 @@ class HalfKP(nn.Module):
     tactics take, and is what real NNUE uses (256x2 -> 32 -> 32 -> 1).
     """
 
-    def __init__(self, hidden: int, buckets: int, hidden2: int = 0):
+    def __init__(self, hidden: int, buckets: int, hidden2: int = 0, mirror: bool = False):
         super().__init__()
         self.hidden = hidden
         self.hidden2 = hidden2
         self.buckets = buckets
+        # Whether the features were written with piece files flipped for a
+        # kingside king; the forward pass never sees it, the engine must.
+        self.mirror = mirror
         self.inputs = inputs_for(buckets)
         # One extra row is the padding slot, pinned at zero and excluded
         # from gradients so short feature lists contribute nothing.
@@ -232,6 +255,8 @@ def export(model: HalfKP, path: Path):
         "k": 0.30,
         "buckets": model.buckets,
     }
+    if model.mirror:
+        net["mirror"] = True
     if model.mid is not None:
         net["h2"] = model.hidden2
         net["wh2"] = model.mid.weight.detach().cpu().t().contiguous().view(-1).tolist()
@@ -313,9 +338,12 @@ def ensemble(paths, out_path: Path) -> dict:
     """
     nets = [json.loads(Path(p).read_text()) for p in paths]
     buckets = nets[0].get("buckets", 8)
-    for n in nets:
+    mirror = nets[0].get("mirror", False)
+    for p, n in zip(paths, nets):
         if n.get("buckets", 8) != buckets:
             raise ValueError("networks use %d and %d king buckets" % (buckets, n.get("buckets", 8)))
+        if n.get("mirror", False) != mirror:
+            raise ValueError("%s has mirror %s, %s has mirror %s" % (paths[0], mirror, p, n.get("mirror", False)))
         if n.get("sigmoid", False):
             raise ValueError("a network emitting probabilities cannot be averaged in pawns")
         if n.get("h2", 0):
@@ -340,6 +368,8 @@ def ensemble(paths, out_path: Path) -> dict:
     b2 = sum(float(n["b2"]) * (n.get("scale", 1.0) or 1.0) for n in nets) / len(nets)
     merged = {"h": sum(widths), "w1": w1, "b1": b1, "w2": own + opp, "b2": b2,
               "scale": 1.0, "sigmoid": False, "k": 0.30, "buckets": buckets}
+    if mirror:
+        merged["mirror"] = True
     Path(out_path).write_text(json.dumps(merged))
     return merged
 
@@ -476,6 +506,8 @@ def main():
     log("device %s, torch %s" % (device, torch.__version__))
 
     t0 = time.time()
+    # Checked on every pool, including any --limit stops short of loading.
+    mirror = pools_mirrored(args.pool)
     own, opp, targets, games = [], [], [], []
     offset = 0
     for path in args.pool:
@@ -563,7 +595,7 @@ def main():
         st.update(extra)
         Path(args.status).write_text(json.dumps(st))
 
-    model = HalfKP(args.hidden, args.buckets, args.hidden2).to(device)
+    model = HalfKP(args.hidden, args.buckets, args.hidden2, mirror).to(device)
     if args.init_from:
         load_net(model, Path(args.init_from))
         model.to(device)

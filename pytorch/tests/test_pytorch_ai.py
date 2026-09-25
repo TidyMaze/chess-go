@@ -576,3 +576,55 @@ def test_the_trainer_trains_and_exports_a_second_layer(tmp_path):
     # rather than loaded over weights that mean something else.
     run_main(train, common)
     assert "h2" not in json.loads(out.read_text())
+
+
+def write_meta(pool: Path, **meta):
+    Path(str(pool) + ".meta.json").write_text(json.dumps(meta))
+
+
+MIRROR_RUN = ["--device", "cpu", "--hidden", "4", "--batch", "16", "--epochs", "1", "--status", ""]
+
+
+def test_a_net_trained_on_mirrored_pools_says_so(tmp_path):
+    """The engine flips piece files only when the network says "mirror"; a net
+    fitted on mirrored features and loaded without it plays another function."""
+    mirrored, plain = tmp_path / "m.bin", tmp_path / "p.bin"
+    write_pool(mirrored)
+    write_meta(mirrored, buckets=8, king_mirror=True)
+    write_pool(plain, seed=2)
+    write_meta(plain, buckets=8, king_mirror=False)
+    run_main(train, ["--pool", str(mirrored), "--out", str(tmp_path / "m.json")] + MIRROR_RUN)
+    assert json.loads((tmp_path / "m.json").read_text())["mirror"] is True
+    # Unmirrored keeps the file exactly as before: the key is absent, not false.
+    run_main(train, ["--pool", str(plain), "--out", str(tmp_path / "p.json")] + MIRROR_RUN)
+    assert "mirror" not in json.loads((tmp_path / "p.json").read_text())
+
+
+@pytest.mark.parametrize("other_meta", [None, {"buckets": 8, "king_mirror": False}, {"buckets": 8}])
+def test_pools_that_disagree_on_the_mirror_are_refused_by_name(tmp_path, other_meta):
+    """A pool without a sidecar, or whose sidecar says nothing, counts as unmirrored."""
+    mirrored, other = tmp_path / "m.bin", tmp_path / "o.bin"
+    write_pool(mirrored)
+    write_meta(mirrored, buckets=8, king_mirror=True)
+    write_pool(other, seed=2)
+    if other_meta is not None:
+        write_meta(other, **other_meta)
+    out = tmp_path / "net.json"
+    # --limit stops loading after the first pool; the second is checked all the same.
+    with pytest.raises(SystemExit) as refused:
+        run_main(train, ["--pool", str(mirrored), str(other), "--out", str(out), "--limit", "10"] + MIRROR_RUN)
+    assert str(mirrored) in str(refused.value) and str(other) in str(refused.value)
+    assert not out.exists()
+
+
+def test_ensemble_keeps_the_mirror_and_refuses_to_mix_it(tmp_path):
+    pa, pb, pp = tmp_path / "a.json", tmp_path / "b.json", tmp_path / "p.json"
+    for path in (pa, pb, pp):
+        train.export(train.HalfKP(hidden=4, buckets=8), path)
+    for path in (pa, pb):
+        path.write_text(json.dumps({**json.loads(path.read_text()), "mirror": True}))
+    merged = train.ensemble([pa, pb], tmp_path / "e.json")
+    assert merged["mirror"] is True and json.loads((tmp_path / "e.json").read_text())["mirror"] is True
+    assert "mirror" not in train.ensemble([pp, pp], tmp_path / "plain.json")
+    with pytest.raises(ValueError, match="mirror"):
+        train.ensemble([pa, pp], tmp_path / "mixed.json")

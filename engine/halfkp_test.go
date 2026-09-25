@@ -26,7 +26,7 @@ func TestHalfKPIndicesAreInRangeAndDistinct(t *testing.T) {
 					for r := 0; r < 8; r++ {
 						sq := board.Sq{File: f, Rank: r}
 						_ = sq
-						idx, ok := halfKPIndex(kingSq, pt, owner, sq, board.White, halfKPKingBuckets)
+						idx, ok := halfKPIndex(kingSq, pt, owner, sq, board.White, halfKPKingBuckets, false)
 						if !ok {
 							t.Fatalf("piece %v was rejected", pt)
 						}
@@ -46,7 +46,7 @@ func TestHalfKPIndicesAreInRangeAndDistinct(t *testing.T) {
 }
 
 func TestHalfKPExcludesKings(t *testing.T) {
-	if _, ok := halfKPIndex(board.Sq{4, 0}, board.King, board.White, board.Sq{4, 0}, board.White, halfKPKingBuckets); ok {
+	if _, ok := halfKPIndex(board.Sq{4, 0}, board.King, board.White, board.Sq{4, 0}, board.White, halfKPKingBuckets, false); ok {
 		t.Error("kings must not produce a piece feature: the king square is the conditioning variable")
 	}
 }
@@ -57,15 +57,15 @@ func TestHalfKPExcludesKings(t *testing.T) {
 // safety, which is what the previous 768-input network could not do.
 func TestHalfKPIsConditionedOnTheKing(t *testing.T) {
 	// Across buckets: a king on e1 and one on a1 are different situations.
-	a, _ := halfKPIndex(board.Sq{4, 0}, board.Knight, board.White, board.Sq{5, 2}, board.White, halfKPKingBuckets)
-	b, _ := halfKPIndex(board.Sq{0, 0}, board.Knight, board.White, board.Sq{5, 2}, board.White, halfKPKingBuckets)
+	a, _ := halfKPIndex(board.Sq{4, 0}, board.Knight, board.White, board.Sq{5, 2}, board.White, halfKPKingBuckets, false)
+	b, _ := halfKPIndex(board.Sq{0, 0}, board.Knight, board.White, board.Sq{5, 2}, board.White, halfKPKingBuckets, false)
 	if a == b {
 		t.Error("kings in different buckets produced the same feature index")
 	}
 	// Within a bucket they deliberately share, which is the point: it is
 	// what multiplies the data behind each weight.
-	c, _ := halfKPIndex(board.Sq{4, 0}, board.Knight, board.White, board.Sq{5, 2}, board.White, halfKPKingBuckets)
-	d, _ := halfKPIndex(board.Sq{4, 1}, board.Knight, board.White, board.Sq{5, 2}, board.White, halfKPKingBuckets)
+	c, _ := halfKPIndex(board.Sq{4, 0}, board.Knight, board.White, board.Sq{5, 2}, board.White, halfKPKingBuckets, false)
+	d, _ := halfKPIndex(board.Sq{4, 1}, board.Knight, board.White, board.Sq{5, 2}, board.White, halfKPKingBuckets, false)
 	if c != d {
 		t.Error("kings in the same bucket should share a feature index")
 	}

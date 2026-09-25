@@ -60,7 +60,7 @@ func referenceEvaluate(n *HalfKPNet, b *board.Board) float64 {
 		for i := 0; i < h; i++ {
 			acc[side*h+i] = float64(n.B1[i])
 		}
-		for _, f := range AppendHalfKPFeaturesN(nil, b, persp, n.Buckets) {
+		for _, f := range AppendHalfKPFeaturesN(nil, b, persp, n.Buckets, n.Mirror) {
 			for i := 0; i < h; i++ {
 				acc[side*h+i] += float64(n.W1[int(f)*h+i])
 			}
