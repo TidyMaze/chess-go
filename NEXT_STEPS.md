@@ -43,11 +43,12 @@ pooled over several 10-minute runs.
 6. **Stockfish check**, pooled 250-game runs, new champion against the qply 4
    control on the same openings.
 
-## Decision still open
+## Closed: Stockfish never labels
 
-Letting Stockfish label training positions is the one lever that targets the
-61% evaluation lag directly. The project rule is that Stockfish judges and
-never teaches; nothing above breaks it.
+Decided 2026-09-25. Stockfish is the opponent the engine is measured against,
+so its labels would grade the engine with the answer key: any gain would be
+copied from it, not learned. It only judges (opening balance, loss audits).
+The evaluation lag has to be fixed with the engine's own search.
 
 ## Harness debt
 
