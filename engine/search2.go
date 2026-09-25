@@ -976,24 +976,54 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 		}
 	}
 
+	// Pseudo-legal moves, each proved legal only when its turn comes: a
+	// node that cuts off on its first moves never tests the rest. The list
+	// is ordered with its illegal moves in it, and the ordering is a stable
+	// sort on a score that does not depend on the list, so the legal moves
+	// come out in the same order as if they had been filtered first.
+	//
+	// Except in check, where most pseudo-legal moves are illegal and most
+	// of those are rejected without being played: scoring and sorting the
+	// whole list to search the few legal moves cost more than filtering it
+	// up front, after which the zero Legality tests nothing.
 	var moveBuf [96]game.Move
-	legal := g.AppendLegalMovesGivenCheck(moveBuf[:0], color, inCheck)
-	if len(legal) == 0 {
-		if !ttSearched {
+	var list []game.Move
+	var legality game.Legality
+	if inCheck {
+		list = g.AppendLegalMovesGivenCheck(moveBuf[:0], color, true)
+	} else {
+		list, legality = g.AppendPseudoLegalMoves(moveBuf[:0], color, false)
+	}
+	if !ttSearched {
+		// The first legal move in generation order backs the table entry
+		// when every move is pruned, and its absence is mate or stalemate.
+		first := firstLegal(g, list, legality)
+		if first < 0 {
 			return terminalScore(g, color, maximizingFor, depth)
 		}
-	}
-	if !ttSearched && len(legal) > 0 {
-		bestMove = legal[0]
+		bestMove = list[first]
+		list = list[first:]
 	}
 
-	c.orderMoves(g, legal, ttMove, ply, color)
+	c.orderMoves(g, list, ttMove, ply, color)
+	cacheSEE := ply < maxSearchPly && len(list) <= len(c.seeVals[ply])
 
-	for i, m := range legal {
+	// legal compacts the legal moves over the front of list as they are
+	// met, so legal[:i] is the history malus's list of moves tried before
+	// the i-th. i counts legal moves only: the reductions, pruning and
+	// history read it as "how late in the ordering is this move".
+	legal := list[:0]
+	for j, m := range list {
 		if m == c.excludedAt(ply) {
+			if legality.IsLegal(&g.Board, m) {
+				legal = append(legal, m)
+			}
 			continue
 		}
+		// The table move was proved legal by IsLegalMove before it was
+		// searched.
 		if ttSearched && m == ttMove {
+			legal = append(legal, m)
 			continue
 		}
 		isCapture := isCaptureMove(g, m)
@@ -1005,8 +1035,8 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 				victim = board.Piece{Type: board.Pawn}
 			}
 			if mvvLvaPiece[victim.Type] < mvvLvaPiece[attacker.Type] {
-				if ply < maxSearchPly && i < 128 && m != ttMove {
-					exchange = int(c.seeVals[ply][i])
+				if cacheSEE && m != ttMove {
+					exchange = int(c.seeVals[ply][j])
 				} else {
 					exchange = see(&g.Board, m)
 				}
@@ -1019,7 +1049,17 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 		// know the rule.
 		childClock := childFiftyClock(g, m, c.fifty[ply])
 		isAdvPawn := c.ev != nil && c.ev.PawnPush && advancedPawnPush(&g.Board, m, color)
+		needsTest := legality.NeedsTest(&g.Board, m)
 		undo, promoted := makeSearchMove(g, m)
+		// The legality test rides on the make the search needs anyway. The
+		// promoted piece is the mover's own, so it cannot change whether
+		// the mover is in check.
+		if needsTest && moves.IsInCheck(&g.Board, color) {
+			g.Board.UnmakeMove(undo)
+			continue
+		}
+		i := len(legal)
+		legal = append(legal, m)
 		if ply < maxSearchPly {
 			c.moveStack[ply] = m
 		}
@@ -1596,6 +1636,18 @@ func childFiftyClock(g *game.Game, m game.Move, parent int) int {
 		return 0
 	}
 	return parent + 1
+}
+
+// firstLegal is the index of the first legal move of a pseudo-legal list,
+// or -1 when there is none. Usually the first move, and usually without a
+// test, since only the king, pinned pieces and en passant need one.
+func firstLegal(g *game.Game, list []game.Move, legality game.Legality) int {
+	for i, m := range list {
+		if legality.IsLegal(&g.Board, m) {
+			return i
+		}
+	}
+	return -1
 }
 
 func makeSearchMove(g *game.Game, m game.Move) (board.Undo, bool) {

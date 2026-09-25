@@ -4,6 +4,8 @@
 package game
 
 import (
+	"math/bits"
+
 	"chess/board"
 	"chess/moves"
 )
@@ -121,44 +123,157 @@ func (g *Game) IsLegalMove(m Move) bool {
 	return !inCheck
 }
 
-
 func (g *Game) appendLegalMoves(dst []Move, color board.Color, inCheck bool) []Move {
-	pinned := moves.PinnedSquares(&g.Board, color)
+	result, _ := g.appendMoves(dst, color, inCheck, true)
+	return result
+}
+
+// Legality tells which moves of one pseudo-legal list may leave the
+// mover's king in check. Only those pay for the make, is-in-check, unmake
+// test; every other move is known legal or illegal before it is played.
+// The zero value tests nothing, for a list that is legal already.
+type Legality struct {
+	color board.Color
+	// suspects holds the origin squares whose moves need the test: the
+	// king and the pinned pieces.
+	suspects uint64
+	// offTarget holds, in check, the squares where a man other than the
+	// king does not answer the check. Empty when not in check.
+	offTarget uint64
+	epSquare  board.Sq
+	hasEP     bool
+}
+
+// Verdict is what a Legality knows about a move before it is played.
+type Verdict uint8
+
+const (
+	// Legal by construction: no test needed.
+	Legal Verdict = iota
+	// Illegal without playing it: it leaves a check standing.
+	Illegal
+	// Unknown until the move is played and the king asked whether it is
+	// in check.
+	Unknown
+)
+
+// AppendPseudoLegalMoves appends every move of color that is legal except
+// possibly for leaving its own king in check, in the order
+// AppendLegalMoves returns the legal ones, and the Legality that finishes
+// the job one move at a time. A search that cuts off after a few moves
+// never pays for the test on the rest.
+func (g *Game) AppendPseudoLegalMoves(dst []Move, color board.Color, inCheck bool) ([]Move, Legality) {
+	return g.appendMoves(dst, color, inCheck, false)
+}
+
+// appendMoves is the one generator behind the legal and the pseudo-legal
+// lists, so the two cannot disagree on order. With legalOnly each move is
+// tested as it is generated, in the same pass.
+func (g *Game) appendMoves(dst []Move, color board.Color, inCheck, legalOnly bool) ([]Move, Legality) {
+	king := g.Board.KingSquare(color)
+	legality := Legality{
+		color:    color,
+		suspects: uint64(moves.PinnedSquares(&g.Board, color)) | 1<<(king.Rank*8+king.File),
+	}
+	if inCheck {
+		legality.offTarget = ^evasionTargets(&g.Board, color)
+	}
+	legality.epSquare, legality.hasEP = g.Board.EPSquare()
 	var pieceBuf [16]board.PieceAtSquare
 	pieces := g.Board.AppendPiecesOf(pieceBuf[:0], color)
 	result := dst
-
 	// One target buffer reused across every piece, rather than a fresh
 	// slice per piece.
 	var targetBuf [28]board.Sq
-	epSquare, hasEP := g.Board.EPSquare()
 	for _, ps := range pieces {
-		needsCheckTest := inCheck || ps.Type == board.King || pinned.Has(ps.Sq)
 		for _, target := range moves.AppendLegalTargets(targetBuf[:0], &g.Board, ps.Sq, color, ps.Type) {
-			// An en passant capture always needs the full test. It removes
-			// a pawn from a square that is neither the origin nor the
-			// destination, so it can expose the king along a rank that the
-			// pin detection, which only looks at the moving piece, cannot
-			// see. This is the "en passant pin" and it is exactly what
-			// perft position 3 exists to catch.
-			epCapture := hasEP && ps.Type == board.Pawn &&
-				target == epSquare && ps.Sq.File != target.File
-			if needsCheckTest || epCapture {
-				// Make and unmake on the real board rather than cloning
-				// it. Cloning copied the whole Board for every candidate
-				// move of every piece that could be pinned or in check,
-				// which the profile put at ~10% of all CPU at depth 7.
-				undo := g.Board.MakeMove(ps.Sq, target)
-				illegal := moves.IsInCheck(&g.Board, color)
-				g.Board.UnmakeMove(undo)
-				if illegal {
-					continue
-				}
+			m := Move{ps.Sq, target}
+			if legalOnly && !legality.IsLegal(&g.Board, m) {
+				continue
 			}
-			result = append(result, Move{ps.Sq, target})
+			result = append(result, m)
 		}
 	}
-	return result
+	return result, legality
+}
+
+// evasionTargets is where a man other than the king has to land to answer
+// a check on color's king: the checker's square, or a square between a
+// checking slider and the king. Empty in double check, when only the king
+// can move.
+func evasionTargets(b *board.Board, color board.Color) uint64 {
+	king := b.KingSquare(color)
+	k := uint8(king.Rank*8 + king.File)
+	enemy := color.Other()
+	occupied := b.ColorBitboard(board.White) | b.ColorBitboard(board.Black)
+	queens := b.PieceBitboard(enemy, board.Queen)
+	rookLines := board.RookAttacks(k, occupied)
+	bishopLines := board.BishopAttacks(k, occupied)
+	rookCheckers := rookLines & (b.PieceBitboard(enemy, board.Rook) | queens)
+	bishopCheckers := bishopLines & (b.PieceBitboard(enemy, board.Bishop) | queens)
+	checkers := rookCheckers | bishopCheckers |
+		board.PawnAttacksTo[enemy][k]&b.PieceBitboard(enemy, board.Pawn) |
+		board.KnightAttacks[k]&b.PieceBitboard(enemy, board.Knight)
+	if checkers&(checkers-1) != 0 {
+		return 0
+	}
+	// The king's lines and the checker's, of the kind the checker moves
+	// along, cross exactly on the squares strictly between the two.
+	switch {
+	case rookCheckers != 0:
+		return checkers | rookLines&board.RookAttacks(uint8(bits.TrailingZeros64(checkers)), occupied)
+	case bishopCheckers != 0:
+		return checkers | bishopLines&board.BishopAttacks(uint8(bits.TrailingZeros64(checkers)), occupied)
+	}
+	return checkers
+}
+
+// Screen tells, before m is played, whether it is legal, illegal, or has
+// to be played to find out. m must come from the list this Legality came
+// with.
+func (l Legality) Screen(b *board.Board, m Move) Verdict {
+	from := uint64(1) << (m.From.Rank*8 + m.From.File)
+	if l.suspects&from != 0 {
+		return Unknown
+	}
+	// An en passant capture always needs the full test. It removes a pawn
+	// from a square that is neither the origin nor the destination, so it
+	// can expose the king along a rank that the pin detection, which only
+	// looks at the moving piece, cannot see. This is the "en passant pin"
+	// and it is exactly what perft position 3 exists to catch. For the
+	// same reason it can answer a check by a pawn without landing on it.
+	if l.hasEP && m.To == l.epSquare && m.From.File != m.To.File &&
+		b.PieceBitboard(l.color, board.Pawn)&from != 0 {
+		return Unknown
+	}
+	if l.offTarget&(1<<(m.To.Rank*8+m.To.File)) != 0 {
+		return Illegal
+	}
+	return Legal
+}
+
+// NeedsTest reports whether m, from the list this Legality came with, may
+// leave the king in check. Must be asked before m is played.
+func (l Legality) NeedsTest(b *board.Board, m Move) bool {
+	return l.Screen(b, m) != Legal
+}
+
+// IsLegal reports whether m, from the list this Legality came with, is
+// legal. Make and unmake on the real board rather than cloning it: cloning
+// copied the whole Board for every candidate move of every piece that
+// could be pinned or in check, which the profile put at ~10% of all CPU at
+// depth 7.
+func (l Legality) IsLegal(b *board.Board, m Move) bool {
+	switch l.Screen(b, m) {
+	case Legal:
+		return true
+	case Illegal:
+		return false
+	}
+	undo := b.MakeMove(m.From, m.To)
+	illegal := moves.IsInCheck(b, l.color)
+	b.UnmakeMove(undo)
+	return !illegal
 }
 
 func (g *Game) IsCheckmate(color board.Color) bool {

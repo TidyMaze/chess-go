@@ -329,15 +329,10 @@ func (n *HalfKPNet) Evaluate(b *board.Board) float64 {
 	return n.head(acc[:h:h], acc[h:2*h:2*h])
 }
 
-// clip01 is the clipped ReLU both layers use.
+// clip01 is the clipped ReLU both layers use. min and max compile to FMAX and
+// FMIN: two comparisons were two branches per unit that no predictor guesses.
 func clip01(v float32) float32 {
-	if v < 0 {
-		return 0
-	}
-	if v > 1 {
-		return 1
-	}
-	return v
+	return min(max(v, 0), 1)
 }
 
 // toPawns turns the last layer's number into a score the search can use.
@@ -374,10 +369,11 @@ func (n *HalfKPNet) head(own, opp []float32) float64 {
 
 		i := 0
 		for ; i+4 <= h; i += 4 {
-			out += wOwn[i] * clip01(own[i])
-			out += wOwn[i+1] * clip01(own[i+1])
-			out += wOwn[i+2] * clip01(own[i+2])
-			out += wOwn[i+3] * clip01(own[i+3])
+			w4, a4 := wOwn[i:i+4:i+4], own[i:i+4:i+4]
+			out += w4[0] * clip01(a4[0])
+			out += w4[1] * clip01(a4[1])
+			out += w4[2] * clip01(a4[2])
+			out += w4[3] * clip01(a4[3])
 		}
 		for ; i < h; i++ {
 			out += wOwn[i] * clip01(own[i])
@@ -385,10 +381,11 @@ func (n *HalfKPNet) head(own, opp []float32) float64 {
 
 		i = 0
 		for ; i+4 <= h; i += 4 {
-			out += wOpp[i] * clip01(opp[i])
-			out += wOpp[i+1] * clip01(opp[i+1])
-			out += wOpp[i+2] * clip01(opp[i+2])
-			out += wOpp[i+3] * clip01(opp[i+3])
+			w4, a4 := wOpp[i:i+4:i+4], opp[i:i+4:i+4]
+			out += w4[0] * clip01(a4[0])
+			out += w4[1] * clip01(a4[1])
+			out += w4[2] * clip01(a4[2])
+			out += w4[3] * clip01(a4[3])
 		}
 		for ; i < h; i++ {
 			out += wOpp[i] * clip01(opp[i])
