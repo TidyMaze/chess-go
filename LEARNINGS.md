@@ -1671,4 +1671,29 @@ side of CPU (37% of a core against 50%), yet read the same -203.
 futility, LMR, LMP, null move, aspiration and delta pruning margins. The largest
 move was LMPBase 3 to 6.5. The result read +2 +/- 21 against the defaults over
 1,000 games and -214 +/- 26 against Stockfish: inside the noise both times. Twelve
-parameters need far more than 6,000 games.
+parameters need far more than 6,000 games. After 482 iterations the same
+comparison read +12 +/- 21, pointing the right way and still unproven.
+
+## A quiescence cap of 16 pays, and how the 100 ms games are lost
+
+`tools/lossaudit/loss_phases.py` over 1,000 games against Stockfish 2700 at
+100 ms: 713 losses, 435 of them evaluation lag (Stockfish saw it 10+ plies
+first) and 278 sudden, with the sudden ones collapsing at a median ply 24. 141
+losses collapsed within 20 plies of the start, and 58 of those began from a
+position Stockfish already scored +1 or more: 14% of `openings.txt` starts are
+decided before either engine moves, and some are not openings at all (a back
+rank of three queens, castling rights with the rook gone). 
+`openings_balanced.txt` keeps the 11,189 of the first 20,000 that Stockfish
+scores within half a pawn at depth 8.
+
+The capture search stopped at four plies, so a long exchange was scored
+mid-sequence. Champion against champion at 100 ms:
+
+| qply | W-D-L | Elo |
+| --- | --- | --- |
+| 8 | 381-247-372 | +3 +/- 21 |
+| 16 | 403-246-351 | +18 +/- 21 |
+| 16, replicated on the balanced openings | 387-272-341 | +16 +/- 22 |
+
+Pooled, cap 16 is +17 +/- 15 over 2,000 games and was adopted. It agrees with
+the 10 ms screen of 2026-09-12 (+21 +/- 34) that nobody had confirmed.
