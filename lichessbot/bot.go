@@ -79,14 +79,33 @@ type gameSession struct {
 	// position the bot never looked at.
 	claimed  string
 	hasClaim bool
-	// latest is the newest state read from the game stream.
-	latest gameState
+	// latest is the newest state read from the game stream, at latestAt.
+	latest   gameState
+	latestAt time.Time
 }
 
-func (s *gameSession) observe(st gameState) {
+func (s *gameSession) observe(st gameState, at time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.latest = st
+	s.latest, s.latestAt = st, at
+}
+
+// outageDeadline is the last moment the game can still be running while the
+// bot cannot reach it: both clocks of the newest state read, run down one
+// after the other from when it was read, since nobody gains time without
+// moving and the bot cannot move. It is never earlier than window after the
+// stream last worked, which also covers a game whose clocks are not known.
+func (s *gameSession) outageDeadline(lastWorked time.Time, window time.Duration) time.Time {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	deadline := lastWorked.Add(window)
+	if !s.latestAt.IsZero() {
+		clocks := time.Duration(s.latest.WhiteTimeMS+s.latest.BlackTimeMS) * time.Millisecond
+		if byClock := s.latestAt.Add(clocks); byClock.After(deadline) {
+			deadline = byClock
+		}
+	}
+	return deadline
 }
 
 func (s *gameSession) isClaimed(moves string) bool {
@@ -320,24 +339,47 @@ func (b *Bot) playGame(ctx context.Context, gameID string) {
 	var full gameFull
 	haveFull := false
 	empties := 0
+	lastWorked := time.Now()
+	outageDelay := b.reconnectDelay()
 	for {
 		if gameCtx.Err() != nil {
 			return
 		}
-		lines, over, err := b.readGameStream(gameCtx, gameID, &full, &haveFull, sess)
+		lines, opened, over, err := b.readGameStream(gameCtx, gameID, &full, &haveFull, sess)
 		if over {
 			return
 		}
-		// Progress is the thing worth retrying on. A connection that handed
-		// over even one line is a game lichess still knows about; several in
-		// a row that hand over nothing are a game it has forgotten, and
-		// retrying those forever would leave a goroutine spinning for the
-		// life of the process.
-		if lines > 0 {
+		wait := b.reconnectDelay()
+		switch {
+		case lines > 0:
+			// Progress is the thing worth retrying on: a connection that
+			// handed over even one line is a game lichess still knows about.
 			empties = 0
-		} else if empties++; empties >= maxEmptyGameStreams {
-			b.logf("game %s: giving up after %d connections that delivered nothing", gameID, empties)
-			return
+			lastWorked = time.Now()
+			outageDelay = b.reconnectDelay()
+		case opened || isDefinitive(err):
+			// Several connections in a row that hand over nothing, or that
+			// lichess refuses outright (a 404), are a game it has forgotten,
+			// and retrying those forever would leave a goroutine spinning for
+			// the life of the process.
+			if empties++; empties >= maxEmptyGameStreams {
+				b.logf("game %s: giving up after %d connections that delivered nothing", gameID, empties)
+				return
+			}
+		default:
+			// Not reached at all: the network is down, or lichess is
+			// restarting. That says nothing about the game, which goes on
+			// running on the clocks, so it is tried again with a growing
+			// wait until the clocks read last have both run out. Three tries
+			// a second apart used to abandon a live game after two seconds of
+			// outage.
+			if time.Now().After(sess.outageDeadline(lastWorked, b.maxReconnectDelay())) {
+				b.logf("game %s: giving up: no connection since %s, and the game clocks have run out",
+					gameID, lastWorked.Format(time.TimeOnly))
+				return
+			}
+			wait = outageDelay
+			outageDelay = b.nextReconnectDelay(outageDelay, 0)
 		}
 		if err != nil && err != io.EOF {
 			b.logf("game %s: stream ended: %v; reconnecting", gameID, err)
@@ -345,20 +387,21 @@ func (b *Bot) playGame(ctx context.Context, gameID string) {
 		select {
 		case <-gameCtx.Done():
 			return
-		case <-time.After(b.reconnectDelay()):
+		case <-time.After(wait):
 		}
 	}
 }
 
 // readGameStream reads one connection to a game's stream to its end. It
-// reports how many lines it managed to read, so the caller can tell a
-// dropped connection from a game lichess no longer serves, and whether the
-// game is over, which is the only reason to stop reconnecting.
-func (b *Bot) readGameStream(ctx context.Context, gameID string, full *gameFull, haveFull *bool, sess *gameSession) (lines int, over bool, err error) {
+// reports how many lines it managed to read and whether the connection opened
+// at all, so the caller can tell a dropped connection or an outage from a
+// game lichess no longer serves, and whether the game is over, which is the
+// only reason to stop reconnecting.
+func (b *Bot) readGameStream(ctx context.Context, gameID string, full *gameFull, haveFull *bool, sess *gameSession) (lines int, opened, over bool, err error) {
 	stream, err := b.API.streamNDJSON(ctx, "/api/bot/game/stream/"+gameID)
 	if err != nil {
 		b.logf("game %s: stream failed: %v", gameID, err)
-		return 0, false, err
+		return 0, false, false, err
 	}
 	defer stream.Close()
 
@@ -393,7 +436,7 @@ func (b *Bot) readGameStream(ctx context.Context, gameID string, full *gameFull,
 		}
 		return nil
 	})
-	return lines, over, err
+	return lines, true, over, err
 }
 
 // effectivePlayer applies this move's own clock to the champion, when
@@ -418,7 +461,7 @@ func effectivePlayer(base engine.Player, ourColor string, st gameState, speed st
 // maybeMove answers st when it is our turn. ctx is the game's: it bounds a
 // move post being retried after maybeMove has returned.
 func (b *Bot) maybeMove(ctx context.Context, gameID string, full gameFull, st gameState, received time.Time, sess *gameSession) {
-	sess.observe(st)
+	sess.observe(st, received)
 	if gameOver(st.Status) {
 		return
 	}
