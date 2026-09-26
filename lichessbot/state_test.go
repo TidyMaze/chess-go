@@ -445,6 +445,20 @@ func TestCorrespondenceChallengesAreDeclined(t *testing.T) {
 	}
 }
 
+// FataliiBot won 30 of 36 games (12.5% score) costing 45+ Elo points.
+// Declining its challenges preserves rating.
+func TestFataliiBotChallengesAreDeclined(t *testing.T) {
+	c := Challenge{
+		Variant:    "standard",
+		SpeedTC:    "bullet",
+		Rated:      true,
+		Challenger: "fataliibot",
+	}
+	if shouldAcceptChallenge(c) {
+		t.Error("challenge from fataliibot was accepted, want declined")
+	}
+}
+
 // The exported wrapper has to stay the same rule as the one the bot plays
 // by. It exists so clockaudit measures real games against this function
 // rather than a copy, and a wrapper that drifted would quietly defeat that.

@@ -12,7 +12,7 @@ func TestChallengeWireToChallenge(t *testing.T) {
 	c.Challenger.ID = "someoneelse"
 
 	got := c.toChallenge("tidymazebot")
-	want := Challenge{ID: "abc123", Variant: "standard", Rated: true, SpeedTC: "blitz", FromBot: true}
+	want := Challenge{ID: "abc123", Variant: "standard", Rated: true, SpeedTC: "blitz", FromBot: true, Challenger: "someoneelse"}
 	if got != want {
 		t.Errorf("got %+v, want %+v", got, want)
 	}

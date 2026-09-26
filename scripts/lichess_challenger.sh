@@ -31,7 +31,11 @@ BACKOFF=$BACKOFF_BASE
 BACKOFF_MAX=${CHALLENGE_BACKOFF_MAX:-3600}
 PERCYCLE=${CHALLENGE_PER_CYCLE:-1}
 RATELIMITED=0
+SKIP=${SKIP:-fataliibot}
 : > "$CAPPED"
+for s in $(echo "$SKIP" | tr ',' ' '); do
+  echo "$s" >> "$CAPPED"
+done
 : > "$RECENT"
 
 api() { curl -s -H "Authorization: Bearer $TOKEN" "$@"; }

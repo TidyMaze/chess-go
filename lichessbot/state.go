@@ -15,13 +15,14 @@ import (
 
 // A challenge lichess offers the bot. Only the fields the decision needs.
 type Challenge struct {
-	ID       string
-	Variant  string // "standard", "chess960", "atomic", ...
-	Rated    bool
-	SpeedTC  string // "bullet", "blitz", "rapid", "classical", "correspondence"
-	FromBot  bool   // the challenger is itself a bot account
-	Outgoing bool   // this bot sent the challenge; lichess echoes it back on the same stream
-	Casual   bool
+	ID         string
+	Variant    string // "standard", "chess960", "atomic", ...
+	Rated      bool
+	SpeedTC    string // "bullet", "blitz", "rapid", "classical", "correspondence"
+	FromBot    bool   // the challenger is itself a bot account
+	Outgoing   bool   // this bot sent the challenge; lichess echoes it back on the same stream
+	Casual     bool
+	Challenger string
 }
 
 // shouldAcceptChallenge decides whether to accept, without touching the
@@ -49,6 +50,10 @@ func shouldAcceptChallenge(c Challenge) bool {
 	// about a second a move more than its budget, which is contention, not
 	// engine cost. Every other measured game finished under budget.
 	if c.SpeedTC == "correspondence" {
+		return false
+	}
+	// FataliiBot won 30 of 36 games (12.5% score), costing -45 to -68 Elo.
+	if strings.EqualFold(c.Challenger, "fataliibot") {
 		return false
 	}
 	return true

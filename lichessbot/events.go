@@ -41,12 +41,13 @@ func (c challengeWire) isOutgoing(ourUsername string) bool {
 
 func (c challengeWire) toChallenge(ourUsername string) Challenge {
 	return Challenge{
-		ID:       c.ID,
-		Variant:  c.Variant.Key,
-		Rated:    c.Rated,
-		SpeedTC:  c.Speed,
-		FromBot:  c.Challenger.Title == "BOT",
-		Outgoing: c.isOutgoing(ourUsername),
+		ID:         c.ID,
+		Variant:    c.Variant.Key,
+		Rated:      c.Rated,
+		SpeedTC:    c.Speed,
+		FromBot:    c.Challenger.Title == "BOT",
+		Outgoing:   c.isOutgoing(ourUsername),
+		Challenger: c.Challenger.ID,
 	}
 }
 
