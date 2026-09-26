@@ -88,10 +88,11 @@ func TestLoneKingIsDrivenToTheMatingCorner(t *testing.T) {
 	}
 }
 
-// The mop-up replaces the king drive only for a bare king against minor
-// pieces that can mate it; the queen and rook mates keep the drive they
-// convert with, and anything with a pawn or a defender is left alone.
-func TestMopUpOnlyForAMinorPieceMate(t *testing.T) {
+// The mop-up replaces the king drive against a bare king whenever the
+// strong side has bishop and knight or bishops of both colours, whatever
+// else it has; queen and rook mates, material that cannot mate, and
+// anything a defender still has keep the old drive.
+func TestMopUpWheneverBishopAndKnightOrBothBishopsFaceABareKing(t *testing.T) {
 	for _, c := range []struct {
 		fen  string
 		want bool
@@ -99,14 +100,20 @@ func TestMopUpOnlyForAMinorPieceMate(t *testing.T) {
 		{"8/8/8/3k4/8/8/8/KBN5 w - - 0 1", true},
 		{"8/8/8/3k4/8/8/8/KBB5 w - - 0 1", true},
 		{"8/8/8/3k4/8/8/8/KBBN4 w - - 0 1", true},
-		{"8/8/8/3k4/8/8/8/KR6 w - - 0 1", false},  // rook mate keeps its drive
-		{"8/8/8/3k4/8/8/8/KQ6 w - - 0 1", false},  // so does the queen's
-		{"8/8/8/3k4/8/8/8/KB6 w - - 0 1", false},  // one bishop cannot mate
-		{"8/8/8/3k4/8/8/8/KNN5 w - - 0 1", false}, // nor two knights
-		{"8/8/8/3k4/8/8/P7/KBN5 w - - 0 1", false},
-		{"8/8/8/3k4/8/3p4/8/KBN5 w - - 0 1", false},
+		{"8/8/8/3k4/8/8/P7/KBN5 w - - 0 1", true},
+		{"8/8/8/3k4/8/8/8/KBNQ4 w - - 0 1", true},
+		{"8/8/8/3k4/8/8/8/KBBR4 w - - 0 1", true},
+		{"8/8/8/3k4/8/8/8/KR6 w - - 0 1", false},    // rook mate keeps its drive
+		{"8/8/8/3k4/8/8/8/KQ6 w - - 0 1", false},    // so does the queen's
+		{"8/8/8/3k4/8/8/8/KRB5 w - - 0 1", false},   // and a rook with one bishop
+		{"8/8/8/3k4/8/8/8/KB6 w - - 0 1", false},    // one bishop cannot mate
+		{"8/8/8/3k4/8/8/8/KNN5 w - - 0 1", false},   // nor two knights
+		{"8/8/8/3k4/8/8/8/KB1B4 w - - 0 1", false},  // nor bishops of one colour
+		{"8/8/8/3k4/8/8/P7/KB6 w - - 0 1", false},   // nor one bishop and a pawn
+		{"8/8/8/3k4/8/3p4/8/KBN5 w - - 0 1", false}, // the defender still has a pawn
+		{"8/8/8/3k4/8/3n4/8/KBB5 w - - 0 1", false}, // or a piece
 	} {
-		if _, ok := minorsMopUp(&mustFEN(t, c.fen).Board, board.White); ok != c.want {
+		if _, ok := mopUp(&mustFEN(t, c.fen).Board, board.White); ok != c.want {
 			t.Errorf("%s: mop-up %v, want %v", c.fen, ok, c.want)
 		}
 	}
@@ -159,6 +166,81 @@ func TestBotMatesWithBishopAndKnightOrTwoBishops(t *testing.T) {
 	} {
 		if end, plies := botPlaysOut(t, c.fen, 8, 100); end != "mate" || plies%2 == 0 {
 			t.Errorf("%s %s: %s after %d plies, want the lone king mated within the fifty moves", c.name, c.fen, end, plies)
+		}
+	}
+}
+
+// The mop-up adds up to 16.8 pawns on top of the net. Given only to bishop
+// and knight or two bishops, it made bishop and knight against a bare king
+// score 23.5 where the same position with an extra queen scored 11.3 and
+// with an extra pawn 9.7, so keeping the material was worth less than
+// handing it to the lone king. Wherever the lone king stands, one more pawn
+// or a queen must score more.
+func TestMopUpNeverPaysForMaterial(t *testing.T) {
+	botScore := botScorer(t)
+	near := func(a, b string) bool {
+		df, dr := int(a[0])-int(b[0]), int(a[1])-int(b[1])
+		return df >= -1 && df <= 1 && dr >= -1 && dr <= 1
+	}
+	for _, set := range []struct {
+		name  string
+		white map[string]byte
+	}{
+		{"bishop and knight", map[string]byte{"e4": 'K', "d3": 'B', "e5": 'N'}},
+		{"two bishops", map[string]byte{"e4": 'K', "d3": 'B', "e3": 'B'}},
+	} {
+		with := func(king, sq string, piece byte) string {
+			pieces := map[string]byte{king: 'k'}
+			for s, p := range set.white {
+				pieces[s] = p
+			}
+			if sq != "" {
+				pieces[sq] = piece
+			}
+			return fenOf(pieces)
+		}
+		checked := 0
+		for file := 'a'; file <= 'h'; file++ {
+			for rank := '1'; rank <= '8'; rank++ {
+				king := string(file) + string(rank)
+				touches := near(king, "g3") || near(king, "a2")
+				for s := range set.white {
+					touches = touches || near(king, s)
+				}
+				if touches {
+					continue
+				}
+				checked++
+				bare := botScore(with(king, "", 0))
+				if pawn := botScore(with(king, "g3", 'P')); bare >= pawn {
+					t.Errorf("lone king on %s: %s score %.2f, with a pawn more %.2f", king, set.name, bare, pawn)
+				}
+				if queen := botScore(with(king, "a2", 'Q')); bare >= queen {
+					t.Errorf("lone king on %s: %s score %.2f, with a queen more %.2f", king, set.name, bare, queen)
+				}
+			}
+		}
+		if checked < 20 {
+			t.Fatalf("%s: only %d lone king squares checked", set.name, checked)
+		}
+	}
+}
+
+// Found in review: with the pawn on c4 hanging to the lone king, the bot
+// played c5 or Ke3 at every depth and let the king take it, to reach the
+// bishop-and-knight ending the mop-up overvalued. Stockfish mates in 14
+// after Be6, which protects the pawn; master played Be6.
+func TestBotKeepsItsPawnAgainstABareKing(t *testing.T) {
+	g := mustFEN(t, "8/8/8/8/1kP2N2/7B/5K2/8 w - - 0 1")
+	SeedRandom(1)
+	m, ok := PlayerPickWith(botAtDepth(t, 8), g, NewTranspositionTable(18))
+	if !ok {
+		t.Fatal("no move")
+	}
+	g.ApplyMove(m.From, m.To)
+	for _, reply := range g.AllLegalMoves(board.Black) {
+		if p, ok := g.Board.PieceAt(reply.To); ok && p.Color == board.White && p.Type == board.Pawn {
+			t.Errorf("played %v%v: the lone king takes the pawn with %v%v", m.From, m.To, reply.From, reply.To)
 		}
 	}
 }

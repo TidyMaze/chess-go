@@ -369,7 +369,7 @@ func MaterialScore(b *board.Board, color board.Color, weights Weights) float64 {
 // push the enemy king to the board edge and bring your own king closer
 // to help deliver mate.
 func kingDrivingBonus(b *board.Board, color board.Color) float64 {
-	if bonus, ok := minorsMopUp(b, color); ok {
+	if bonus, ok := mopUp(b, color); ok {
 		return bonus
 	}
 	own := b.KingSquare(color)
