@@ -50,7 +50,8 @@ func TestServeUCIPlaysAGameOverStdio(t *testing.T) {
 	}
 	infos := 0
 	for i, l := range lines {
-		if strings.HasPrefix(l, "info depth ") && strings.Contains(l, " score cp ") && i+1 < len(lines) && strings.HasPrefix(lines[i+1], "bestmove ") {
+		scored := strings.Contains(l, " score cp ") || strings.Contains(l, " score mate ")
+		if strings.HasPrefix(l, "info depth ") && scored && i+1 < len(lines) && strings.HasPrefix(lines[i+1], "bestmove ") {
 			infos++
 		}
 	}

@@ -28,13 +28,14 @@ import (
 // rather than to equality.
 
 // naiveMinimax is the reference: every move, every ply, no cleverness.
-// Scores are from maximizingFor's point of view, matching the fast search.
-func naiveMinimax(g *game.Game, color, maximizingFor board.Color, depth int, ev *Eval) float64 {
+// Scores are from maximizingFor's point of view, matching the fast search,
+// and a mate counts ply, the distance from the root, as the fast search does.
+func naiveMinimax(g *game.Game, color, maximizingFor board.Color, depth, ply int, ev *Eval) float64 {
 	// Terminal before depth, in that order, because the fast search checks
 	// them in that order: a mate at the horizon is a mate, not a leaf.
 	moves := g.AllLegalMoves(color)
 	if len(moves) == 0 {
-		return terminalScore(g, color, maximizingFor, depth)
+		return terminalScore(g, color, maximizingFor, ply)
 	}
 	if depth == 0 {
 		return evalPosition(g, maximizingFor, ev)
@@ -47,7 +48,7 @@ func naiveMinimax(g *game.Game, color, maximizingFor board.Color, depth int, ev 
 	for _, m := range moves {
 		child := *g
 		child.ApplyMove(m.From, m.To)
-		v := naiveMinimax(&child, color.Other(), maximizingFor, depth-1, ev)
+		v := naiveMinimax(&child, color.Other(), maximizingFor, depth-1, ply+1, ev)
 		if maximizing {
 			if v > best {
 				best = v
@@ -104,7 +105,7 @@ func TestExactSearchMatchesNaiveMinimax(t *testing.T) {
 			if !ok {
 				continue // no legal moves
 			}
-			want := naiveMinimax(g, g.Turn, g.Turn, depth, evalForPlayer(p))
+			want := naiveMinimax(g, g.Turn, g.Turn, depth, 0, evalForPlayer(p))
 			if math.Abs(got-want) > 1e-9 {
 				t.Errorf("%s\n  depth %d, %s to move: alpha-beta %.9f, plain minimax %.9f",
 					fen, depth, sideName(g.Turn), got, want)
@@ -397,7 +398,7 @@ func exactMoveValues(t *testing.T, g *game.Game, depth int) map[game.Move]float6
 		child.ApplyMove(m.From, m.To)
 		// One ply is spent by the move itself, so the child is searched one
 		// shallower and both sides of the comparison see the same horizon.
-		out[m] = naiveMinimax(&child, child.Turn, mover, depth-1, ev)
+		out[m] = naiveMinimax(&child, child.Turn, mover, depth-1, 1, ev)
 	}
 	return out
 }

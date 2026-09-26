@@ -97,14 +97,31 @@ func ServeUCI(in io.Reader, out io.Writer, p Player) {
 					cutoff = 1
 				}
 				fmt.Fprintf(out, "info string cutoff %d\n", cutoff)
-				fmt.Fprintf(out, "info depth %d score cp %d nodes %d nps %d time %d\n",
-					LastSearchDepth(), int(math.Round(score*100)), nodes, nps, ms)
+				fmt.Fprintf(out, "info depth %d score %s nodes %d nps %d time %d\n",
+					LastSearchDepth(), uciScore(score), nodes, nps, ms)
 			}
 			fmt.Fprintln(out, "bestmove "+m.UCI())
 		case "quit":
 			return
 		}
 	}
+}
+
+// uciScore formats a score in pawns from the mover's side as UCI wants it:
+// "mate N" in moves for a mate (negative when the mover is the one mated),
+// "cp N" otherwise. A mate printed as centipawns read as cp 99500, which
+// says nothing about how far away it is. The harness and the loss audit
+// already parse both forms.
+func uciScore(score float64) string {
+	if math.Abs(score) >= mateBound {
+		plies := int(math.Round(mateScore - math.Abs(score)))
+		moves := (plies + 1) / 2
+		if score < 0 {
+			moves = -moves
+		}
+		return fmt.Sprintf("mate %d", moves)
+	}
+	return fmt.Sprintf("cp %d", int(math.Round(score*100)))
 }
 
 // uciPosition parses the arguments of a position command: startpos or a

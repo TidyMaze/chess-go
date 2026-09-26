@@ -49,11 +49,27 @@ func SeedRandom(seed int64) {
 
 const mateScore = 1000
 
+// mateBound is the smallest score that can only be a mate: a mate found ply
+// plies from the root scores mateScore - ply, and quiescence can run past
+// maxSearchPly by its own ply cap (16 in the champion), so the bound leaves
+// room for twice the main search's depth. Evaluations, tablebase wins
+// included, stay far below it.
+const mateBound = mateScore - 2*maxSearchPly
+
 // quiesceNodes counts quiescence nodes so nodes-per-second reflects the
 // whole search, not just the main tree.
 var quiesceNodes int64
 
-func terminalScore(g *game.Game, color, maximizingFor board.Color, depthLeft int) float64 {
+// terminalScore scores a node with no legal moves: stalemate is 0, and
+// checkmate is mateScore less the node's distance from the root, so a
+// shorter mate always scores higher than a longer one.
+//
+// It used to add the depth left instead. A mate found by a line that
+// reductions had shortened, or one found early in a deeper iteration,
+// then outscored a mate that was plies closer, so the engine switched
+// mating lines every move and never got nearer: Lichess lhT8MqvU was a
+// rook and bishop up with mate in three and drew by the fifty-move rule.
+func terminalScore(g *game.Game, color, maximizingFor board.Color, ply int) float64 {
 	if moves.IsInCheck(&g.Board, color) {
 		// `color` is the side to move and has no legal moves: it is
 		// checkmated. That's terrible for `color` and great for the other
@@ -63,7 +79,7 @@ func terminalScore(g *game.Game, color, maximizingFor board.Color, depthLeft int
 		if color == maximizingFor {
 			sign = -1.0
 		}
-		return sign * (mateScore + float64(depthLeft))
+		return sign * (mateScore - float64(ply))
 	}
 	return 0
 }
@@ -111,7 +127,7 @@ func orderInPlace(g *game.Game, out []game.Move) []game.Move {
 // stops mid-exchange and scores a position it has only half-evaluated
 // (the horizon effect) -- e.g. counting a queen it just "won" without
 // seeing the recapture on the very next ply.
-func minimaxOpts(g *game.Game, color, maximizingFor board.Color, depth int, alpha, beta float64, ev *Eval, useQuiescence bool) float64 {
+func minimaxOpts(g *game.Game, color, maximizingFor board.Color, depth, ply int, alpha, beta float64, ev *Eval, useQuiescence bool) float64 {
 	// Transposition probe: the same position is reached by many different
 	// move orders, and without this the search re-explores each arrival
 	// from scratch.
@@ -119,7 +135,7 @@ func minimaxOpts(g *game.Game, color, maximizingFor board.Color, depth int, alph
 	tt := ev.table()
 	if tt != nil && depth > 0 {
 		key = zobristHash(g)
-		if score, ok := tt.probe(key, depth, maximizingFor, alpha, beta); ok {
+		if score, ok := tt.probe(key, depth, ply, maximizingFor, alpha, beta); ok {
 			return score
 		}
 	}
@@ -128,11 +144,11 @@ func minimaxOpts(g *game.Game, color, maximizingFor board.Color, depth int, alph
 	var moveBuf [48]game.Move
 	legalMoves := g.AppendLegalMoves(moveBuf[:0], color)
 	if len(legalMoves) == 0 {
-		return terminalScore(g, color, maximizingFor, depth)
+		return terminalScore(g, color, maximizingFor, ply)
 	}
 	if depth == 0 {
 		if useQuiescence {
-			return quiesce(g, color, maximizingFor, alpha, beta, ev, 0, 0)
+			return quiesce(g, color, maximizingFor, alpha, beta, ev, 0, ply)
 		}
 		return evalPosition(g, maximizingFor, ev)
 	}
@@ -154,7 +170,7 @@ func minimaxOpts(g *game.Game, color, maximizingFor board.Color, depth int, alph
 		passed := game.Game{Board: g.Board, Turn: color.Other()}
 		passed.Board.SetEPSquare(board.Sq{}, false)
 		const reduction = 2
-		score := minimaxOpts(&passed, color.Other(), maximizingFor, depth-1-reduction, alpha, beta, ev, useQuiescence)
+		score := minimaxOpts(&passed, color.Other(), maximizingFor, depth-1-reduction, ply+1, alpha, beta, ev, useQuiescence)
 		if maximizing && score >= beta {
 			return score
 		}
@@ -174,7 +190,7 @@ func minimaxOpts(g *game.Game, color, maximizingFor board.Color, depth int, alph
 		// source of allocated bytes in the profile.
 		next := game.Game{Board: g.Board, Turn: color}
 		next.ApplyMove(m.From, m.To)
-		value := minimaxOpts(&next, color.Other(), maximizingFor, depth-1, alpha, beta, ev, useQuiescence)
+		value := minimaxOpts(&next, color.Other(), maximizingFor, depth-1, ply+1, alpha, beta, ev, useQuiescence)
 		if maximizing {
 			if value > best {
 				best = value
@@ -202,7 +218,7 @@ func minimaxOpts(g *game.Game, color, maximizingFor board.Color, depth int, alph
 		} else if best >= origBeta {
 			flag = ttLowerBound
 		}
-		tt.store(key, best, depth, flag, maximizingFor)
+		tt.store(key, best, depth, ply, flag, maximizingFor)
 	}
 	return best
 }
@@ -217,7 +233,8 @@ const posInf = 1e18
 const maxQuiescePly = 4
 
 // basePly is the search ply of the node quiescence started from, so the
-// accumulator stack keeps counting below it.
+// accumulator stack keeps counting below it and a mate is scored by its
+// distance from the root, basePly+ply.
 func quiesce(g *game.Game, color, maximizingFor board.Color, alpha, beta float64, ev *Eval, ply, basePly int) float64 {
 	return quiesceWithKey(g, zobristBoard(&g.Board, color), color, maximizingFor, alpha, beta, ev, ply, basePly)
 }
@@ -229,7 +246,7 @@ func quiesceWithKey(g *game.Game, key uint64, color, maximizingFor board.Color, 
 	}
 	tt := ev.table()
 	if tt != nil {
-		if score, ok := tt.probe(key, 0, maximizingFor, alpha, beta); ok {
+		if score, ok := tt.probe(key, 0, basePly+ply, maximizingFor, alpha, beta); ok {
 			return score
 		}
 	}
@@ -242,7 +259,7 @@ func quiesceWithKey(g *game.Game, key uint64, color, maximizingFor board.Color, 
 		var moveBuf [96]game.Move
 		legal, _, anyLegal := g.AppendQuiescenceMoves(moveBuf[:0], color)
 		if !anyLegal {
-			return terminalScore(g, color, maximizingFor, 0)
+			return terminalScore(g, color, maximizingFor, basePly+ply)
 		}
 		if ply >= ev.quiescePly() {
 			return evalPositionFor(g, color, maximizingFor, ev)
@@ -291,7 +308,7 @@ func quiesceWithKey(g *game.Game, key uint64, color, maximizingFor board.Color, 
 					flag = ttLowerBound
 				}
 			}
-			tt.store(key, best, 0, flag, maximizingFor)
+			tt.store(key, best, 0, basePly+ply, flag, maximizingFor)
 		}
 		return best
 	}
@@ -324,7 +341,7 @@ func quiesceWithKey(g *game.Game, key uint64, color, maximizingFor board.Color, 
 	var moveBuf [96]game.Move
 	legal, _, anyLegal := g.AppendQuiescenceMoves(moveBuf[:0], color)
 	if !anyLegal {
-		return terminalScore(g, color, maximizingFor, 0)
+		return terminalScore(g, color, maximizingFor, basePly+ply)
 	}
 
 	best := standPat
@@ -400,7 +417,7 @@ func quiesceWithKey(g *game.Game, key uint64, color, maximizingFor board.Color, 
 		} else if best >= origBeta {
 			flag = ttLowerBound
 		}
-		tt.store(key, best, 0, flag, maximizingFor)
+		tt.store(key, best, 0, basePly+ply, flag, maximizingFor)
 	}
 	return best
 }
@@ -425,7 +442,7 @@ func chooseMoveOpts(g *game.Game, color board.Color, depth int, ev *Eval, useQui
 	for _, m := range legalMoves {
 		next := game.Game{Board: g.Board, Turn: color}
 		next.ApplyMove(m.From, m.To)
-		score := minimaxOpts(&next, color.Other(), color, depth-1, negInf, posInf, ev, useQuiescence)
+		score := minimaxOpts(&next, color.Other(), color, depth-1, 1, negInf, posInf, ev, useQuiescence)
 		if score > bestScore {
 			bestScore = score
 			best = best[:0]

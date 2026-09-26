@@ -102,10 +102,10 @@ func TestLegacySearchTableFlagsAndNullMove(t *testing.T) {
 		}
 	}
 	var none *TranspositionTable
-	if _, ok := none.probe(1, 1, board.White, -1, 1); ok {
+	if _, ok := none.probe(1, 1, 0, board.White, -1, 1); ok {
 		t.Error("nil table answered")
 	}
-	none.store(1, 0, 1, ttExact, board.White) // no-op
+	none.store(1, 0, 1, 0, ttExact, board.White) // no-op
 }
 
 func TestMarshalFailuresSurface(t *testing.T) {

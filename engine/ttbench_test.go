@@ -11,9 +11,9 @@ import (
 // full 2^20 table the engine plays with.
 func BenchmarkTTProbeWarm(b *testing.B) {
 	t := NewTranspositionTable(10)
-	t.store(12345, 0.5, 3, ttExact, board.White)
+	t.store(12345, 0.5, 3, 0, ttExact, board.White)
 	for i := 0; i < b.N; i++ {
-		t.probe(12345, 3, board.White, -1, 1)
+		t.probe(12345, 3, 0, board.White, -1, 1)
 	}
 }
 
@@ -24,6 +24,6 @@ func BenchmarkTTProbeRandomLarge(b *testing.B) {
 		x ^= x << 13
 		x ^= x >> 7
 		x ^= x << 17
-		t.probe(x, 3, board.White, -1, 1)
+		t.probe(x, 3, 0, board.White, -1, 1)
 	}
 }

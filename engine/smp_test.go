@@ -36,10 +36,10 @@ func TestSharedTranspositionTableIsSafeUnderConcurrentUse(t *testing.T) {
 			for i := 0; i < perWorker; i++ {
 				key := uint64(i*workers+w+1) * 0x9E3779B97F4A7C15
 				score := float64(i%200) - 100
-				tt.store(key, score, 3, ttExact, board.White)
+				tt.store(key, score, 3, 0, ttExact, board.White)
 				// Another worker may have taken the slot with a different
 				// key, in which case this misses. A hit must be our value.
-				if got, ok := tt.probe(key, 3, board.White, negInf, posInf); ok && got != score {
+				if got, ok := tt.probe(key, 3, 0, board.White, negInf, posInf); ok && got != score {
 					t.Errorf("probe returned %v for a key stored with %v", got, score)
 				}
 			}
@@ -63,7 +63,7 @@ func TestParallelExactSearchMatchesNaiveMinimax(t *testing.T) {
 			if !ok {
 				continue
 			}
-			want := naiveMinimax(g, g.Turn, g.Turn, depth, evalForPlayer(p))
+			want := naiveMinimax(g, g.Turn, g.Turn, depth, 0, evalForPlayer(p))
 			if math.Abs(got-want) > 1e-9 {
 				t.Errorf("%s\n  depth %d: four threads %.9f, plain minimax %.9f", fen, depth, got, want)
 			}

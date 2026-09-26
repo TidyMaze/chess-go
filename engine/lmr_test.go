@@ -92,9 +92,14 @@ func TestLMRTwoStepCutsNodes(t *testing.T) {
 		a, b := Strong(6), Strong(6)
 		a.LMRTwoStep = false
 		b.LMRTwoStep = true
+		// Seeded: the tie-break steers the next iteration's ordering, and
+		// unseeded the 1 to 3% margin moved with however many random draws
+		// the tests before this one had made.
+		SeedRandom(1)
 		ResetNodes()
 		m1, ok1 := PlayerPick(a, g)
 		oneStep += TotalNodes()
+		SeedRandom(1)
 		ResetNodes()
 		m2, ok2 := PlayerPick(b, g)
 		twoStep += TotalNodes()

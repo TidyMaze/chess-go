@@ -443,7 +443,10 @@ func (c *searchCtx) singularExtension(g *game.Game, tt *TranspositionTable, key 
 	if !ok || ttDepth < depth-3 || (flag != ttLowerBound && flag != ttExact) {
 		return 0
 	}
-	if score >= mateScore-maxSearchPly || score <= -mateScore+maxSearchPly {
+	// The raw entry is a distance from the node that stored it, not from
+	// the root, but a mate is refused either way and anything else is not
+	// adjusted, so it needs no conversion here.
+	if score >= mateBound || score <= -mateBound {
 		return 0
 	}
 	target := score - singularMargin(depth)
@@ -741,7 +744,7 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 		return 0
 	}
 	if tt != nil && depth > 0 {
-		if score, cutoff, m, okMove := tt.probeWithMove(key, depth, maximizingFor, alpha, beta); cutoff {
+		if score, cutoff, m, okMove := tt.probeWithMove(key, depth, ply, maximizingFor, alpha, beta); cutoff {
 			return score
 		} else if okMove {
 			ttMove = m
@@ -766,7 +769,7 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 		var moveBuf [96]game.Move
 		legal, _ := g.AppendLegalMovesInCheck(moveBuf[:0], color)
 		if len(legal) == 0 {
-			return terminalScore(g, color, maximizingFor, depth)
+			return terminalScore(g, color, maximizingFor, ply)
 		}
 		return evalPositionFor(g, color, maximizingFor, c.ev)
 	}
@@ -795,7 +798,6 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 	// convert either way), so it is insurance rather than a proven fix,
 	// kept because it costs two comparisons on a path that already
 	// evaluates the position.
-	const mateBound = mateScore - maxSearchPly
 	t := c.ev.tune()
 	staticEval, haveStatic := 0.0, false
 	futile := c.ev != nil && c.ev.Futility && !inCheck && depth <= 3 &&
@@ -1023,7 +1025,7 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 				} else if best >= origBeta {
 					flag = ttLowerBound
 				}
-				tt.storeWithMove(key, best, depth, flag, maximizingFor, bestMove)
+				tt.storeWithMove(key, best, depth, ply, flag, maximizingFor, bestMove)
 			}
 			return best
 		}
@@ -1052,7 +1054,7 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 		// when every move is pruned, and its absence is mate or stalemate.
 		first := firstLegal(g, list, legality)
 		if first < 0 {
-			return terminalScore(g, color, maximizingFor, depth)
+			return terminalScore(g, color, maximizingFor, ply)
 		}
 		bestMove = list[first]
 		list = list[first:]
@@ -1282,7 +1284,7 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 		} else if best >= origBeta {
 			flag = ttLowerBound
 		}
-		tt.storeWithMove(key, best, depth, flag, maximizingFor, bestMove)
+		tt.storeWithMove(key, best, depth, ply, flag, maximizingFor, bestMove)
 	}
 	return best
 }
@@ -1790,7 +1792,6 @@ func reverseFutilityMargin(depth int) float64 { return 0.5 + 0.35*float64(depth)
 // reverseFutilityCuts is the deep reverse futility rule: depths 4 to 7,
 // zero-window nodes only, not in check, not on a mate-bound window.
 func reverseFutilityCuts(depth int, staticEval, alpha, beta float64, maximizing, inCheck bool) bool {
-	const mateBound = mateScore - maxSearchPly
 	if depth < 4 || depth > 7 || inCheck || !zeroWindow(alpha, beta) || alpha <= -mateBound || beta >= mateBound {
 		return false
 	}

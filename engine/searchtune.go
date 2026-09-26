@@ -140,7 +140,6 @@ func (t *SearchTune) marginRFP(depth int) float64 {
 
 // cutsRFP is reverseFutilityCuts, reading the tune when there is one.
 func (t *SearchTune) cutsRFP(depth int, staticEval, alpha, beta float64, maximizing, inCheck bool) bool {
-	const mateBound = mateScore - maxSearchPly
 	if depth < 4 || depth > 7 || inCheck || !zeroWindow(alpha, beta) || alpha <= -mateBound || beta >= mateBound {
 		return false
 	}

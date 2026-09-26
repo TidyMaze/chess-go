@@ -213,7 +213,37 @@ func NewTranspositionTable(sizePow2 uint) *TranspositionTable {
 	return &TranspositionTable{entries: make([]ttEntry, n), mask: n - 1}
 }
 
-func (t *TranspositionTable) probe(key uint64, depth int, maximizingFor board.Color, alpha, beta float64) (float64, bool) {
+// scoreToTT turns a mate score, which the search counts from the root, into
+// a distance from the node being stored, and scoreFromTT turns it back at
+// the ply it is probed from. The same position is reached at many plies,
+// and a raw mate score stored at one of them claims the wrong distance at
+// every other: two plies deeper it promises a mate two plies too soon. That
+// was enough, with the old depth-left scores, to make every mate look alike
+// and let a won ending run into the fifty-move rule. Scores that are not
+// mates are positions, not distances, and pass through untouched.
+func scoreToTT(score float64, ply int) float64 {
+	switch {
+	case score >= mateBound:
+		return score + float64(ply)
+	case score <= -mateBound:
+		return score - float64(ply)
+	}
+	return score
+}
+
+func scoreFromTT(score float64, ply int) float64 {
+	switch {
+	case score >= mateBound:
+		return score - float64(ply)
+	case score <= -mateBound:
+		return score + float64(ply)
+	}
+	return score
+}
+
+// probe converts the stored score to this ply before comparing it with the
+// window, since alpha and beta are root-relative too.
+func (t *TranspositionTable) probe(key uint64, depth, ply int, maximizingFor board.Color, alpha, beta float64) (float64, bool) {
 	if t == nil {
 		return 0, false
 	}
@@ -232,7 +262,7 @@ func (t *TranspositionTable) probe(key uint64, depth int, maximizingFor board.Co
 	if e.key32 != keyUpper(key) || int(e.depth) < depth || e.maximizingFor != uint8(maximizingFor) {
 		return 0, false
 	}
-	score := e.score
+	score := scoreFromTT(e.score, ply)
 	switch e.flag {
 	case ttExact:
 		return score, true
@@ -249,7 +279,7 @@ func (t *TranspositionTable) probe(key uint64, depth int, maximizingFor board.Co
 }
 
 // probeWithMove probes for both a cutoff score and the stored best move in a single lookup and lock.
-func (t *TranspositionTable) probeWithMove(key uint64, depth int, maximizingFor board.Color, alpha, beta float64) (score float64, cutoff bool, m game.Move, okMove bool) {
+func (t *TranspositionTable) probeWithMove(key uint64, depth, ply int, maximizingFor board.Color, alpha, beta float64) (score float64, cutoff bool, m game.Move, okMove bool) {
 	if t == nil {
 		return 0, false, game.Move{}, false
 	}
@@ -273,7 +303,7 @@ func (t *TranspositionTable) probeWithMove(key uint64, depth int, maximizingFor 
 	if int(e.depth) < depth || e.maximizingFor != uint8(maximizingFor) {
 		return 0, false, m, true
 	}
-	score = e.score
+	score = scoreFromTT(e.score, ply)
 	switch e.flag {
 	case ttExact:
 		return score, true, m, true
@@ -289,20 +319,20 @@ func (t *TranspositionTable) probeWithMove(key uint64, depth int, maximizingFor 
 	return 0, false, m, true
 }
 
-func (t *TranspositionTable) store(key uint64, score float64, depth int, flag ttFlag, maximizingFor board.Color) {
-	t.storeWithMove(key, score, depth, flag, maximizingFor, game.Move{})
+func (t *TranspositionTable) store(key uint64, score float64, depth, ply int, flag ttFlag, maximizingFor board.Color) {
+	t.storeWithMove(key, score, depth, ply, flag, maximizingFor, game.Move{})
 }
 
 // storeWithMove also remembers the best move found, which the next
 // iterative-deepening pass tries first -- the main reason iterative
 // deepening ends up cheaper than searching the target depth directly.
-func (t *TranspositionTable) storeWithMove(key uint64, score float64, depth int, flag ttFlag, maximizingFor board.Color, best game.Move) {
+func (t *TranspositionTable) storeWithMove(key uint64, score float64, depth, ply int, flag ttFlag, maximizingFor board.Color, best game.Move) {
 	if t == nil {
 		return
 	}
 	idx := key & t.mask
 	entry := ttEntry{
-		key32: keyUpper(key), score: score, depth: int8(depth), flag: flag,
+		key32: keyUpper(key), score: scoreToTT(score, ply), depth: int8(depth), flag: flag,
 		maximizingFor: uint8(maximizingFor),
 		from:          sqToIndex(best.From), to: sqToIndex(best.To),
 	}
