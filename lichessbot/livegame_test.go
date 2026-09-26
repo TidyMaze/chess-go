@@ -13,14 +13,18 @@ import (
 )
 
 // liveGameAPI serves one game's stream the way lichess does: every connection
-// starts with body and then stays open with nothing more to say until its
-// context ends. The event stream and the record of posts are fakeAPI's.
+// starts with body and then stays open, delivering whatever is pushed on
+// lines, until its context ends. The event stream and the record of posts
+// are fakeAPI's; onPost, when set, decides the answer to a post fakeAPI let
+// through.
 type liveGameAPI struct {
 	*fakeAPI
-	path  string
-	body  string
-	mu    sync.Mutex
-	opens int
+	path   string
+	body   string
+	lines  chan string
+	onPost func(path string) error
+	mu     sync.Mutex
+	opens  int
 }
 
 func (l *liveGameAPI) streamNDJSON(ctx context.Context, path string) (io.ReadCloser, error) {
@@ -30,7 +34,93 @@ func (l *liveGameAPI) streamNDJSON(ctx context.Context, path string) (io.ReadClo
 	l.mu.Lock()
 	l.opens++
 	l.mu.Unlock()
-	return io.NopCloser(io.MultiReader(strings.NewReader(l.body), blockingReader{ctx: ctx})), nil
+	return io.NopCloser(io.MultiReader(strings.NewReader(l.body), &lineReader{ctx: ctx, lines: l.lines})), nil
+}
+
+func (l *liveGameAPI) postForm(path string, form string) error {
+	if err := l.fakeAPI.postForm(path, form); err != nil {
+		return err
+	}
+	if l.onPost != nil {
+		return l.onPost(path)
+	}
+	return nil
+}
+
+// lineReader is blockingReader that also hands over each line pushed on
+// lines. A nil channel makes it exactly blockingReader.
+type lineReader struct {
+	ctx   context.Context
+	lines <-chan string
+	buf   []byte
+}
+
+func (r *lineReader) Read(p []byte) (int, error) {
+	for len(r.buf) == 0 {
+		select {
+		case <-r.ctx.Done():
+			return 0, r.ctx.Err()
+		case line := <-r.lines:
+			r.buf = []byte(line + "\n")
+		}
+	}
+	n := copy(p, r.buf)
+	r.buf = r.buf[n:]
+	return n, nil
+}
+
+func gameStateLine(moves string) string {
+	return fmt.Sprintf(`{"type":"gameState","moves":%q,"status":"started"}`, moves)
+}
+
+// referee plays lichess's side of one game on a liveGameAPI with lines: it
+// keeps the real move list, refuses a move that is out of turn or illegal as
+// lichess does ("Not your turn, or game already over"), and after each move
+// it accepts pushes the new state, then the opponent's next reply if any.
+type referee struct {
+	mu       sync.Mutex
+	moves    string
+	accepted int
+	rejected int
+}
+
+func newReferee(l *liveGameAPI, botColor string, replies ...string) *referee {
+	r := &referee{}
+	l.onPost = func(path string) error {
+		if !strings.Contains(path, "/move/") {
+			return nil
+		}
+		uci := path[strings.LastIndex(path, "/")+1:]
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		g, err := applyMovesString("startpos", r.moves)
+		legal := false
+		if err == nil && isOurTurn(g, botColor) {
+			for _, m := range g.AllLegalMoves(g.Turn) {
+				legal = legal || moveUCIForLichess(g, m) == uci
+			}
+		}
+		if !legal {
+			r.rejected++
+			return fmt.Errorf("POST %s: 400 Bad Request: Not your turn, or game already over", path)
+		}
+		r.accepted++
+		r.moves = strings.TrimSpace(r.moves + " " + uci)
+		l.lines <- gameStateLine(r.moves)
+		if len(replies) > 0 {
+			r.moves += " " + replies[0]
+			replies = replies[1:]
+			l.lines <- gameStateLine(r.moves)
+		}
+		return nil
+	}
+	return r
+}
+
+func (r *referee) counts() (accepted, rejected int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.accepted, r.rejected
 }
 
 func (l *liveGameAPI) openCount() int {
@@ -88,5 +178,30 @@ func TestAnEventStreamReconnectDoesNotStartASecondLoopForAGameInPlay(t *testing.
 	}
 	if got := l.movePosts(); len(got) != 1 {
 		t.Errorf("move posts %v, want exactly 1 for one turn", got)
+	}
+}
+
+// An opponent who offers a draw (or proposes a takeback) while the bot thinks
+// makes lichess queue a gameState with the move list the bot is answering.
+// Read after the move went out, it must not start a second search: that
+// search blocks the stream while the real reply waits on the bot's clock,
+// and its move is then refused or, worse, accepted as the answer to a
+// position the bot never looked at.
+func TestAQueuedDrawOfferDoesNotMakeTheBotAnswerTheSameMovesTwice(t *testing.T) {
+	f := newFakeAPI()
+	f.streams["/api/stream/event"] = `{"type":"gameStart","game":{"id":"d1"}}` + "\n"
+	l := &liveGameAPI{fakeAPI: f, path: "/api/bot/game/stream/d1", lines: make(chan string, 16),
+		body: gameFullLine("d1", "white", "", 0) + `{"type":"gameState","moves":"","status":"started","bdraw":true}` + "\n"}
+	r := newReferee(l, "white", "g8f6")
+	b := &Bot{API: l, Player: engine.Strong(1), Username: "tidymazebot", Log: silentLogger()}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := b.runOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, 2*time.Second, "two accepted moves", func() bool { a, _ := r.counts(); return a >= 2 })
+	time.Sleep(300 * time.Millisecond)
+	if a, rej := r.counts(); a != 2 || rej != 0 {
+		t.Errorf("move posts %v: %d accepted, %d refused; want 2 accepted and none refused", l.movePosts(), a, rej)
 	}
 }

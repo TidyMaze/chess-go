@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net/url"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -55,6 +56,26 @@ type Bot struct {
 	// for a game already being played: two searches per move on the same
 	// cores, two posts, and one game counted twice against MaxGames.
 	active sync.Map
+}
+
+// gameSession is what one game carries from one move to the next.
+type gameSession struct {
+	// One estimate per game: the overhead is a property of who is on the
+	// other side, so it must not be shared between games or carried across
+	// them.
+	overhead *overheadEstimate
+	// One transposition table per game, so subsequent moves in the same game
+	// reuse previously explored branches rather than re-allocating 24-96 MB
+	// every move.
+	table *engine.TranspositionTable
+	// claimed is the move list the bot is answering or has answered. An
+	// opponent who offers a draw or proposes a takeback while the bot thinks
+	// makes lichess queue a gameState with that same list; searching it
+	// again blocks the stream while the real reply waits on the bot's clock,
+	// and the stale move is then refused, or accepted as the answer to a
+	// position the bot never looked at.
+	claimed  string
+	hasClaim bool
 }
 
 const (
@@ -231,15 +252,9 @@ func (b *Bot) playGame(ctx context.Context, gameID string) {
 	defer func() {
 		b.logf("game %s: finished after %s", gameID, time.Since(started).Round(time.Second))
 	}()
-	// One estimate per game: the overhead is a property of who is on the
-	// other side, so it must not be shared between games or carried across
-	// them.
-	overhead := newOverheadEstimate()
-	// One transposition table per game, so subsequent moves in the same game
-	// reuse previously explored branches rather than re-allocating 24-96 MB every move.
-	var gameTable *engine.TranspositionTable
+	sess := &gameSession{overhead: newOverheadEstimate()}
 	if b.Player.TTBits > 0 {
-		gameTable = engine.NewTranspositionTable(b.Player.TTBits)
+		sess.table = engine.NewTranspositionTable(b.Player.TTBits)
 	}
 	gameCtx, dropGame := context.WithCancel(ctx)
 	defer dropGame()
@@ -257,7 +272,7 @@ func (b *Bot) playGame(ctx context.Context, gameID string) {
 		if gameCtx.Err() != nil {
 			return
 		}
-		lines, over, err := b.readGameStream(gameCtx, gameID, &full, &haveFull, overhead, gameTable)
+		lines, over, err := b.readGameStream(gameCtx, gameID, &full, &haveFull, sess)
 		if over {
 			return
 		}
@@ -287,7 +302,7 @@ func (b *Bot) playGame(ctx context.Context, gameID string) {
 // reports how many lines it managed to read, so the caller can tell a
 // dropped connection from a game lichess no longer serves, and whether the
 // game is over, which is the only reason to stop reconnecting.
-func (b *Bot) readGameStream(ctx context.Context, gameID string, full *gameFull, haveFull *bool, overhead *overheadEstimate, gameTable *engine.TranspositionTable) (lines int, over bool, err error) {
+func (b *Bot) readGameStream(ctx context.Context, gameID string, full *gameFull, haveFull *bool, sess *gameSession) (lines int, over bool, err error) {
 	stream, err := b.API.streamNDJSON(ctx, "/api/bot/game/stream/"+gameID)
 	if err != nil {
 		b.logf("game %s: stream failed: %v", gameID, err)
@@ -312,7 +327,7 @@ func (b *Bot) readGameStream(ctx context.Context, gameID string, full *gameFull,
 			}
 			*haveFull = true
 			over = over || gameOver(full.State.Status)
-			b.maybeMove(gameID, *full, full.State, received, overhead, gameTable)
+			b.maybeMove(gameID, *full, full.State, received, sess)
 		case "gameState":
 			if !*haveFull {
 				return nil
@@ -322,7 +337,7 @@ func (b *Bot) readGameStream(ctx context.Context, gameID string, full *gameFull,
 				return nil
 			}
 			over = over || gameOver(st.Status)
-			b.maybeMove(gameID, *full, st, received, overhead, gameTable)
+			b.maybeMove(gameID, *full, st, received, sess)
 		}
 		return nil
 	})
@@ -348,8 +363,12 @@ func effectivePlayer(base engine.Player, ourColor string, st gameState, speed st
 	return base
 }
 
-func (b *Bot) maybeMove(gameID string, full gameFull, st gameState, received time.Time, overhead *overheadEstimate, gameTable *engine.TranspositionTable) {
+func (b *Bot) maybeMove(gameID string, full gameFull, st gameState, received time.Time, sess *gameSession) {
 	if gameOver(st.Status) {
+		return
+	}
+	moves := strings.TrimSpace(st.Moves)
+	if sess.hasClaim && sess.claimed == moves {
 		return
 	}
 	color, err := ourColor(full, b.Username)
@@ -369,12 +388,13 @@ func (b *Bot) maybeMove(gameID string, full gameFull, st gameState, received tim
 	if !isOurTurn(g, color) {
 		return
 	}
-	player := effectivePlayer(b.Player, color, st, full.Speed, overhead)
+	sess.claimed, sess.hasClaim = moves, true
+	player := effectivePlayer(b.Player, color, st, full.Speed, sess.overhead)
 	searchStart := time.Now()
 	var m game.Move
 	var ok bool
-	if gameTable != nil {
-		m, ok = engine.PlayerPickWith(player, g, gameTable)
+	if sess.table != nil {
+		m, ok = engine.PlayerPickWith(player, g, sess.table)
 	} else {
 		m, ok = engine.PlayerPick(player, g)
 	}
@@ -389,8 +409,11 @@ func (b *Bot) maybeMove(gameID string, full gameFull, st gameState, received tim
 	posted := time.Since(postStart)
 	// Feed it back, so the next move of this game budgets for what this one
 	// actually cost rather than for what a constant guessed.
-	overhead.observe(posted)
+	sess.overhead.observe(posted)
 	if err != nil {
+		// Not answered after all, so a later event with the same moves,
+		// such as a reconnect's gameFull, may try again.
+		sess.hasClaim = false
 		b.logf("game %s: move %s failed: %v", gameID, uci, err)
 		return
 	}
