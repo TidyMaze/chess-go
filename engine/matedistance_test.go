@@ -84,11 +84,11 @@ func TestTableKeepsAMateDistanceAcrossPlies(t *testing.T) {
 	tt.store(key, mateScore-7, 5, 3, ttExact, board.White)
 	// Reached 5 plies from the root, the same position is still mated 4
 	// plies later: 9 plies from the root.
-	if got, ok := tt.probe(key, 5, 5, board.White, negInf, posInf); !ok || got != mateScore-9 {
+	if got, ok := tt.probe(key, 5, 5, 0, board.White, negInf, posInf); !ok || got != mateScore-9 {
 		t.Errorf("winning mate probed at ply 5: %v (ok %v), want %v", got, ok, mateScore-9)
 	}
 	// Reached at ply 1, the mate is 5 plies from the root.
-	if got, _, _, _ := tt.probeWithMove(key, 5, 1, board.White, negInf, posInf); got != mateScore-5 {
+	if got, _, _, _ := tt.probeWithMove(key, 5, 1, 0, board.White, negInf, posInf); got != mateScore-5 {
 		t.Errorf("winning mate probed at ply 1: %v, want %v", got, mateScore-5)
 	}
 
@@ -96,7 +96,7 @@ func TestTableKeepsAMateDistanceAcrossPlies(t *testing.T) {
 	// from the root, stored at ply 2, reached again at ply 4.
 	const losing = 0x0fedcba987654321
 	tt.store(losing, -(mateScore - 6), 5, 2, ttExact, board.White)
-	if got, ok := tt.probe(losing, 5, 4, board.White, negInf, posInf); !ok || got != -(mateScore-8) {
+	if got, ok := tt.probe(losing, 5, 4, 0, board.White, negInf, posInf); !ok || got != -(mateScore-8) {
 		t.Errorf("losing mate probed at ply 4: %v (ok %v), want %v", got, ok, -(mateScore - 8))
 	}
 
@@ -105,14 +105,14 @@ func TestTableKeepsAMateDistanceAcrossPlies(t *testing.T) {
 	// the root and must still cut against a beta of mateScore - 6.
 	const bound = 0x1111222233334444
 	tt.store(bound, mateScore-9, 5, 5, ttLowerBound, board.White)
-	if got, ok := tt.probe(bound, 5, 1, board.White, 0, mateScore-6); !ok || got != mateScore-5 {
+	if got, ok := tt.probe(bound, 5, 1, 0, board.White, 0, mateScore-6); !ok || got != mateScore-5 {
 		t.Errorf("lower bound probed at ply 1: %v (ok %v), want a cutoff at %v", got, ok, mateScore-5)
 	}
 
 	// Ordinary scores are not distances and come back untouched.
 	const plain = 0x5555666677778888
 	tt.store(plain, 2.5, 5, 3, ttExact, board.White)
-	if got, _ := tt.probe(plain, 5, 7, board.White, negInf, posInf); got != 2.5 {
+	if got, _ := tt.probe(plain, 5, 7, 0, board.White, negInf, posInf); got != 2.5 {
 		t.Errorf("a plain score moved in the table: %v, want 2.5", got)
 	}
 }

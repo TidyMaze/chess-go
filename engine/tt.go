@@ -231,19 +231,40 @@ func scoreToTT(score float64, ply int) float64 {
 	return score
 }
 
-func scoreFromTT(score float64, ply int) float64 {
+// The key knows nothing of the halfmove clock, so a mate stored at a low
+// clock can be probed at a high one, where the fifty-move rule comes first.
+// A mate more than 100 - clock plies from the node is refused (ok false):
+// its mating move would land after the hundredth halfmove, unless a capture
+// or a pawn move on the way resets the clock, and the table cannot tell.
+// Stockfish's value_from_tt does the same.
+func scoreFromTT(score float64, ply, clock int) (float64, bool) {
+	reach := float64(100 - clock)
 	switch {
 	case score >= mateBound:
-		return score - float64(ply)
+		if mateScore-score > reach {
+			return 0, false
+		}
+		return score - float64(ply), true
 	case score <= -mateBound:
-		return score + float64(ply)
+		if mateScore+score > reach {
+			return 0, false
+		}
+		return score + float64(ply), true
 	}
-	return score
+	return score, true
 }
 
+// ttNoCutoffClock is the halfmove clock from which the table gives no more
+// cutoffs, only its move. Any stored score, mate or not, may come from a
+// search at a lower clock that never saw the draw now a few plies away:
+// Lichess lhT8MqvU was drawn at clock 100 by a bot that keeps one table for
+// the whole game. Stockfish stops at 90 too.
+const ttNoCutoffClock = 90
+
 // probe converts the stored score to this ply before comparing it with the
-// window, since alpha and beta are root-relative too.
-func (t *TranspositionTable) probe(key uint64, depth, ply int, maximizingFor board.Color, alpha, beta float64) (float64, bool) {
+// window, since alpha and beta are root-relative too. clock is the node's
+// halfmove clock.
+func (t *TranspositionTable) probe(key uint64, depth, ply, clock int, maximizingFor board.Color, alpha, beta float64) (float64, bool) {
 	if t == nil {
 		return 0, false
 	}
@@ -259,10 +280,13 @@ func (t *TranspositionTable) probe(key uint64, depth, ply int, maximizingFor boa
 	} else {
 		e = &t.entries[idx]
 	}
-	if e.key32 != keyUpper(key) || int(e.depth) < depth || e.maximizingFor != uint8(maximizingFor) {
+	if e.key32 != keyUpper(key) || int(e.depth) < depth || e.maximizingFor != uint8(maximizingFor) || clock >= ttNoCutoffClock {
 		return 0, false
 	}
-	score := scoreFromTT(e.score, ply)
+	score, ok := scoreFromTT(e.score, ply, clock)
+	if !ok {
+		return 0, false
+	}
 	switch e.flag {
 	case ttExact:
 		return score, true
@@ -279,7 +303,7 @@ func (t *TranspositionTable) probe(key uint64, depth, ply int, maximizingFor boa
 }
 
 // probeWithMove probes for both a cutoff score and the stored best move in a single lookup and lock.
-func (t *TranspositionTable) probeWithMove(key uint64, depth, ply int, maximizingFor board.Color, alpha, beta float64) (score float64, cutoff bool, m game.Move, okMove bool) {
+func (t *TranspositionTable) probeWithMove(key uint64, depth, ply, clock int, maximizingFor board.Color, alpha, beta float64) (score float64, cutoff bool, m game.Move, okMove bool) {
 	if t == nil {
 		return 0, false, game.Move{}, false
 	}
@@ -300,10 +324,13 @@ func (t *TranspositionTable) probeWithMove(key uint64, depth, ply int, maximizin
 	}
 	m = game.Move{From: indexToSq(e.from), To: indexToSq(e.to)}
 	okMove = true
-	if int(e.depth) < depth || e.maximizingFor != uint8(maximizingFor) {
+	if int(e.depth) < depth || e.maximizingFor != uint8(maximizingFor) || clock >= ttNoCutoffClock {
 		return 0, false, m, true
 	}
-	score = scoreFromTT(e.score, ply)
+	score, ok := scoreFromTT(e.score, ply, clock)
+	if !ok {
+		return 0, false, m, true
+	}
 	switch e.flag {
 	case ttExact:
 		return score, true, m, true

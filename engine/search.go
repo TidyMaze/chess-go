@@ -135,7 +135,8 @@ func minimaxOpts(g *game.Game, color, maximizingFor board.Color, depth, ply int,
 	tt := ev.table()
 	if tt != nil && depth > 0 {
 		key = zobristHash(g)
-		if score, ok := tt.probe(key, depth, ply, maximizingFor, alpha, beta); ok {
+		// This search does not track the halfmove clock: clock 0.
+		if score, ok := tt.probe(key, depth, ply, 0, maximizingFor, alpha, beta); ok {
 			return score
 		}
 	}
@@ -246,7 +247,7 @@ func quiesceWithKey(g *game.Game, key uint64, color, maximizingFor board.Color, 
 	}
 	tt := ev.table()
 	if tt != nil {
-		if score, ok := tt.probe(key, 0, basePly+ply, maximizingFor, alpha, beta); ok {
+		if score, ok := tt.probe(key, 0, basePly+ply, 0, maximizingFor, alpha, beta); ok {
 			return score
 		}
 	}

@@ -134,3 +134,65 @@ func TestMateOnTheHundredthHalfmoveIsStillMate(t *testing.T) {
 		t.Errorf("played %s scoring %v (ok %v), want a1a8 scoring %v", m.UCI(), score, ok, float64(mateScore-1))
 	}
 }
+
+// The table's key knows nothing of the clock, so a mate it stored at a low
+// clock can come back at a high one. Twelve plies from the node, the mate
+// still stands at clock 88: the mating move is the hundredth halfmove, and
+// FIDE 9.3 lets it count. At clock 89 the rule strikes first unless a
+// capture or a pawn move comes along, and the table cannot tell which, so
+// it must not cut off on it, for either side.
+func TestTableForgetsAMateTheClockCannotReach(t *testing.T) {
+	tt := NewTranspositionTable(10)
+	const win, loss = 0x0123456789abcdef, 0x0fedcba987654321
+	tt.store(win, mateScore-12, 5, 0, ttExact, board.White)
+	tt.store(loss, -(mateScore - 12), 5, 0, ttExact, board.White)
+	if got, ok := tt.probe(win, 5, 0, 88, board.White, negInf, posInf); !ok || got != mateScore-12 {
+		t.Errorf("mate in 12 plies at clock 88: %v (ok %v), want %v", got, ok, mateScore-12)
+	}
+	for _, key := range []uint64{win, loss} {
+		if got, ok := tt.probe(key, 5, 0, 89, board.White, negInf, posInf); ok {
+			t.Errorf("probe at clock 89 cut off on %v, a mate 12 plies away that the fifty-move rule reaches first", got)
+		}
+		if got, cutoff, _, okMove := tt.probeWithMove(key, 5, 0, 89, board.White, negInf, posInf); cutoff || !okMove {
+			t.Errorf("probeWithMove at clock 89: cutoff %v on %v (move %v), want no cutoff and the move", cutoff, got, okMove)
+		}
+	}
+}
+
+// Close to the limit a stored score of any kind may hide the draw: it was
+// searched at a clock where the rule was far away. Stockfish stops taking
+// table cutoffs at clock 90 for the same reason; the move is still used.
+func TestTableGivesNoCutoffNearTheFiftyMoveLimit(t *testing.T) {
+	tt := NewTranspositionTable(10)
+	const key = 0x1111222233334444
+	m := game.Move{From: board.Sq{File: 4, Rank: 1}, To: board.Sq{File: 4, Rank: 3}}
+	tt.storeWithMove(key, 4, 5, 0, ttExact, board.White, m)
+	if got, cutoff, _, _ := tt.probeWithMove(key, 5, 0, 89, board.White, negInf, posInf); !cutoff || got != 4 {
+		t.Errorf("clock 89: cutoff %v on %v, want a cutoff on 4", cutoff, got)
+	}
+	if got, cutoff, move, okMove := tt.probeWithMove(key, 5, 0, 90, board.White, negInf, posInf); cutoff || !okMove || move != m {
+		t.Errorf("clock 90: cutoff %v on %v, move %v (ok %v), want no cutoff and %v", cutoff, got, move, okMove, m)
+	}
+	if got, ok := tt.probe(key, 5, 0, 90, board.White, negInf, posInf); ok {
+		t.Errorf("probe at clock 90 cut off on %v", got)
+	}
+}
+
+// The Lichess bot keeps one table for the whole game. Searched first at a
+// fresh clock, the table holds a mate in two behind Kg6; at clock 98 that
+// line runs into the rule (Kg6 Kg8 is the hundredth halfmove, before Ra8
+// mates), and only c3 or c4 keeps the win. Found by review: with the warm
+// table the engine played Kg6 or Kf7 at every depth, scored as mate.
+func TestTableFromAFreshClockDoesNotHideTheFiftyMoveDraw(t *testing.T) {
+	for _, depth := range []int{4, 6, 8} {
+		p := botAtDepth(t, depth)
+		tt := NewTranspositionTable(18)
+		SeedRandom(1)
+		p.ChooseMoveScored(mustFEN(t, "7k/8/5K2/8/8/8/2P5/R7 w - - 0 100"), tt)
+		SeedRandom(1)
+		m, score, _ := p.ChooseMoveScored(mustFEN(t, "7k/8/5K2/8/8/8/2P5/R7 w - - 98 100"), tt)
+		if got := m.UCI(); got != "c2c3" && got != "c2c4" {
+			t.Errorf("depth %d: played %s (score %v) at clock 98 with the table from clock 0; only c3 and c4 avoid the draw", depth, got, score)
+		}
+	}
+}

@@ -759,7 +759,7 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 		return 0
 	}
 	if tt != nil && depth > 0 {
-		if score, cutoff, m, okMove := tt.probeWithMove(key, depth, ply, maximizingFor, alpha, beta); cutoff {
+		if score, cutoff, m, okMove := tt.probeWithMove(key, depth, ply, c.fifty[ply], maximizingFor, alpha, beta); cutoff {
 			return score
 		} else if okMove {
 			ttMove = m

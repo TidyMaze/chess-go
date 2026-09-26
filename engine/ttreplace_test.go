@@ -21,13 +21,13 @@ func TestDeepEntriesSurviveShallowCollisions(t *testing.T) {
 
 	tt.store(deepKey, 1.5, 10, 0, ttExact, board.White)
 	tt.store(shallowKey, -0.5, 0, 0, ttExact, board.White)
-	if _, ok := tt.probe(deepKey, 10, 0, board.White, -10, 10); !ok {
+	if _, ok := tt.probe(deepKey, 10, 0, 0, board.White, -10, 10); !ok {
 		t.Error("a depth-10 entry was evicted by a depth-0 quiescence store")
 	}
 
 	// Same depth still replaces: the newer entry is the more relevant one.
 	tt.store(shallowKey, -0.5, 10, 0, ttExact, board.White)
-	if _, ok := tt.probe(deepKey, 10, 0, board.White, -10, 10); ok {
+	if _, ok := tt.probe(deepKey, 10, 0, 0, board.White, -10, 10); ok {
 		t.Error("an equally deep entry should have taken the slot")
 	}
 
@@ -35,7 +35,7 @@ func TestDeepEntriesSurviveShallowCollisions(t *testing.T) {
 	tt.store(deepKey, 1.5, 10, 0, ttExact, board.White)
 	tt.NewSearch()
 	tt.store(shallowKey, -0.5, 0, 0, ttExact, board.White)
-	if _, ok := tt.probe(deepKey, 10, 0, board.White, -10, 10); ok {
+	if _, ok := tt.probe(deepKey, 10, 0, 0, board.White, -10, 10); ok {
 		t.Error("an entry from the previous search must be replaceable")
 	}
 }

@@ -39,7 +39,7 @@ func TestSharedTranspositionTableIsSafeUnderConcurrentUse(t *testing.T) {
 				tt.store(key, score, 3, 0, ttExact, board.White)
 				// Another worker may have taken the slot with a different
 				// key, in which case this misses. A hit must be our value.
-				if got, ok := tt.probe(key, 3, 0, board.White, negInf, posInf); ok && got != score {
+				if got, ok := tt.probe(key, 3, 0, 0, board.White, negInf, posInf); ok && got != score {
 					t.Errorf("probe returned %v for a key stored with %v", got, score)
 				}
 			}
