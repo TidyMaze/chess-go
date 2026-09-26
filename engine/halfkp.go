@@ -521,11 +521,20 @@ func (n *HalfKPNet) refresh(b *board.Board, self, parent *halfKPAcc, st *halfKPA
 		}
 	}
 	self.kings = [2]board.Sq{b.KingSquare(board.White), b.KingSquare(board.Black)}
+	// The changed pieces are the same for both perspectives, only their
+	// feature indices differ, so the diff is taken at most once per node.
+	var d accDiff
+	diffed, batched := false, false
 	for side, persp := range [2]board.Color{board.White, board.Black} {
 		a := self.acc[side][:h]
-		if parent != nil && parent.valid &&
-			perspectiveKingSlot(parent.kings[side], persp, buckets) == perspectiveKingSlot(self.kings[side], persp, buckets) {
-			if !n.fusedDelta(a, parent.acc[side][:h], parent, self, persp, buckets) {
+		slot := perspectiveKingSlot(self.kings[side], persp, buckets)
+		if parent != nil && parent.valid && perspectiveKingSlot(parent.kings[side], persp, buckets) == slot {
+			if !diffed {
+				batched, diffed = diffAcc(parent, self, &d), true
+			}
+			if batched {
+				n.applyDiff(a, parent.acc[side][:h], &d, persp, slot)
+			} else {
 				copy(a, parent.acc[side][:h])
 				n.applyDelta(a, parent, self, persp, buckets)
 			}
@@ -534,11 +543,8 @@ func (n *HalfKPNet) refresh(b *board.Board, self, parent *halfKPAcc, st *halfKPA
 			}
 			continue
 		}
-		copy(a, n.B1)
 		var buf [32]int32
-		for _, f := range AppendHalfKPFeaturesN(buf[:0], b, persp, buckets) {
-			n.addRow(a, f, 1)
-		}
+		n.addRows(a, n.B1, AppendHalfKPFeaturesN(buf[:0], b, persp, buckets))
 		if st != nil {
 			st.full++
 		}
@@ -572,56 +578,99 @@ func (n *HalfKPNet) applyDelta(a []float32, parent, self *halfKPAcc, persp board
 	}
 }
 
-// fusedDelta writes src plus the changed rows into dst in one pass, in the
-// order applyDelta visits them, so each unit is rounded identically. It
-// reports false when a move changes more rows than it batches.
-func (n *HalfKPNet) fusedDelta(dst, src []float32, parent, self *halfKPAcc, persp board.Color, buckets int) bool {
-	const maxRows = 4
-	var rows [maxRows][]float32
-	var signs [maxRows]float32
-	k := 0
-	king := self.kings[persp]
+// addRows sets a to src plus every feature's row, added in feats' order,
+// up to maxAccRows rows a pass: the sums addRow would make one row at a
+// time, rounded the same way.
+func (n *HalfKPNet) addRows(a, src []float32, feats []int32) {
 	h := n.H
+	a, src = a[:h:h], src[:h:h]
+	plus := [maxAccRows]float32{1, 1, 1, 1}
+	var rows [maxAccRows][]float32
+	for {
+		k := min(len(feats), maxAccRows)
+		for j, f := range feats[:k] {
+			col := int(f) * h
+			rows[j] = n.W1[col : col+h : col+h]
+		}
+		accRows(a, src, &rows, &plus, k)
+		feats, src = feats[k:], a
+		if len(feats) == 0 {
+			return
+		}
+	}
+}
+
+// accDiff is the pieces that differ between a parent's snapshot and a
+// child's, in the order applyDelta visits them: owner, then type, then
+// square. It is perspective-free, so one diff serves both accumulators.
+type accDiff struct {
+	n     int
+	piece [maxAccRows]uint8 // owner*5 + type, owner as the absolute colour
+	sq    [maxAccRows]uint8 // rank*8 + file, unmirrored
+	sign  [maxAccRows]float32
+}
+
+// diffAcc fills d from the XOR of the two snapshots. It reports false when
+// more pieces changed than one update batches.
+func diffAcc(parent, self *halfKPAcc, d *accDiff) bool {
+	k := 0
 	for c := 0; c < 2; c++ {
-		owner := board.Color(c)
 		for t := board.Pawn; t < board.King; t++ {
 			changed := parent.pieces[c][t] ^ self.pieces[c][t]
 			for changed != 0 {
-				if k == maxRows {
+				if k == maxAccRows {
 					return false
 				}
 				i := bits.TrailingZeros64(changed)
 				changed &= changed - 1
-				f, _ := halfKPIndex(king, t, owner, board.Sq{File: i % 8, Rank: i / 8}, persp, buckets)
-				col := f * h
-				rows[k] = n.W1[col : col+h : col+h]
-				signs[k] = -1
+				d.piece[k] = uint8(c*halfKPPieceKinds/2 + int(t))
+				d.sq[k] = uint8(i)
+				d.sign[k] = -1
 				if self.pieces[c][t]&(1<<uint(i)) != 0 {
-					signs[k] = 1
+					d.sign[k] = 1
 				}
 				k++
 			}
 		}
 	}
-	dst, src = dst[:h:h], src[:h:h]
-	switch k {
-	case 0:
-		copy(dst, src)
-	case 2:
-		w0, w1, s0, s1 := rows[0], rows[1], signs[0], signs[1]
-		for i := range dst {
-			v := src[i] + s0*w0[i]
-			dst[i] = v + s1*w1[i]
-		}
-	default:
-		copy(dst, src)
-		for j := 0; j < k; j++ {
-			w, s := rows[j], signs[j]
-			for i := range dst {
-				dst[i] += s * w[i]
+	d.n = k
+	return true
+}
+
+// applyDiff writes src plus d's rows into dst in one pass, for the
+// perspective persp whose king sits in slot. The index is halfKPIndex's,
+// unrolled: from Black's side the owners swap halves and the rank mirrors,
+// which on a 0-63 index is XOR 56.
+func (n *HalfKPNet) applyDiff(dst, src []float32, d *accDiff, persp board.Color, slot int) {
+	h := n.H
+	var rows [maxAccRows][]float32
+	base := slot * halfKPPerKing
+	half := halfKPPieceKinds / 2
+	for j := 0; j < d.n; j++ {
+		p, s := int(d.piece[j]), int(d.sq[j])
+		if persp == board.Black {
+			s ^= 56
+			if p >= half {
+				p -= half
+			} else {
+				p += half
 			}
 		}
+		col := (base + p*64 + s) * h
+		rows[j] = n.W1[col : col+h : col+h]
 	}
+	accRows(dst[:h:h], src[:h:h], &rows, &d.sign, d.n)
+}
+
+// fusedDelta is one perspective's incremental update on its own: the diff
+// and the batched rows refresh applies, false when the move changes more
+// rows than one update batches.
+func (n *HalfKPNet) fusedDelta(dst, src []float32, parent, self *halfKPAcc, persp board.Color, buckets int) bool {
+	var d accDiff
+	if !diffAcc(parent, self, &d) {
+		return false
+	}
+	n.applyDiff(dst, src, &d, persp, perspectiveKingSlot(self.kings[persp], persp, buckets))
 	return true
 }
 
