@@ -407,7 +407,8 @@ func (g *Game) CountIfPlayed(from, to board.Sq) int {
 	return g.positionCounts[trial.positionKey()]
 }
 
-// positionKey encodes piece placement + side to move as a string: cheap
+// positionKey encodes piece placement, side to move, castling rights and
+// en passant: cheap
 // enough (called once per real move played, not once per search node --
 // TrackRepetition is off by default for the search's throwaway positions)
 // and simple to get right compared to a numeric zobrist hash.
@@ -428,17 +429,51 @@ func (g *Game) positionKey() uint64 {
 	var h uint64
 	var buf [32]board.ColoredPiece
 	for _, p := range g.Board.AppendAllPieces(buf[:0]) {
-		v := uint64(p.Sq.Rank*8+p.Sq.File)<<8 | uint64(p.Type)<<4 | uint64(p.Color)
-		// A cheap integer mix so that neighbouring squares do not produce
-		// neighbouring hashes, then XOR so piece order does not matter.
-		v *= 0x9E3779B97F4A7C15
-		v ^= v >> 29
-		h ^= v
+		// XOR so piece order does not matter.
+		h ^= keyMix(uint64(p.Sq.Rank*8+p.Sq.File)<<8 | uint64(p.Type)<<4 | uint64(p.Color))
 	}
 	if g.Turn == board.Black {
 		h ^= 0xD6E8FEB86659FD93
 	}
+	// Castling rights and en passant are part of the position (FIDE 9.2).
+	// Without them the position after 1.e4 e5, when both sides could
+	// still castle, counted with the same pieces after two king walks, and
+	// harness and training games ended on a threefold that was not one.
+	h ^= keyMix(1<<20 | uint64(g.Board.Castle()))
+	if ep, ok := usableEP(&g.Board); ok {
+		h ^= keyMix(1<<21 | uint64(ep.File))
+	}
 	return h
+}
+
+// usableEP is the board's en passant square when a pawn stands beside the
+// pawn that just stepped past it, ready to take. The board sets the square
+// after every double push, but FIDE, lichess and python-chess count it in
+// a repeated position only when a capture is possible. Pins are not
+// checked, the polyglot convention.
+func usableEP(b *board.Board) (board.Sq, bool) {
+	ep, ok := b.EPSquare()
+	if !ok {
+		return ep, false
+	}
+	pushedRank, taker := 3, board.Black // a white pawn went to rank 4
+	if ep.Rank == 5 {
+		pushedRank, taker = 4, board.White // a black pawn went to rank 5
+	}
+	pawns := b.PieceBitboard(taker, board.Pawn)
+	for _, f := range [2]int{ep.File - 1, ep.File + 1} {
+		if f >= 0 && f < 8 && pawns&(uint64(1)<<(pushedRank*8+f)) != 0 {
+			return ep, true
+		}
+	}
+	return ep, false
+}
+
+// keyMix is a cheap integer mix so that neighbouring inputs do not produce
+// neighbouring hashes.
+func keyMix(v uint64) uint64 {
+	v *= 0x9E3779B97F4A7C15
+	return v ^ v>>29
 }
 
 func (g *Game) recordPosition() {
