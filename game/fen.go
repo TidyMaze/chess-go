@@ -74,9 +74,9 @@ func (g *Game) FEN() string {
 	return fmt.Sprintf("%s %s %s %s %d %d", sb.String(), side, rights, ep, g.HalfmoveClock, fullMove)
 }
 
-// MoveFromUCI parses a UCI move string ("e2e4") into a Move. Promotion
-// suffixes are accepted and ignored: this engine always promotes to a
-// queen, which is what it would have chosen anyway in almost every case.
+// MoveFromUCI parses a UCI move string ("e2e4", "e7e8n") into a Move. A
+// knight, bishop or rook suffix goes into Promo; "q" leaves it unset,
+// which is how the engine's own queen promotions look.
 func MoveFromUCI(s string) (Move, bool) {
 	if len(s) < 4 {
 		return Move{}, false
@@ -92,12 +92,27 @@ func MoveFromUCI(s string) (Move, bool) {
 			return Move{}, false
 		}
 	}
+	if len(s) > 4 {
+		switch s[4] {
+		case 'n':
+			m.Promo = board.Knight
+		case 'b':
+			m.Promo = board.Bishop
+		case 'r':
+			m.Promo = board.Rook
+		}
+	}
 	return m, true
 }
 
-// UCI renders a move as a UCI string.
+// promoLetters is the UCI suffix for each underpromotion piece.
+var promoLetters = map[board.PieceType]string{board.Knight: "n", board.Bishop: "b", board.Rook: "r"}
+
+// UCI renders a move as a UCI string. An underpromotion carries its
+// letter; a queen promotion does not, because a Move alone cannot tell it
+// from a plain pawn move.
 func (m Move) UCI() string {
-	return fmt.Sprintf("%c%d%c%d", 'a'+m.From.File, m.From.Rank+1, 'a'+m.To.File, m.To.Rank+1)
+	return fmt.Sprintf("%c%d%c%d", 'a'+m.From.File, m.From.Rank+1, 'a'+m.To.File, m.To.Rank+1) + promoLetters[m.Promo]
 }
 
 // ParseFEN is the inverse of FEN: piece placement, side to move, castling

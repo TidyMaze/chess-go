@@ -100,7 +100,7 @@ func main() {
 						if err != nil {
 							return 0, false
 						}
-						after.ApplyMove(m.From, m.To)
+						after.Apply(m)
 						_, sc, ok := judge.BestMoveScored(after, *judgeDepth-1, 0)
 						return sc, ok && !math.IsNaN(sc)
 					}

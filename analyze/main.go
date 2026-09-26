@@ -149,7 +149,7 @@ func main() {
 				if !ok {
 					break
 				}
-				g.ApplyMove(m.From, m.To)
+				g.Apply(m)
 				continue
 			}
 

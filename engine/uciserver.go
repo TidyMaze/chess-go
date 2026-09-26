@@ -110,8 +110,8 @@ func ServeUCI(in io.Reader, out io.Writer, p Player) {
 // uciPosition parses the arguments of a position command: startpos or a
 // six-field FEN, then optionally "moves" and a list of UCI moves. A bad
 // FEN leaves the start position; a bad move is skipped. A promotion
-// suffix is accepted and the pawn becomes a queen, the only promotion
-// this engine plays itself.
+// suffix is applied as given: the engine only queens itself, but the
+// other side may not.
 func uciPosition(fields []string) *game.Game {
 	g := game.New()
 	i := 0
@@ -130,7 +130,7 @@ func uciPosition(fields []string) *game.Game {
 	if i < len(fields) && fields[i] == "moves" {
 		for _, s := range fields[i+1:] {
 			if m, ok := game.MoveFromUCI(s); ok {
-				g.ApplyMove(m.From, m.To)
+				g.Apply(m)
 			}
 		}
 	}

@@ -85,7 +85,7 @@ func applyMovesString(fen, moves string) (*game.Game, error) {
 		if !ok {
 			break
 		}
-		g.ApplyMove(m.From, m.To)
+		g.Apply(m)
 	}
 	return g, nil
 }

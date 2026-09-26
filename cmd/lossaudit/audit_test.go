@@ -65,6 +65,24 @@ func TestReplayFlipsTheJudgeToTheChallengersView(t *testing.T) {
 	}
 }
 
+// A recorded underpromotion replays as the piece that was chosen, or every
+// position the judge sees after it is one that never happened.
+func TestReplayKeepsAnUnderpromotion(t *testing.T) {
+	r := engine.GameRecord{StartFEN: "4k3/8/8/8/8/8/p7/4K3 b - - 0 1", Moves: []string{"a2a1n"},
+		Scores: []float64{math.NaN()}, White: "reference", Black: "challenger: x"}
+	var onA1 board.Piece
+	judge := func(g *game.Game) (float64, bool, bool) {
+		onA1, _ = g.Board.PieceAt(board.Sq{File: 0, Rank: 0})
+		return 0, false, true
+	}
+	if _, err := replay(r, judge, 1); err != nil {
+		t.Fatal(err)
+	}
+	if onA1 != (board.Piece{Color: board.Black, Type: board.Knight}) {
+		t.Errorf("after a2a1n the judge saw %+v on a1, want a black knight", onA1)
+	}
+}
+
 func TestOutcomeFromTheChallengersSide(t *testing.T) {
 	r := engine.GameRecord{White: "challenger: x", Black: "reference", Winner: board.Black, Decisive: true}
 	if outcome(r) != 0 {

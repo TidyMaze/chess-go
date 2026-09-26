@@ -12,6 +12,13 @@ import (
 
 type Move struct {
 	From, To board.Sq
+	// Promo is the piece a pawn reaching the last rank becomes when that
+	// is not a queen. The zero value means a queen: the move generator
+	// and the search only ever queen, so their moves leave it unset and
+	// compare equal to a parsed "e7e8q". Only moves from outside (a
+	// lichess opponent, a GUI, Stockfish, a PGN) carry a knight, bishop
+	// or rook here.
+	Promo board.PieceType
 }
 
 type Game struct {
@@ -194,7 +201,7 @@ func (g *Game) appendMoves(dst []Move, color board.Color, inCheck, legalOnly boo
 	var targetBuf [28]board.Sq
 	for _, ps := range pieces {
 		for _, target := range moves.AppendLegalTargets(targetBuf[:0], &g.Board, ps.Sq, color, ps.Type) {
-			m := Move{ps.Sq, target}
+			m := Move{From: ps.Sq, To: target}
 			if legalOnly && !legality.IsLegal(&g.Board, m) {
 				continue
 			}
@@ -337,7 +344,15 @@ func (g *Game) IsOver() bool {
 		g.IsFiftyMoveDraw() || g.IsThreefoldRepetition()
 }
 
+// ApplyMove plays from -> to, promoting to a queen.
 func (g *Game) ApplyMove(from, to board.Sq) {
+	g.Apply(Move{From: from, To: to})
+}
+
+// Apply plays m, promoting to m.Promo when it is a knight, bishop or rook
+// and to a queen otherwise.
+func (g *Game) Apply(m Move) {
+	from, to := m.From, m.To
 	movingPiece, _ := g.Board.PieceAt(from)
 	captured, capturedOk := g.Board.PieceAt(to)
 	if capturedOk && captured.Type == board.King {
@@ -356,14 +371,16 @@ func (g *Game) ApplyMove(from, to board.Sq) {
 	// Duplicating that here is how the two paths drift apart.
 	g.Board.MakeMove(from, to)
 
-	// Auto-promote to a queen. Underpromotion is legal but is the right
-	// choice so rarely that always taking a queen is the standard
-	// simplification; without any promotion at all a pawn reaching the
-	// last rank would simply have no moves.
+	// A queen unless the move names another piece. The engine itself only
+	// ever queens, but a move from outside has to land as it was played.
 	if movingPiece.Type == board.Pawn {
 		if (movingPiece.Color == board.White && to.Rank == 7) ||
 			(movingPiece.Color == board.Black && to.Rank == 0) {
-			g.Board.Place(to, board.Piece{Color: movingPiece.Color, Type: board.Queen})
+			promo := board.Queen
+			if m.Promo == board.Knight || m.Promo == board.Bishop || m.Promo == board.Rook {
+				promo = m.Promo
+			}
+			g.Board.Place(to, board.Piece{Color: movingPiece.Color, Type: promo})
 		}
 	}
 
@@ -477,7 +494,7 @@ func (g *Game) AppendQuiescenceMoves(dst []Move, color board.Color) ([]Move, boo
 			}
 			anyLegal = true
 			if wanted {
-				result = append(result, Move{ps.Sq, target})
+				result = append(result, Move{From: ps.Sq, To: target})
 			}
 		}
 	}

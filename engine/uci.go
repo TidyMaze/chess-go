@@ -187,8 +187,10 @@ func (e *UCIEngine) BestMoveScored(g *game.Game, depth, moveTimeMS int) (game.Mo
 	// The external engine may return a move that is legal in real chess
 	// but not in this engine's rule subset (castling, en passant). Reject
 	// anything not in our own legal list rather than corrupting the board.
+	// Squares only: an underpromotion is not in our list, which holds the
+	// queen promotion, but it is the move the engine played.
 	for _, legal := range g.AllLegalMoves(g.Turn) {
-		if legal == m {
+		if legal.From == m.From && legal.To == m.To {
 			return m, score, true
 		}
 	}

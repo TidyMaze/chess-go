@@ -428,7 +428,7 @@ func main() {
 					}
 					bookMu.Unlock()
 
-					g.ApplyMove(m.From, m.To)
+					g.Apply(m)
 					_ = ply
 				}
 				if !valid {

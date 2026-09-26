@@ -106,7 +106,7 @@ func judge(p engine.Player, e entry, depth int) (verdict, bool) {
 	if !isLegal(child, bm) {
 		return verdict{}, false
 	}
-	child.ApplyMove(bm.From, bm.To)
+	child.Apply(bm)
 	// After our move it is the opponent to move, so their best score is
 	// ours negated.
 	_, reply, ok := engine.PlayerPickScored(atDepth(p, depth-1), child)
