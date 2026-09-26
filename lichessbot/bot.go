@@ -48,6 +48,9 @@ type Bot struct {
 	ReconnectDelay    time.Duration
 	MaxReconnectDelay time.Duration
 	HealthyConnection time.Duration
+	// RateLimitWait is the pause before any request that follows a 429. Zero
+	// means the minute lichess asks for.
+	RateLimitWait time.Duration
 
 	gamesInPlay atomic.Int32
 	// active holds the id of every game a playGame loop is running for.
@@ -156,7 +159,27 @@ const (
 	firstMoveRetryDelay    = 100 * time.Millisecond
 	maxMoveRetryDelay      = time.Second
 	noClockMoveRetryWindow = time.Minute
+
+	// Lichess on a 429: "waiting one minute before retrying will be
+	// sufficient". The limit is per token, so a request made sooner prolongs
+	// it for every game in play and the event stream.
+	defaultRateLimitWait = time.Minute
 )
+
+func (b *Bot) rateLimitWait() time.Duration {
+	if b.RateLimitWait > 0 {
+		return b.RateLimitWait
+	}
+	return defaultRateLimitWait
+}
+
+// waitAfter is wait, stretched to the rate-limit pause when err is a 429.
+func (b *Bot) waitAfter(err error, wait time.Duration) time.Duration {
+	if isRateLimited(err) {
+		return max(wait, b.rateLimitWait())
+	}
+	return wait
+}
 
 func (b *Bot) healthyConnection() time.Duration {
 	if b.HealthyConnection > 0 {
@@ -378,7 +401,7 @@ func (b *Bot) playGame(ctx context.Context, gameID string) {
 					gameID, lastWorked.Format(time.TimeOnly))
 				return
 			}
-			wait = outageDelay
+			wait = b.waitAfter(err, outageDelay)
 			outageDelay = b.nextReconnectDelay(outageDelay, 0)
 		}
 		if err != nil && err != io.EOF {
@@ -517,7 +540,7 @@ func (b *Bot) maybeMove(ctx context.Context, gameID string, full gameFull, st ga
 		}
 		// Retried off the stream's goroutine, so the stream keeps being read
 		// and can show whether the game still waits for this move.
-		go b.retryMove(ctx, gameID, uci, path, moves, flagFalls(color, st, received), sess)
+		go b.retryMove(ctx, gameID, uci, path, moves, flagFalls(color, st, received), sess, err)
 		return
 	}
 	// Split, because the clock charges for both and only one of them is the
@@ -550,8 +573,9 @@ func flagFalls(ourColor string, st gameState, at time.Time) time.Time {
 
 // retryMove posts a move whose post failed again, with a doubling wait, for
 // as long as the game still waits for it and the clock leaves time for it.
-// It stops at once on a refusal from lichess, which no retry will change.
-func (b *Bot) retryMove(ctx context.Context, gameID, uci, path, moves string, flag time.Time, sess *gameSession) {
+// It stops at once on a refusal from lichess, which no retry will change, and
+// waits out a rate limit before the next try. err is how the last post failed.
+func (b *Bot) retryMove(ctx context.Context, gameID, uci, path, moves string, flag time.Time, sess *gameSession, err error) {
 	posted := false
 	defer func() {
 		if !posted {
@@ -559,20 +583,21 @@ func (b *Bot) retryMove(ctx context.Context, gameID, uci, path, moves string, fl
 		}
 	}()
 	for delay := firstMoveRetryDelay; ; delay = min(2*delay, maxMoveRetryDelay) {
-		if time.Now().Add(delay).After(flag) {
+		wait := b.waitAfter(err, delay)
+		if time.Now().Add(wait).After(flag) {
 			b.logf("game %s: move %s not posted, and the clock runs out before the next try", gameID, uci)
 			return
 		}
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(delay):
+		case <-time.After(wait):
 		}
 		if !sess.stillExpects(moves) {
 			b.logf("game %s: move %s: the game has moved on, not posting it again", gameID, uci)
 			return
 		}
-		err := b.API.postForm(path, "")
+		err = b.API.postForm(path, "")
 		if err == nil {
 			posted = true
 			b.logf("game %s: %s posted on a retry", gameID, uci)

@@ -109,6 +109,14 @@ func isDefinitive(err error) bool {
 	return errors.As(err, &se) && se.code >= 400 && se.code < 500 && se.code != http.StatusTooManyRequests
 }
 
+// isRateLimited reports whether err is lichess answering 429: the token is
+// over a rate limit, and lichess asks for a minute's pause before the next
+// request (lichess-api.yaml, "Rate limiting").
+func isRateLimited(err error) bool {
+	var se *statusError
+	return errors.As(err, &se) && se.code == http.StatusTooManyRequests
+}
+
 func (a *httpAPI) streamAt(ctx context.Context, url string) (io.ReadCloser, error) {
 	resp, err := a.do(ctx, http.MethodGet, url, nil, "")
 	if err != nil {

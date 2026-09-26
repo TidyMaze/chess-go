@@ -348,3 +348,52 @@ func TestBotStopsPostingAgainWhenItsClockRunsOut(t *testing.T) {
 		}
 	}
 }
+
+// errRateLimited is lichess answering 429: the bot's token is over one of its
+// rate limits.
+func errRateLimited(t *testing.T) error {
+	return lichessAnswer(t, http.StatusTooManyRequests, `{"error":"Too many requests. Please wait a minute."}`)
+}
+
+// On a 429 lichess asks for a pause before the next request ("waiting one
+// minute before retrying will be sufficient", lichess-api.yaml). The limit
+// covers the whole token, so posting again sooner stretches it over every
+// game in play and the event stream too.
+func TestBotWaitsOutARateLimitBeforePostingAMoveAgain(t *testing.T) {
+	const wait = 400 * time.Millisecond
+	f := newFakeAPI()
+	f.streams["/api/stream/event"] = `{"type":"gameStart","game":{"id":"q1"}}` + "\n"
+	l := &liveGameAPI{fakeAPI: f, path: "/api/bot/game/stream/q1", body: gameFullLine("q1", "white", "", 0)}
+	posts := failingMoves(l, 1, errRateLimited(t))
+	b := &Bot{API: l, Player: engine.Strong(1), Username: "tidymazebot", Log: silentLogger(), RateLimitWait: wait}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := b.runOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, 3*time.Second, "the move posted again once the rate limit was waited out", func() bool { return len(posts()) >= 2 })
+	at := posts()
+	if gap := at[1].Sub(at[0]); gap < wait {
+		t.Errorf("move posted again %v after a 429, want at least the %v rate-limit wait", gap.Round(time.Millisecond), wait)
+	}
+}
+
+// A rate-limit wait that outlasts the bot's clock leaves nothing to retry:
+// the next post would come after the flag fell.
+func TestBotDoesNotPostAgainAfterARateLimitWhenItsClockRunsOutFirst(t *testing.T) {
+	const clockMS = 300
+	f := newFakeAPI()
+	f.streams["/api/stream/event"] = `{"type":"gameStart","game":{"id":"q2"}}` + "\n"
+	l := &liveGameAPI{fakeAPI: f, path: "/api/bot/game/stream/q2", body: gameFullLine("q2", "white", "", clockMS)}
+	posts := failingMoves(l, -1, errRateLimited(t))
+	b := &Bot{API: l, Player: engine.Strong(1), Username: "tidymazebot", Log: silentLogger(), RateLimitWait: 500 * time.Millisecond}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := b.runOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(1500 * time.Millisecond)
+	if at := posts(); len(at) != 1 {
+		t.Errorf("%d move posts, want 1: the 500 ms rate-limit wait outlasts the %d ms clock", len(at), clockMS)
+	}
+}

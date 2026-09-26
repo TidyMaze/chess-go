@@ -273,3 +273,29 @@ func TestBotGivesUpOnAGameLichessDoesNotKnow(t *testing.T) {
 		t.Errorf("game stream opened %d times, want %d", got, maxEmptyGameStreams)
 	}
 }
+
+// A 429 on the game stream is the token's rate limit, not an outage: the bot
+// waits it out before opening the stream again instead of backing off from
+// the first reconnect delay, then plays on.
+func TestBotWaitsOutARateLimitBeforeOpeningAGameStreamAgain(t *testing.T) {
+	const wait = 400 * time.Millisecond
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	f := newFakeAPI()
+	f.streams["/api/stream/event"] = `{"type":"gameStart","game":{"id":"o4"}}` + "\n"
+	r := &resumableGameAPI{fakeAPI: f, path: "/api/bot/game/stream/o4", bodies: []io.Reader{
+		failingReader{r: strings.NewReader(gameFullLine("o4", "black", "", 60000))},
+		io.MultiReader(strings.NewReader(gameFullLine("o4", "black", "e2e4", 60000)), blockingReader{ctx: ctx}),
+	}}
+	o := &outageAPI{resumableGameAPI: r, err: errRateLimited(t), refused: func(n int) bool { return n == 2 }}
+	b := &Bot{API: o, Player: engine.Strong(1), Username: "tidymazebot", Log: silentLogger(),
+		ReconnectDelay: time.Millisecond, MaxReconnectDelay: 10 * time.Millisecond, RateLimitWait: wait}
+	if err := b.runOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(wait / 2)
+	if got := o.openCount(); got != 2 {
+		t.Errorf("game stream opened %d times %v after the start, want 2: the one that dropped, the one answered 429, then none within the %v rate-limit wait", got, wait/2, wait)
+	}
+	waitFor(t, 3*time.Second, "a move once the rate limit was waited out", func() bool { return len(f.postedPaths()) >= 1 })
+}
