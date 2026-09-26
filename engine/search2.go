@@ -737,6 +737,21 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 			c.path[ply] = key
 		}
 	}
+	// A hundred halfmoves without a capture or a pawn move is a draw, here
+	// and not only at the horizon. fadeForFiftyMove returned 0 at a leaf,
+	// but an interior node past the limit went on searching, and a capture
+	// or pawn push found below it brought the won score back. Lichess
+	// lhT8MqvU was drawn that way a rook and a bishop up: at clock 99 the
+	// engine saw a mate in six behind a quiet move and played it. Before the
+	// table probe, whose key knows nothing of the clock. The one exception
+	// is FIDE 9.3: if the move that reached 100 gave checkmate, the mate
+	// stands.
+	if ply > 0 && c.fifty[ply] >= 100 {
+		if moves.IsInCheck(&g.Board, color) && !g.HasAnyLegalMoveInCheck(color, true) {
+			return terminalScore(g, color, maximizingFor, ply)
+		}
+		return 0
+	}
 	if ply > 0 && depth > 0 && !(c.ev != nil && c.ev.NoRepetition) && c.isRepetition(key, ply) {
 		return 0
 	}
@@ -901,6 +916,10 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 				nullKey ^= zobristEP[ep.File]
 			}
 			c.path[ply+1] = nullKey
+			// No move is played, so the clock stands where it was. Unset,
+			// the child read whatever a sibling left here, and a stale 100
+			// made passing an instant draw.
+			c.fifty[ply+1] = c.fifty[ply]
 		}
 		score := c.searchNull(g, color.Other(), maximizingFor, depth-r, ply+1, alpha, beta, true)
 		if ply+1 < maxSearchPly {

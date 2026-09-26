@@ -82,3 +82,55 @@ func TestFiftyMoveFadeHelpsTheLosingSideToo(t *testing.T) {
 		t.Errorf("a spent clock scored %+.2f, want the draw", drawn)
 	}
 }
+
+// Lichess lhT8MqvU, the last move: White a rook, a bishop and two pawns up
+// at clock 99, and every move except d6 and Rxg6 draws on the spot. The
+// game played Bf8 and drew. The fade only reached a node at the horizon,
+// so a node past clock 100 kept being searched, and a pawn push or capture
+// found below it brought the won score back: a line that was already a
+// draw scored as a win. Before the fix, up to depth 11 the engine took on
+// g6 for the material; from depth 12 it saw a mate in six that starts with
+// a quiet move, scored it 989 and played Bf8, Ke5 or Kd6, all of them draws.
+func TestFiftyMoveClockAt99MustBeReset(t *testing.T) {
+	p := botAtDepth(t, 12)
+	g := mustFEN(t, "8/6B1/1k2KRp1/3P2P1/1p6/1P6/1P6/8 w - - 99 105")
+	SeedRandom(1)
+	m, score, ok := PlayerPickScored(p, g)
+	if !ok {
+		t.Fatal("no move")
+	}
+	if got := m.UCI(); got != "d5d6" && got != "f6g6" {
+		t.Errorf("played %s (score %v) at clock 99; only d5d6 and f6g6 reset the clock, anything else is a draw", got, score)
+	}
+}
+
+// A null move passes the turn without playing a move, so its child keeps
+// the parent's clock. It used to read whatever an earlier sibling had left
+// in c.fifty[ply+1]; left at 100, passing looked like an instant draw and
+// the losing side cut off on it.
+func TestNullMoveChildKeepsTheParentsClock(t *testing.T) {
+	// Black to move, a queen down, fresh clock: worth about +9 to White.
+	g := mustFEN(t, "4k3/8/8/8/8/8/8/Q3K3 b - - 0 1")
+	ctx := searchCtxPool.Get().(*searchCtx)
+	defer searchCtxPool.Put(ctx)
+	ctx.reset()
+	ctx.ev = &Eval{NullMove: true}
+	ctx.fifty[1] = 0
+	ctx.fifty[2] = 100 // left behind by an earlier sibling
+	if got := ctx.search(g, board.Black, board.White, 3, 1, 1, 2); got < 2 {
+		t.Errorf("a queen up scored %v against the window (1, 2); the null move read a stale clock as a draw", got)
+	}
+}
+
+// FIDE 9.3: when the move that completes fifty moves gives checkmate, the
+// mate stands. Ra8 is a rook move at clock 99, so it reaches 100, and it
+// is mate: the search must score it as mate in one, not as a draw.
+func TestMateOnTheHundredthHalfmoveIsStillMate(t *testing.T) {
+	p := botAtDepth(t, 4)
+	g := mustFEN(t, "6k1/5ppp/8/8/8/8/5PPP/R5K1 w - - 99 60")
+	SeedRandom(1)
+	m, score, ok := PlayerPickScored(p, g)
+	if !ok || m.UCI() != "a1a8" || score != mateScore-1 {
+		t.Errorf("played %s scoring %v (ok %v), want a1a8 scoring %v", m.UCI(), score, ok, float64(mateScore-1))
+	}
+}
