@@ -43,7 +43,7 @@ func classify(fen string, m game.Move) map[string]bool {
 	}
 	// Developing means leaving the back rank for the first time with a
 	// piece that is not a pawn or the king.
-	homeRank := 0
+	homeRank := int8(0)
 	if mover == board.Black {
 		homeRank = 7
 	}

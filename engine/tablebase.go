@@ -510,7 +510,7 @@ func GenerateTablebase(pieces []board.ColoredPiece, prior *TablebaseSet) *Tableb
 func buildPosition(pieces []board.ColoredPiece, squares []int, stm board.Color) (*game.Game, bool) {
 	b := board.NewEmpty()
 	for i, p := range pieces {
-		b.Place(board.Sq{File: squares[i] % 8, Rank: squares[i] / 8},
+		b.Place(board.Sq{File: int8(squares[i] % 8), Rank: int8(squares[i] / 8)},
 			board.Piece{Color: p.Color, Type: p.Type})
 	}
 	g := game.From(b, stm)
@@ -591,7 +591,7 @@ func BuildTablebases(sets [][]board.ColoredPiece, progress func(key string, entr
 		tb := GenerateTablebase(pieces, out)
 		b := board.NewEmpty()
 		for i, p := range pieces {
-			b.Place(board.Sq{File: i % 8, Rank: i / 8}, board.Piece{Color: p.Color, Type: p.Type})
+			b.Place(board.Sq{File: int8(i % 8), Rank: int8(i / 8)}, board.Piece{Color: p.Color, Type: p.Type})
 		}
 		var keyBuf [12]byte
 		key, _ := materialKey(keyBuf[:0], &b)

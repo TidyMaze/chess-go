@@ -67,7 +67,7 @@ func TestAlignedSlidersMatchesABruteForceScan(t *testing.T) {
 					continue
 				}
 				sameLine := sq.File == king.File || sq.Rank == king.Rank
-				sameDiag := abs(sq.File-king.File) == abs(sq.Rank-king.Rank) && sq != king
+				sameDiag := abs(int(sq.File-king.File)) == abs(int(sq.Rank-king.Rank)) && sq != king
 				if (p.Type == Rook || p.Type == Queen) && sameLine {
 					wantR = true
 				}

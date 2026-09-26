@@ -169,7 +169,7 @@ func pinnedByWalk(b *board.Board, color board.Color, king board.Sq, rooks, bisho
 // is restricted that way, so queenside castling stays legal when b1 is
 // attacked even though the rook crosses it.
 func castlingMoves(dst []board.Sq, b *board.Board, sq board.Sq, color board.Color) []board.Sq {
-	rank := 0
+	rank := int8(0)
 	kingSide, queenSide := board.WhiteKingSide, board.WhiteQueenSide
 	if color == board.Black {
 		rank, kingSide, queenSide = 7, board.BlackKingSide, board.BlackQueenSide
@@ -188,7 +188,7 @@ func castlingMoves(dst []board.Sq, b *board.Board, sq board.Sq, color board.Colo
 		return dst // may not castle out of check
 	}
 
-	empty := func(files ...int) bool {
+	empty := func(files ...int8) bool {
 		for _, f := range files {
 			if _, occupied := b.PieceAt(board.Sq{File: f, Rank: rank}); occupied {
 				return false
@@ -196,7 +196,7 @@ func castlingMoves(dst []board.Sq, b *board.Board, sq board.Sq, color board.Colo
 		}
 		return true
 	}
-	safe := func(files ...int) bool {
+	safe := func(files ...int8) bool {
 		for _, f := range files {
 			if IsAttackedBy(b, board.Sq{File: f, Rank: rank}, enemy) {
 				return false
@@ -204,7 +204,7 @@ func castlingMoves(dst []board.Sq, b *board.Board, sq board.Sq, color board.Colo
 		}
 		return true
 	}
-	rookAt := func(file int) bool {
+	rookAt := func(file int8) bool {
 		p, ok := b.PieceAt(board.Sq{File: file, Rank: rank})
 		return ok && p.Type == board.Rook && p.Color == color
 	}
@@ -231,7 +231,7 @@ func AttackerOfType(b *board.Board, sq board.Sq, by board.Color, typ board.Piece
 			attackers := board.PawnAttacksTo[by][sqIdx] & b.PieceBitboard(by, board.Pawn)
 			if attackers != 0 {
 				idx := bits.TrailingZeros64(attackers)
-				return board.Sq{File: idx % 8, Rank: idx / 8}, true
+				return board.Sq{File: int8(idx % 8), Rank: int8(idx / 8)}, true
 			}
 		}
 	case board.Knight:
@@ -240,7 +240,7 @@ func AttackerOfType(b *board.Board, sq board.Sq, by board.Color, typ board.Piece
 			attackers := board.KnightAttacks[sqIdx] & b.PieceBitboard(by, board.Knight)
 			if attackers != 0 {
 				idx := bits.TrailingZeros64(attackers)
-				return board.Sq{File: idx % 8, Rank: idx / 8}, true
+				return board.Sq{File: int8(idx % 8), Rank: int8(idx / 8)}, true
 			}
 		}
 	case board.King:
@@ -263,7 +263,7 @@ func AttackerOfType(b *board.Board, sq board.Sq, by board.Color, typ board.Piece
 		for _, d := range dirs {
 			from := sq
 			for {
-				from = board.Sq{File: from.File + d[0], Rank: from.Rank + d[1]}
+				from = board.Sq{File: from.File + int8(d[0]), Rank: from.Rank + int8(d[1])}
 				if b.CellOffBoard(from) {
 					break
 				}

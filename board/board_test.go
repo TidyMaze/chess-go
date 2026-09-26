@@ -6,11 +6,11 @@ func TestInitialSetupBackRank(t *testing.T) {
 	b := Initial()
 	order := []PieceType{Rook, Knight, Bishop, Queen, King, Bishop, Knight, Rook}
 	for file, pt := range order {
-		white, ok := b.PieceAt(Sq{file, 0})
+		white, ok := b.PieceAt(Sq{int8(file), 0})
 		if !ok || white.Color != White || white.Type != pt {
 			t.Errorf("file %d rank 0: got %+v ok=%v, want %v", file, white, ok, pt)
 		}
-		black, ok := b.PieceAt(Sq{file, 7})
+		black, ok := b.PieceAt(Sq{int8(file), 7})
 		if !ok || black.Color != Black || black.Type != pt {
 			t.Errorf("file %d rank 7: got %+v ok=%v, want %v", file, black, ok, pt)
 		}
@@ -19,7 +19,7 @@ func TestInitialSetupBackRank(t *testing.T) {
 
 func TestInitialSetupPawns(t *testing.T) {
 	b := Initial()
-	for file := 0; file < 8; file++ {
+	for file := int8(0); file < 8; file++ {
 		if p, ok := b.PieceAt(Sq{file, 1}); !ok || p.Color != White || p.Type != Pawn {
 			t.Errorf("file %d rank1: got %+v ok=%v", file, p, ok)
 		}
@@ -31,8 +31,8 @@ func TestInitialSetupPawns(t *testing.T) {
 
 func TestInitialSetupEmptyMiddle(t *testing.T) {
 	b := Initial()
-	for file := 0; file < 8; file++ {
-		for rank := 2; rank < 6; rank++ {
+	for file := int8(0); file < 8; file++ {
+		for rank := int8(2); rank < 6; rank++ {
 			if _, ok := b.PieceAt(Sq{file, rank}); ok {
 				t.Errorf("file %d rank %d should be empty", file, rank)
 			}

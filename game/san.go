@@ -38,7 +38,7 @@ func MoveFromSAN(g *Game, san string) (Move, bool) {
 	// Castling. PGN writes it with letter O; some producers use zero.
 	if c := strings.ReplaceAll(s, "0", "O"); c == "O-O" || c == "O-O-O" {
 		king := g.Board.KingSquare(g.Turn)
-		wantFile := 6 // g-file, short
+		wantFile := int8(6) // g-file, short
 		if c == "O-O-O" {
 			wantFile = 2 // c-file, long
 		}
@@ -88,13 +88,13 @@ func MoveFromSAN(g *Game, san string) (Move, bool) {
 		return Move{}, false
 	}
 	hint := s[:len(s)-2]
-	hintFile, hintRank := -1, -1
+	hintFile, hintRank := int8(-1), int8(-1)
 	for i := 0; i < len(hint); i++ {
 		switch c := hint[i]; {
 		case c >= 'a' && c <= 'h':
-			hintFile = int(c - 'a')
+			hintFile = int8(c - 'a')
 		case c >= '1' && c <= '8':
-			hintRank = int(c - '1')
+			hintRank = int8(c - '1')
 		default:
 			return Move{}, false
 		}
@@ -152,5 +152,5 @@ func squareFromSAN(s string) (board.Sq, bool) {
 	if len(s) != 2 || s[0] < 'a' || s[0] > 'h' || s[1] < '1' || s[1] > '8' {
 		return board.Sq{}, false
 	}
-	return board.Sq{File: int(s[0] - 'a'), Rank: int(s[1] - '1')}, true
+	return board.Sq{File: int8(s[0] - 'a'), Rank: int8(s[1] - '1')}, true
 }

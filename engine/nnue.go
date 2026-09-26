@@ -55,7 +55,7 @@ type Net struct {
 // the outer dimension so that all of one side's features are contiguous,
 // which is what makes an incremental update cheap to write later.
 func featureIndex(c board.Color, pt board.PieceType, sq board.Sq) int {
-	return (int(c)*6+int(pt))*64 + sq.Rank*8 + sq.File
+	return (int(c)*6+int(pt))*64 + int(sq.Rank)*8 + int(sq.File)
 }
 
 // Evaluate returns the network's score for the position, in pawns and

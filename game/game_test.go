@@ -230,10 +230,10 @@ func TestIsLegalMoveMatchesAllLegalMoves(t *testing.T) {
 			}
 		}
 		// Test illegal moves: moving from empty squares or friendly piece destinations
-		for fromRank := 0; fromRank < 8; fromRank++ {
-			for fromFile := 0; fromFile < 8; fromFile++ {
-				for toRank := 0; toRank < 8; toRank++ {
-					for toFile := 0; toFile < 8; toFile++ {
+		for fromRank := int8(0); fromRank < 8; fromRank++ {
+			for fromFile := int8(0); fromFile < 8; fromFile++ {
+				for toRank := int8(0); toRank < 8; toRank++ {
+					for toFile := int8(0); toFile < 8; toFile++ {
 						m := Move{From: board.Sq{File: fromFile, Rank: fromRank}, To: board.Sq{File: toFile, Rank: toRank}}
 						if !legalMap[m] && g.IsLegalMove(m) {
 							t.Errorf("expected move %v to be illegal in FEN %s", m, fen)
@@ -284,7 +284,7 @@ func TestIsLegalMoveForMatchesIsLegalMoveWithThatTurn(t *testing.T) {
 			legal := 0
 			for from := 0; from < 64; from++ {
 				for to := 0; to < 64; to++ {
-					m := Move{From: board.Sq{File: from % 8, Rank: from / 8}, To: board.Sq{File: to % 8, Rank: to / 8}}
+					m := Move{From: board.Sq{File: int8(from % 8), Rank: int8(from / 8)}, To: board.Sq{File: int8(to % 8), Rank: int8(to / 8)}}
 					want := ref.IsLegalMove(m)
 					if got := g.IsLegalMoveFor(m, c); got != want {
 						t.Errorf("%s, %v to move, turn %v: IsLegalMoveFor(%v) = %v, want %v", fen, c, g.Turn, m, got, want)

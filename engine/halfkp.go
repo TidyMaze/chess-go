@@ -77,21 +77,21 @@ const (
 // "castled short or long" and "back rank or advanced", not the exact
 // square.
 func kingBucket(s Sq) int {
-	file := s.File
+	file := int(s.File)
 	if file > 3 {
 		file = 7 - file
 	}
-	return (s.Rank/4)*4 + file
+	return (int(s.Rank)/4)*4 + file
 }
 
 // kingCanonicalSquare is the 32-way version: every rank kept, files
 // mirrored about the centre.
 func kingCanonicalSquare(s Sq) int {
-	file := s.File
+	file := int(s.File)
 	if file > 3 {
 		file = 7 - file
 	}
-	return s.Rank*4 + file
+	return int(s.Rank)*4 + file
 }
 
 // kingSlot picks between them. buckets is 8 or 32; anything else is
@@ -102,7 +102,7 @@ func kingSlot(s Sq, buckets int) int {
 	case halfKPKingSquares:
 		return kingCanonicalSquare(s)
 	case halfKPRawKingSquares:
-		return s.Rank*8 + s.File
+		return int(s.Rank)*8 + int(s.File)
 	}
 	return kingBucket(s)
 }
@@ -147,7 +147,7 @@ func halfKPIndex(kingSq board.Sq, pt board.PieceType, owner board.Color, sq boar
 		ps = board.Sq{File: ps.File, Rank: 7 - ps.Rank}
 	}
 	k := kingSlot(ks, buckets)
-	s := ps.Rank*8 + ps.File
+	s := int(ps.Rank)*8 + int(ps.File)
 	return k*halfKPPerKing + pi*64 + s, true
 }
 
@@ -564,7 +564,7 @@ func (n *HalfKPNet) applyDelta(a []float32, parent, self *halfKPAcc, persp board
 			for changed != 0 {
 				i := bits.TrailingZeros64(changed)
 				changed &= changed - 1
-				sq := board.Sq{File: i % 8, Rank: i / 8}
+				sq := board.Sq{File: int8(i % 8), Rank: int8(i / 8)}
 				// Never !ok: the loop stops short of the king, the only
 				// piece halfKPIndex refuses.
 				f, _ := halfKPIndex(king, t, owner, sq, persp, buckets)

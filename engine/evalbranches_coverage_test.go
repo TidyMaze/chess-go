@@ -82,7 +82,7 @@ func TestSearchHelperEdges(t *testing.T) {
 	g := game.New()
 	ms := make([]game.Move, 120)
 	for i := range ms {
-		ms[i] = mv(i%8, 1, i%8, 2)
+		ms[i] = mv(int8(i%8), 1, int8(i%8), 2)
 	}
 	c.orderMoves(g, ms, game.Move{}, 0, board.White)
 }

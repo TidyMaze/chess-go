@@ -589,7 +589,7 @@ func PositionScoreEval(b *board.Board, color board.Color, ev *Eval) float64 {
 			positional[c] += bonus * (3.5 - centerDistance(p.Sq))
 		}
 		if p.Type == board.Pawn {
-			rank := p.Sq.Rank
+			rank := int(p.Sq.Rank)
 			if c == board.Black {
 				rank = 7 - rank
 			}

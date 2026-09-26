@@ -21,9 +21,9 @@ var fenLetters = [6]byte{
 // asked about it sees the same one.
 func (g *Game) FEN() string {
 	var sb strings.Builder
-	for rank := 7; rank >= 0; rank-- {
+	for rank := int8(7); rank >= 0; rank-- {
 		empty := 0
-		for file := 0; file < 8; file++ {
+		for file := int8(0); file < 8; file++ {
 			p, ok := g.Board.PieceAt(board.Sq{File: file, Rank: rank})
 			if !ok {
 				empty++
@@ -81,8 +81,8 @@ func MoveFromUCI(s string) (Move, bool) {
 	if len(s) < 4 {
 		return Move{}, false
 	}
-	fileOf := func(c byte) int { return int(c - 'a') }
-	rankOf := func(c byte) int { return int(c - '1') }
+	fileOf := func(c byte) int8 { return int8(c - 'a') }
+	rankOf := func(c byte) int8 { return int8(c - '1') }
 	m := Move{
 		From: board.Sq{File: fileOf(s[0]), Rank: rankOf(s[1])},
 		To:   board.Sq{File: fileOf(s[2]), Rank: rankOf(s[3])},
@@ -188,7 +188,7 @@ func ParseFEN(s string) (*Game, error) {
 			if file > 7 {
 				return nil, fmt.Errorf("fen: rank %q overflows the board", row)
 			}
-			b.Place(board.Sq{File: file, Rank: rank}, board.Piece{Color: color, Type: pt})
+			b.Place(board.Sq{File: int8(file), Rank: int8(rank)}, board.Piece{Color: color, Type: pt})
 			file++
 		}
 		if file != 8 {
@@ -224,7 +224,7 @@ func ParseFEN(s string) (*Game, error) {
 	if f := fields[3]; f != "-" && len(f) >= 2 {
 		file, rank := int(f[0]-'a'), int(f[1]-'1')
 		if file >= 0 && file < 8 && rank >= 0 && rank < 8 {
-			b.SetEPSquare(board.Sq{File: file, Rank: rank}, true)
+			b.SetEPSquare(board.Sq{File: int8(file), Rank: int8(rank)}, true)
 		}
 	} else {
 		b.SetEPSquare(board.Sq{}, false)

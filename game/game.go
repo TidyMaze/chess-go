@@ -460,12 +460,12 @@ func usableEP(b *board.Board) (board.Sq, bool) {
 	if !ok {
 		return ep, false
 	}
-	pushedRank, taker := 3, board.Black // a white pawn went to rank 4
+	pushedRank, taker := int8(3), board.Black // a white pawn went to rank 4
 	if ep.Rank == 5 {
 		pushedRank, taker = 4, board.White // a black pawn went to rank 5
 	}
 	pawns := b.PieceBitboard(taker, board.Pawn)
-	for _, f := range [2]int{ep.File - 1, ep.File + 1} {
+	for _, f := range [2]int8{ep.File - 1, ep.File + 1} {
 		if f < 0 || f >= 8 || pawns&(uint64(1)<<(pushedRank*8+f)) == 0 {
 			continue
 		}

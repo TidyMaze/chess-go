@@ -35,8 +35,10 @@ type Piece struct {
 	Type  PieceType
 }
 
+// Sq is one byte per coordinate so the moves the search copies stay small.
+// Coordinates stay within -pad..7+pad; a padded cell index converts to int first.
 type Sq struct {
-	File, Rank int
+	File, Rank int8
 }
 
 const pad = 2
@@ -80,7 +82,7 @@ var cellColor = func() (t [codePieceMin + 12]Color) {
 var cellToSq = func() (t [width * width]Sq) {
 	for r := 0; r < 8; r++ {
 		for f := 0; f < 8; f++ {
-			t[(r+pad)*width+(f+pad)] = Sq{File: f, Rank: r}
+			t[(r+pad)*width+(f+pad)] = Sq{File: int8(f), Rank: int8(r)}
 		}
 	}
 	return t
@@ -183,25 +185,26 @@ func castlingLost(s Sq) uint8 {
 
 func squareIndex(s Sq) uint8 { return uint8(s.Rank*8 + s.File) }
 
-func squareFromIndex(i uint8) Sq { return Sq{File: int(i & 7), Rank: int(i >> 3)} }
+func squareFromIndex(i uint8) Sq { return Sq{File: int8(i & 7), Rank: int8(i >> 3)} }
 
 func index(s Sq) int {
-	return (s.Rank+pad)*width + (s.File + pad)
+	return (int(s.Rank)+pad)*width + (int(s.File) + pad)
 }
 
 func Initial() Board {
 	var b Board
-	for rank := 0; rank < 8; rank++ {
-		for file := 0; file < 8; file++ {
+	for rank := int8(0); rank < 8; rank++ {
+		for file := int8(0); file < 8; file++ {
 			b.cells[index(Sq{file, rank})] = codeEmpty
 		}
 	}
 	backRank := [8]PieceType{Rook, Knight, Bishop, Queen, King, Bishop, Knight, Rook}
 	for file, pt := range backRank {
-		b.setPiece(Sq{file, 0}, Piece{White, pt})
-		b.setPiece(Sq{file, 1}, Piece{White, Pawn})
-		b.setPiece(Sq{file, 6}, Piece{Black, Pawn})
-		b.setPiece(Sq{file, 7}, Piece{Black, pt})
+		f := int8(file)
+		b.setPiece(Sq{f, 0}, Piece{White, pt})
+		b.setPiece(Sq{f, 1}, Piece{White, Pawn})
+		b.setPiece(Sq{f, 6}, Piece{Black, Pawn})
+		b.setPiece(Sq{f, 7}, Piece{Black, pt})
 	}
 	b.castle = AllCastling
 	b.epSquare = noEP
@@ -213,8 +216,8 @@ func Initial() Board {
 func NewEmpty() Board {
 	var b Board
 	b.epSquare = noEP
-	for rank := 0; rank < 8; rank++ {
-		for file := 0; file < 8; file++ {
+	for rank := int8(0); rank < 8; rank++ {
+		for file := int8(0); file < 8; file++ {
 			b.cells[index(Sq{file, rank})] = codeEmpty
 		}
 	}
@@ -332,7 +335,7 @@ func (b *Board) FindPinnedPiece(king Sq, df, dr int, ownColor Color, s1, s2 Piec
 			ownIdx = idx
 		} else {
 			if foundOwn && (p.Type == s1 || p.Type == s2) {
-				return Sq{File: (ownIdx % width) - pad, Rank: (ownIdx / width) - pad}, true
+				return Sq{File: int8(ownIdx%width - pad), Rank: int8(ownIdx/width - pad)}, true
 			}
 			return Sq{}, false
 		}
@@ -587,7 +590,7 @@ func (b *Board) MakeMove(from, to Sq) Undo {
 	// A king stepping two files is a castling move, and the rook has to
 	// travel with it. Detected here rather than encoded in Move so that
 	// every path that moves a piece (search, game, UI) gets it.
-	if p, ok := b.PieceAt(from); ok && p.Type == King && abs(to.File-from.File) == 2 {
+	if p, ok := b.PieceAt(from); ok && p.Type == King && abs(int(to.File-from.File)) == 2 {
 		u.wasCastling = true
 		if to.File > from.File {
 			u.rookFrom = Sq{File: 7, Rank: from.Rank}
@@ -619,7 +622,7 @@ func (b *Board) MakeMove(from, to Sq) Undo {
 	// A pawn that has just stepped two squares can be captured en passant
 	// on the square it skipped, but only on the very next move.
 	b.epSquare = noEP
-	if p, ok := b.PieceAt(to); ok && p.Type == Pawn && abs(to.Rank-from.Rank) == 2 {
+	if p, ok := b.PieceAt(to); ok && p.Type == Pawn && abs(int(to.Rank-from.Rank)) == 2 {
 		b.epSquare = squareIndex(Sq{File: from.File, Rank: (from.Rank + to.Rank) / 2})
 	}
 	return u

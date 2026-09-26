@@ -7,7 +7,7 @@ import (
 	"chess/game"
 )
 
-func mv(f1, r1, f2, r2 int) game.Move {
+func mv(f1, r1, f2, r2 int8) game.Move {
 	return game.Move{From: board.Sq{File: f1, Rank: r1}, To: board.Sq{File: f2, Rank: r2}}
 }
 

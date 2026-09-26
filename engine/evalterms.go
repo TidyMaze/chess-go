@@ -131,7 +131,7 @@ func structureScore(b *board.Board, color board.Color, own, enemy pawnFiles, pha
 
 	// King
 	k := b.KingSquare(color)
-	kFile := k.File
+	kFile := int(k.File)
 	shield := 0
 	for df := -1; df <= 1; df++ {
 		f := kFile + df
@@ -179,10 +179,10 @@ func structurePieces(pieces []board.ColoredPiece, color board.Color, own, enemy 
 		if ps.Color != color {
 			continue
 		}
-		file := ps.Sq.File
+		file := int(ps.Sq.File)
 		switch ps.Type {
 		case board.Pawn:
-			rank := ps.Sq.Rank
+			rank := int(ps.Sq.Rank)
 			if color == board.Black {
 				rank = 7 - rank
 			}
@@ -228,10 +228,10 @@ func structurePiecesDiff(pieces []board.ColoredPiece, color, other board.Color, 
 		o := c.Other()
 		own := pawns[c]
 		enemy := pawns[o]
-		file := ps.Sq.File
+		file := int(ps.Sq.File)
 		switch ps.Type {
 		case board.Pawn:
-			rank := ps.Sq.Rank
+			rank := int(ps.Sq.Rank)
 			if c == board.Black {
 				rank = 7 - rank
 			}
@@ -440,7 +440,7 @@ func extraScore(pieces []board.ColoredPiece, color board.Color, phase float64, w
 			continue
 		}
 		rookFiles[p.Sq.File]++
-		if p.Sq.Rank == seventh {
+		if int(p.Sq.Rank) == seventh {
 			// Worth most while the enemy king is still stuck on its back
 			// rank, which is what phase approximates.
 			score += w.RookSeventh * phase
@@ -500,8 +500,8 @@ func shapeScore(pieces []board.ColoredPiece, color board.Color,
 		if p.Color != color {
 			continue
 		}
-		file := p.Sq.File
-		rank := p.Sq.Rank
+		file := int(p.Sq.File)
+		rank := int(p.Sq.Rank)
 		if color == board.Black {
 			rank = 7 - rank
 		}

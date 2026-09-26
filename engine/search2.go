@@ -280,7 +280,7 @@ func (c *searchCtx) isRepetition(key uint64, ply int) bool {
 	return c.played[key] >= 2
 }
 
-func sqIndex(s board.Sq) int { return s.Rank*8 + s.File }
+func sqIndex(s board.Sq) int { return int(s.Rank)*8 + int(s.File) }
 
 // isKiller reports whether m is one of this ply's killer moves.
 func (c *searchCtx) isKiller(ply int, m game.Move) bool {
@@ -1763,7 +1763,7 @@ func deadPosition(b *board.Board) bool {
 			sameShade = false
 		case board.Bishop:
 			minors++
-			shade := (p.Sq.File + p.Sq.Rank) & 1
+			shade := (int(p.Sq.File) + int(p.Sq.Rank)) & 1
 			if bishopShade == -1 {
 				bishopShade = shade
 			} else if shade != bishopShade {

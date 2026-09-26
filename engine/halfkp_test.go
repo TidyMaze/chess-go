@@ -22,8 +22,8 @@ func TestHalfKPIndicesAreInRangeAndDistinct(t *testing.T) {
 	for _, kingSq := range []board.Sq{{0, 0}, {1, 0}, {2, 0}, {3, 0}, {0, 7}, {1, 7}, {2, 7}, {3, 7}} {
 		for _, pt := range []board.PieceType{board.Pawn, board.Knight, board.Bishop, board.Rook, board.Queen} {
 			for _, owner := range []board.Color{board.White, board.Black} {
-				for f := 0; f < 8; f++ {
-					for r := 0; r < 8; r++ {
+				for f := int8(0); f < 8; f++ {
+					for r := int8(0); r < 8; r++ {
 						sq := board.Sq{File: f, Rank: r}
 						_ = sq
 						idx, ok := halfKPIndex(kingSq, pt, owner, sq, board.White, halfKPKingBuckets)
@@ -77,8 +77,8 @@ func TestKingBucketsMirrorFiles(t *testing.T) {
 	if kingBucket(board.Sq{1, 0}) != kingBucket(board.Sq{6, 0}) {
 		t.Error("b1 and g1 should share a king bucket")
 	}
-	for f := 0; f < 8; f++ {
-		for r := 0; r < 8; r++ {
+	for f := int8(0); f < 8; f++ {
+		for r := int8(0); r < 8; r++ {
 			b := kingBucket(board.Sq{f, r})
 			if b < 0 || b >= halfKPKingBuckets {
 				t.Fatalf("king bucket %d out of range for file %d rank %d", b, f, r)

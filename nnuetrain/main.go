@@ -39,7 +39,7 @@ type example struct {
 }
 
 func featureIndex(c board.Color, pt board.PieceType, sq board.Sq) int32 {
-	return int32((int(c)*6+int(pt))*64 + sq.Rank*8 + sq.File)
+	return int32((int(c)*6+int(pt))*64 + int(sq.Rank)*8 + int(sq.File))
 }
 
 const clampPawns = 8.0

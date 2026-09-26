@@ -49,7 +49,7 @@ func mopUp(b *board.Board, strong board.Color) (bonus float64, ok bool) {
 	}
 	majors := b.PieceBitboard(strong, board.Rook) | b.PieceBitboard(strong, board.Queen)
 	lone, own := b.KingSquare(weak), b.KingSquare(strong)
-	f, r := lone.File, lone.Rank
+	f, r := int(lone.File), int(lone.Rank)
 	corner := min(f, 7-f) + min(r, 7-r) // steps to the nearest corner
 	if majors|b.PieceBitboard(strong, board.Pawn) == 0 && !bothColours {
 		if bishops&^darkSquares == 0 {
@@ -58,7 +58,7 @@ func mopUp(b *board.Board, strong board.Color) (bonus float64, ok bool) {
 			corner = 7 - iabs(f-r) // light bishops on a8 and h1
 		}
 	}
-	kings := iabs(own.File-f) + iabs(own.Rank-r)
+	kings := iabs(int(own.File)-f) + iabs(int(own.Rank)-r)
 	return mopCorner*float64(7-corner) + mopKings*float64(14-kings), true
 }
 

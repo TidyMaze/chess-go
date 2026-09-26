@@ -78,7 +78,7 @@ func TestCastlingMovesTheRook(t *testing.T) {
 		{"black queenside", "r3k3/8/8/8/8/8/8/4K3 b KQkq - 0 1", "e8c8", "c8", "d8"},
 	}
 	sq := func(s string) board.Sq {
-		return board.Sq{File: int(s[0] - 'a'), Rank: int(s[1] - '1')}
+		return board.Sq{File: int8(s[0] - 'a'), Rank: int8(s[1] - '1')}
 	}
 	for _, c := range cases {
 		g := backRankOnly(t, c.fen)

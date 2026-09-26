@@ -23,7 +23,7 @@ func TestPickMoveMatchesStableSort(t *testing.T) {
 		sees := make([]int16, n)
 		keys := make([]int64, n)
 		for i := range ms {
-			ms[i] = game.Move{From: board.Sq{File: i % 8, Rank: i / 8 % 8}, To: board.Sq{File: i / 64, Rank: 0}}
+			ms[i] = game.Move{From: board.Sq{File: int8(i % 8), Rank: int8(i / 8 % 8)}, To: board.Sq{File: int8(i / 64), Rank: 0}}
 			// A narrow range, so ties are common, around the bands the
 			// real scores use, including negative ones, and history sums
 			// past an int32 either way.
@@ -41,7 +41,7 @@ func TestPickMoveMatchesStableSort(t *testing.T) {
 		for j := 0; j < n; j++ {
 			pickMove(nil, ms, keys, j)
 			w := want[j]
-			if ms[j] != (game.Move{From: board.Sq{File: w % 8, Rank: w / 8 % 8}, To: board.Sq{File: w / 64, Rank: 0}}) {
+			if ms[j] != (game.Move{From: board.Sq{File: int8(w % 8), Rank: int8(w / 8 % 8)}, To: board.Sq{File: int8(w / 64), Rank: 0}}) {
 				t.Fatalf("trial %d, n=%d: pick %d gave %v, stable sort gives move %d", trial, n, j, ms[j], w)
 			}
 			if got := keySEE(keys[j]); got != sees[w] {

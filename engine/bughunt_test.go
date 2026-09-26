@@ -185,7 +185,7 @@ func TestSearchClassifiesEnPassantAsCapture(t *testing.T) {
 func TestPlayedKeysCountOccurrencesWithTheRightSideToMove(t *testing.T) {
 	g := game.New()
 	g.TrackRepetition = true
-	sq := func(f, r int) board.Sq { return board.Sq{File: f, Rank: r} }
+	sq := func(f, r int8) board.Sq { return board.Sq{File: f, Rank: r} }
 	for _, mv := range [][2]board.Sq{
 		{sq(6, 0), sq(5, 2)}, {sq(6, 7), sq(5, 5)}, {sq(5, 2), sq(6, 0)}, {sq(5, 5), sq(6, 7)},
 	} {

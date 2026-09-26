@@ -182,7 +182,7 @@ type ttEntry struct {
 }
 
 func sqToIndex(s board.Sq) uint8 { return uint8(s.Rank*8 + s.File) }
-func indexToSq(i uint8) board.Sq { return board.Sq{File: int(i % 8), Rank: int(i / 8)} }
+func indexToSq(i uint8) board.Sq { return board.Sq{File: int8(i % 8), Rank: int8(i / 8)} }
 func keyUpper(key uint64) uint32 { return uint32(key >> 32) }
 
 // TranspositionTable is a fixed-size, direct-mapped cache. No eviction
