@@ -245,6 +245,62 @@ func TestIsLegalMoveMatchesAllLegalMoves(t *testing.T) {
 	}
 }
 
+// The search plays its moves on the board and never updates g.Turn, so it
+// needs a legality test told whose move it is. IsLegalMove answers for
+// g.Turn only, and turned every black move down at a node where white was
+// the root's side.
+func TestIsLegalMoveForIgnoresTurn(t *testing.T) {
+	g := New()
+	e7e5 := Move{From: board.Sq{File: 4, Rank: 6}, To: board.Sq{File: 4, Rank: 4}}
+	if g.IsLegalMove(e7e5) {
+		t.Fatal("setup: e7-e5 should be illegal for the side to move, white")
+	}
+	if !g.IsLegalMoveFor(e7e5, board.Black) {
+		t.Error("e7-e5 is legal for black, though white is to move")
+	}
+	e2e4 := Move{From: board.Sq{File: 4, Rank: 1}, To: board.Sq{File: 4, Rank: 3}}
+	if g.IsLegalMoveFor(e2e4, board.Black) {
+		t.Error("e2-e4 moves a white pawn, not legal for black")
+	}
+}
+
+func TestIsLegalMoveForMatchesIsLegalMoveWithThatTurn(t *testing.T) {
+	testPositions := []string{
+		"rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+		"r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3",
+		"r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
+		"8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1",
+		"r3k2r/Pppp1ppp/1b3nbN/nP6/BBP1P3/q4N2/Pp1P2PP/R2Q1RK1 w kq - 0 1",
+		"r1bqk1nr/pp1p1pb1/2nQp1pp/8/2B1P3/2N2N2/PP3PPP/R1B1K2R b KQkq - 0 1",
+	}
+	for _, fen := range testPositions {
+		for _, c := range []board.Color{board.White, board.Black} {
+			g, err := ParseFEN(fen)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ref := From(g.Board, c)
+			g.Turn = c.Other()
+			legal := 0
+			for from := 0; from < 64; from++ {
+				for to := 0; to < 64; to++ {
+					m := Move{From: board.Sq{File: from % 8, Rank: from / 8}, To: board.Sq{File: to % 8, Rank: to / 8}}
+					want := ref.IsLegalMove(m)
+					if got := g.IsLegalMoveFor(m, c); got != want {
+						t.Errorf("%s, %v to move, turn %v: IsLegalMoveFor(%v) = %v, want %v", fen, c, g.Turn, m, got, want)
+					}
+					if want {
+						legal++
+					}
+				}
+			}
+			if legal == 0 {
+				t.Errorf("%s: no legal move for %v, the comparison proved nothing", fen, c)
+			}
+		}
+	}
+}
+
 func BenchmarkIsLegalMove(b *testing.B) {
 	g := New()
 	m := Move{From: board.Sq{File: 4, Rank: 1}, To: board.Sq{File: 4, Rank: 3}} // e2-e4

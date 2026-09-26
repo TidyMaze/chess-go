@@ -96,17 +96,24 @@ func (g *Game) AppendLegalMovesGivenCheck(dst []Move, color board.Color, inCheck
 
 // IsLegalMove reports whether m is legal for the current side to move.
 func (g *Game) IsLegalMove(m Move) bool {
+	return g.IsLegalMoveFor(m, g.Turn)
+}
+
+// IsLegalMoveFor reports whether m is legal for color, whatever g.Turn
+// says. The search plays its moves on the board and leaves g.Turn at the
+// root's side, so it has to name the side to move itself.
+func (g *Game) IsLegalMoveFor(m Move, color board.Color) bool {
 	p, ok := g.Board.PieceAt(m.From)
-	if !ok || p.Color != g.Turn {
+	if !ok || p.Color != color {
 		return false
 	}
 	if dest, ok := g.Board.PieceAt(m.To); ok {
-		if dest.Color == g.Turn || dest.Type == board.King {
+		if dest.Color == color || dest.Type == board.King {
 			return false
 		}
 	}
 	var targetBuf [28]board.Sq
-	targets := moves.AppendLegalTargets(targetBuf[:0], &g.Board, m.From, g.Turn, p.Type)
+	targets := moves.AppendLegalTargets(targetBuf[:0], &g.Board, m.From, color, p.Type)
 	found := false
 	for _, t := range targets {
 		if t == m.To {
@@ -118,7 +125,7 @@ func (g *Game) IsLegalMove(m Move) bool {
 		return false
 	}
 	undo := g.Board.MakeMove(m.From, m.To)
-	inCheck := moves.IsInCheck(&g.Board, g.Turn)
+	inCheck := moves.IsInCheck(&g.Board, color)
 	g.Board.UnmakeMove(undo)
 	return !inCheck
 }

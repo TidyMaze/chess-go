@@ -429,7 +429,7 @@ func singularMargin(depth int) float64 { return 0.02 * float64(depth) }
 // good enough, which is not an opinion about the alternatives. Never
 // recurses, since the exclusion search has a move barred at this ply and
 // the guard refuses to start another.
-func (c *searchCtx) singularExtension(g *game.Game, tt *TranspositionTable, key uint64, m game.Move, depth, ply int, maximizingFor board.Color) int {
+func (c *searchCtx) singularExtension(g *game.Game, tt *TranspositionTable, key uint64, m game.Move, color board.Color, depth, ply int, maximizingFor board.Color) int {
 	if c.ev == nil || !c.ev.Singular || tt == nil {
 		return 0
 	}
@@ -448,7 +448,7 @@ func (c *searchCtx) singularExtension(g *game.Game, tt *TranspositionTable, key 
 	}
 	target := score - singularMargin(depth)
 	c.excluded[ply] = m
-	v := c.search(g, g.Turn, maximizingFor, depth/2, ply, target-1e-6, target)
+	v := c.search(g, color, maximizingFor, depth/2, ply, target-1e-6, target)
 	c.excluded[ply] = game.Move{}
 	if c.aborted {
 		return 0
@@ -921,6 +921,7 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 	} else {
 		c.prevMove = game.Move{}
 	}
+	prevMove := c.prevMove
 	// The pruning paths above may have priced the position; if so, keep the
 	// number for the node two plies down and ask it about this one.
 	if haveStatic {
@@ -941,9 +942,9 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 	// In the vast majority of positions with a TT hit, the TT move refutes
 	// the position immediately (beta cutoff). Searching it before generating
 	// and sorting the full legal move list saves ~80% of move generation overhead.
-	if ttMove != (game.Move{}) && ttMove != c.excludedAt(ply) && g.IsLegalMove(ttMove) {
+	if ttMove != (game.Move{}) && ttMove != c.excludedAt(ply) && g.IsLegalMoveFor(ttMove, color) {
 		m := ttMove
-		ttExtension := c.singularExtension(g, tt, key, m, depth, ply, maximizingFor)
+		ttExtension := c.singularExtension(g, tt, key, m, color, depth, ply, maximizingFor)
 		isCapture := isCaptureMove(g, m)
 		exchange := 0
 		if isCapture && c.ev != nil && c.ev.MainSEE && depth <= 6 {
@@ -981,6 +982,10 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 		}
 		value := c.search(g, color.Other(), maximizingFor, depth-1+extension, ply+1, alpha, beta)
 		g.Board.UnmakeMove(undo)
+		// Every node below set c.prevMove to its own previous move. The
+		// cutoff bookkeeping and the ordering of the rest of this node's
+		// moves read it as this node's, so put it back.
+		c.prevMove = prevMove
 		if ply+1 < maxSearchPly {
 			c.path[ply+1] = 0
 		}
@@ -1081,8 +1086,8 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 			}
 			continue
 		}
-		// The table move was proved legal by IsLegalMove before it was
-		// searched.
+		// The table move was proved legal by IsLegalMoveFor before it
+		// was searched.
 		if ttSearched && m == ttMove {
 			legal = append(legal, m)
 			continue
