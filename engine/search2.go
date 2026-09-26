@@ -1755,26 +1755,28 @@ func makeSearchMove(g *game.Game, m game.Move) (board.Undo, bool) {
 // draw it is, where a bishop used to be worth three pawns and the search
 // steered into dead endings as though they were won.
 func deadPosition(b *board.Board) bool {
-	var buf [32]board.ColoredPiece
-	minors, bishopShade, sameShade := 0, -1, true
-	for _, p := range b.AppendAllPieces(buf[:0]) {
-		switch p.Type {
-		case board.Pawn, board.Rook, board.Queen:
-			return false
-		case board.Knight:
-			minors++
-			sameShade = false
-		case board.Bishop:
-			minors++
-			shade := (int(p.Sq.File) + int(p.Sq.Rank)) & 1
-			if bishopShade == -1 {
-				bishopShade = shade
-			} else if shade != bishopShade {
-				sameShade = false
-			}
-		}
+	// Almost every node in a real game has pawns, rooks or queens.
+	// Check bitboards first: 6 array lookups and bitwise OR, O(1) early exit.
+	if (b.PieceBitboard(board.White, board.Pawn) | b.PieceBitboard(board.Black, board.Pawn) |
+		b.PieceBitboard(board.White, board.Rook) | b.PieceBitboard(board.Black, board.Rook) |
+		b.PieceBitboard(board.White, board.Queen) | b.PieceBitboard(board.Black, board.Queen)) != 0 {
+		return false
 	}
-	return minors <= 1 || sameShade
+	knights := bits.OnesCount64(b.PieceBitboard(board.White, board.Knight) | b.PieceBitboard(board.Black, board.Knight))
+	bishops := b.PieceBitboard(board.White, board.Bishop) | b.PieceBitboard(board.Black, board.Bishop)
+	numBishops := bits.OnesCount64(bishops)
+	minors := knights + numBishops
+	if minors <= 1 {
+		return true
+	}
+	if knights > 0 {
+		return false
+	}
+	// All minors are bishops (numBishops >= 2). Check if all are on the same square shade.
+	// Square index is rank*8 + file. (rank + file) & 1 == 1 represents light squares:
+	// rank 0: files 1,3,5,7 (0xAA); rank 1: files 0,2,4,6 (0x55)...
+	const lightSquares = uint64(0x55AA55AA55AA55AA)
+	return (bishops&lightSquares == 0) || (bishops&^lightSquares == 0)
 }
 
 // lateMovePruned reports whether a quiet move this late in the list, at
