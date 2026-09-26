@@ -1788,3 +1788,12 @@ repetition keys that count castling rights and only a usable en passant square.
 The repetition fix is sound in tests and lost Elo anyway, probably the cost of
 a repetition check at every horizon node; the sweep found no game where a
 repetition threw away a +4 position, so it waits.
+
+## Round 3 of depth: 17% faster on the same tree
+
+| change | instructions | why |
+| --- | --- | --- |
+| `board.Sq` as two `int8`: `game.Move` 40 bytes to 16 | -7.9% | the promotion field had pushed every move list over a cache line |
+| table entries 24 to 16 bytes, prefetch of the child's slot | -0.3% (time median -7%) | the probe's samples all sat on the slot load: memory, not branches |
+| slider attackers for SEE from bitboards, same pick order | -1.1% | the ray walk was most of SEE's cost |
+| all three against master, 5 alternated pairs | -9.1%, time -17.2% | 641868 nodes before and after |
