@@ -1753,3 +1753,38 @@ The gap shrank by 90 Elo, 34%. The round 2 runs came hours after the old ones,
 not alternated with them, and the first ran at load 6.4 against 4 for the
 others, which costs our engine depth and not Stockfish (whose strength is set
 by `UCI_Elo`, not nodes).
+
+## Won games thrown away on lichess: mates by depth, a sleeping Mac, phantom queens
+
+Two bullet games (lhT8MqvU, hVG5pJcz) were drawn by the fifty-move rule with
+Stockfish seeing mate in 3 to 12 the whole time. The engine saw a mate too
+(+1005 to +1014) and shuffled: a mate was scored `mateScore + depthLeft`, so a
+longer mate found with more depth left scored as high as a short one, and the
+mate never came closer. The fifty-move draw was only a leaf fade, so the tree
+kept searching past clock 100 and a pawn push found deeper revived the mate.
+Mates now count plies from the root (table entries adjusted by ply), a node at
+clock 100 is a draw, the table refuses mates the clock cannot reach, and
+quiescence counts the clock. From the games' own positions against Stockfish:
+9 of 9 winnable starts mated, master 1; won-endgame suite 15 of 20, master 1
+(`analyses/lichess-games/lhT8MqvU-fix.md`, `tools/lossaudit/convert_check.py`).
+
+The biggest leak was not chess. 54 of 55 losses on time in 592 games were the
+Mac sleeping (`pmset sleep 1`) with 28 s to 605 s on our clock; the log's
+monotonic clock shows 3m33s of a game that took 18m29s. The bot now runs under
+`caffeinate -i -s` (`analyses/bot-elo/runtime-audit.md`).
+
+A bug hunt with an adversarial check on every finding confirmed 17 more. The
+worst: an opponent's underpromotion was replayed as a queen (`game.Move` had no
+promotion piece), so the bot's board desynced and it flagged, three times, once
+with mate in 6. Fixed with the move carrying its promotion (32 to 40 bytes,
+2 to 4% slower search), plus move-post retries, one game loop per game, and
+repetition keys that count castling rights and only a usable en passant square.
+
+| fix group | screen at 100 ms | verdict |
+| --- | --- | --- |
+| draw scaling, fifty-fade that paid for sacrifices, mating corners for KBNK and KBBK | +16 +/- 21 (580 games) | adopted |
+| draw bound when a side can step into a repetition, repetitions at the horizon | -11 +/- 20 (606 games) | held |
+
+The repetition fix is sound in tests and lost Elo anyway, probably the cost of
+a repetition check at every horizon node; the sweep found no game where a
+repetition threw away a +4 position, so it waits.
