@@ -371,7 +371,7 @@ func (b *Bot) maybeMove(gameID string, full gameFull, st gameState, received tim
 		b.logf("game %s: no legal move found on our turn", gameID)
 		return
 	}
-	uci := moveUCIForLichess(g, m)
+	uci := g.MoveUCI(m)
 	postStart := time.Now()
 	err = b.API.postForm("/api/bot/game/"+gameID+"/move/"+url.PathEscape(uci), "")
 	posted := time.Since(postStart)

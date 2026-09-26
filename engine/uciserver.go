@@ -100,7 +100,7 @@ func ServeUCI(in io.Reader, out io.Writer, p Player) {
 				fmt.Fprintf(out, "info depth %d score cp %d nodes %d nps %d time %d\n",
 					LastSearchDepth(), int(math.Round(score*100)), nodes, nps, ms)
 			}
-			fmt.Fprintln(out, "bestmove "+m.UCI())
+			fmt.Fprintln(out, "bestmove "+g.MoveUCI(m))
 		case "quit":
 			return
 		}

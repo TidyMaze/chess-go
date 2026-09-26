@@ -115,6 +115,22 @@ func (m Move) UCI() string {
 	return fmt.Sprintf("%c%d%c%d", 'a'+m.From.File, m.From.Rank+1, 'a'+m.To.File, m.To.Rank+1) + promoLetters[m.Promo]
 }
 
+// MoveUCI is m.UCI() with the letter every promotion needs outside this
+// engine, "q" included: UCI GUIs, python-chess and the lichess API read a
+// bare "e7e8" as an illegal pawn move, not a queening. m must be a move of
+// g's position, which is what tells a promoting pawn from any other piece.
+func (g *Game) MoveUCI(m Move) string {
+	uci := m.UCI()
+	if _, under := promoLetters[m.Promo]; under {
+		return uci
+	}
+	p, ok := g.Board.PieceAt(m.From)
+	if !ok || p.Type != board.Pawn || (m.To.Rank != 0 && m.To.Rank != 7) {
+		return uci
+	}
+	return uci + "q"
+}
+
 // ParseFEN is the inverse of FEN: piece placement, side to move, castling
 // rights, the en passant target and the halfmove clock.
 func ParseFEN(s string) (*Game, error) {

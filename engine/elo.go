@@ -639,9 +639,10 @@ func playFrom(g *game.Game, white, black Player, maxMoves int, live LiveHook) (w
 		if !ok {
 			break
 		}
+		uci := g.MoveUCI(move)
 		g.Apply(move)
 		if rec != nil {
-			rec.Moves = append(rec.Moves, move.UCI())
+			rec.Moves = append(rec.Moves, uci)
 			rec.Scores = append(rec.Scores, score)
 		}
 		if live != nil {
