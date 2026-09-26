@@ -78,3 +78,19 @@ func TestThreefoldIgnoresAnEnPassantSquareOnlyAPinnedPawnCouldUse(t *testing.T) 
 		t.Error("third occurrence missed: exd6 e.p. is illegal (pinned pawn), yet the en passant square split the count")
 	}
 }
+
+// game.New already records the start position. The game loops that call
+// EnableRepetitionTracking on it anyway (analyze, agree, evalgap, gendata,
+// trainloop, nnue) must not count it twice.
+func TestEnableRepetitionTrackingOnANewGameCountsTheStartOnce(t *testing.T) {
+	g := New()
+	g.EnableRepetitionTracking()
+	playUCI(t, g, "g1f3 g8f6 f3g1 f6g8")
+	if g.IsThreefoldRepetition() {
+		t.Errorf("threefold declared after the start position occurred twice (%d played boards)", len(g.PlayedBoards()))
+	}
+	playUCI(t, g, "g1f3 g8f6 f3g1 f6g8")
+	if !g.IsThreefoldRepetition() {
+		t.Error("the third occurrence of the start position is a threefold")
+	}
+}

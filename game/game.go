@@ -57,8 +57,12 @@ func From(b board.Board, turn board.Color) *Game {
 // EnableRepetitionTracking turns on threefold-repetition tracking and
 // records the current position as the first occurrence. Must be called
 // right after construction (not mid-game) or the position count starts
-// one occurrence short.
+// one occurrence short. On a game already tracking (game.New) it does
+// nothing, or the start position would count twice.
 func (g *Game) EnableRepetitionTracking() {
+	if g.TrackRepetition {
+		return
+	}
 	if g.playedBoards == nil {
 		// A game is a few hundred plies; growing this by doubling churns
 		// the allocator on every game the generator plays.
