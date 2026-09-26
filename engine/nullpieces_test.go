@@ -19,7 +19,9 @@ func TestNullPiecesFindsTheQueenTrap(t *testing.T) {
 	if err != nil {
 		t.Skip(err)
 	}
-	p.TimeBudget, p.Threads, p.Depth = 0, 1, 13
+	// Depth 14: with the SPSA-tuned margins the trap shows from depth 14 (at 13
+	// it plays b6); without nullpieces it still plays b6 at depth 14.
+	p.TimeBudget, p.Threads, p.Depth = 0, 1, 14
 	g, err := game.ParseFEN("6K1/1R3R2/8/1P2q3/6k1/8/8/8 w - - 5 73")
 	if err != nil {
 		t.Fatal(err)

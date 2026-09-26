@@ -54,6 +54,8 @@ type Champion struct {
 	TTBits int `json:"tt_bits,omitempty"`
 	// QuiescePly caps the capture search; 0 keeps the engine default.
 	QuiescePly int `json:"qply,omitempty"`
+	// Tune overrides search margins, "Name=value,..." as ParseSearchTune reads it.
+	Tune string `json:"tune,omitempty"`
 }
 
 // DefaultChampion is what the engine was before this campaign started:
@@ -126,6 +128,11 @@ func (c Champion) PlayerOrError() (Player, error) {
 	if c.QuiescePly > 0 {
 		p.QuiescePly = c.QuiescePly
 	}
+	tune, err := ParseSearchTune(c.Tune)
+	if err != nil {
+		return p, fmt.Errorf("champion tune: %w", err)
+	}
+	p.Tune = tune
 	if c.NetFile != "" {
 		n, err := LoadHalfKPNet(c.NetFile)
 		if err != nil {

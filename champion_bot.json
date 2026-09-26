@@ -12,5 +12,6 @@
   "tt_bits": 22,
   "features": "lmp,deeplmp,rfp,scaledlmr,countermove,see,historymalus,lmrtwostep,nullgate,iir,improving,razoring,conthist,histlmr,nullpieces,drawscale",
   "book": "games_book_v5.txt",
-  "qply": 16
+  "qply": 16,
+  "tune": "RFPBase=0.44952795873755585,RFPSlope=0.4164609505500955,RazorBase=2.129413922032871,RazorSlope=1.3833333002421067,FutilityPerDepth=0.9369844282230112,LMRBase=0.5607072706823294,LMRDiv=2.0392824242730416,LMPBase=7.230931768235305,NullBase=3.5741348516842875,NullBonusPer=1.2008518134918584,AspDelta=0.5447597160630137,DeltaMargin=1.9158809360011142"
 }
