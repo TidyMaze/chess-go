@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net/url"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -48,6 +49,12 @@ type Bot struct {
 	HealthyConnection time.Duration
 
 	gamesInPlay atomic.Int32
+	// active holds the id of every game a playGame loop is running for.
+	// Lichess announces every ongoing game again as gameStart each time the
+	// event stream connects, so without it a reconnect starts a second loop
+	// for a game already being played: two searches per move on the same
+	// cores, two posts, and one game counted twice against MaxGames.
+	active sync.Map
 }
 
 const (
@@ -207,6 +214,11 @@ func (b *Bot) handleChallenge(line []byte) {
 // rather than incrementally tracked; a dropped or reordered event then
 // costs one extra replay instead of a desynced board.
 func (b *Bot) playGame(ctx context.Context, gameID string) {
+	if _, running := b.active.LoadOrStore(gameID, struct{}{}); running {
+		b.logf("game %s: already playing it, ignoring the repeated gameStart", gameID)
+		return
+	}
+	defer b.active.Delete(gameID)
 	inPlay := b.gamesInPlay.Add(1)
 	defer b.gamesInPlay.Add(-1)
 	// A game the bot plays without saying so is a game nobody can tell it is
