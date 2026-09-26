@@ -178,6 +178,29 @@ func TestTableGivesNoCutoffNearTheFiftyMoveLimit(t *testing.T) {
 	}
 }
 
+// A node right after a capture or a pawn move has clock 0, whatever the
+// root's clock. The evaluation read 0 as "not set" and fell back to the
+// game's own clock, which inside the search is the root's, so a leaf right
+// after d6 was faded as if nothing had been reset, and the fade stopped
+// rewarding progress at the horizon. Review measured d5d6 at depth 1
+// scoring 10.85, 8.14 and 5.49 at root clocks 0, 60 and 99.
+func TestNodeAfterAResetFadesAtItsOwnClock(t *testing.T) {
+	var scores []float64
+	for _, rootClock := range []string{"0", "60", "99"} {
+		// The Lichess position after d6, the game's clock left at the root's.
+		g := mustFEN(t, "8/6B1/1k1PKRp1/6P1/1p6/1P6/1P6/8 b - - "+rootClock+" 105")
+		ctx := searchCtxPool.Get().(*searchCtx)
+		ctx.reset()
+		ctx.ev, ctx.quiescence, ctx.extensions = &Eval{}, false, false
+		ctx.fifty[1] = 0
+		scores = append(scores, ctx.search(g, board.Black, board.White, 0, 1, negInf, posInf))
+		searchCtxPool.Put(ctx)
+	}
+	if scores[1] != scores[0] || scores[2] != scores[0] {
+		t.Errorf("the leaf after d6 (clock 0) scored %v at root clocks 0, 60, 99; it must not depend on the root's clock", scores)
+	}
+}
+
 // The Lichess bot keeps one table for the whole game. Searched first at a
 // fresh clock, the table holds a mate in two behind Kg6; at clock 98 that
 // line runs into the rule (Kg6 Kg8 is the hundredth halfmove, before Ra8

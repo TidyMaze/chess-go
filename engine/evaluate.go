@@ -265,9 +265,12 @@ type Eval struct {
 	// the network's noise by (1 - blend).
 	HalfKPBlend float64
 	// FiftyClock is the halfmove clock at the node being evaluated. The
-	// search sets it per ply; outside the search it stays zero and the
-	// game's own clock is used instead.
+	// search sets it per ply, along with fiftyKnown; outside the search
+	// fiftyKnown stays false and the game's own clock is used instead.
+	// Zero cannot mean "unset": it is the clock right after every capture
+	// and pawn move.
 	FiftyClock int
+	fiftyKnown bool
 	// acc is the search's per-ply accumulator stack, accCur the slot for
 	// the node being evaluated. Unset outside the search.
 	acc      *[accSlots]halfKPAcc
@@ -738,9 +741,11 @@ func evalPositionFor(g *game.Game, sideToMove, maximizingFor board.Color, ev *Ev
 		ev.STM = sideToMove
 		// The search tracks the clock per ply, because it makes its moves
 		// on the board and never advances the game's own copy. A caller
-		// outside the search leaves FiftyClock at zero, and its game's own
-		// clock is the right one to use.
-		if ev.FiftyClock > 0 {
+		// outside the search never sets fiftyKnown, and its game's own
+		// clock is the right one to use. The test used to be FiftyClock > 0,
+		// so a node right after a capture or a pawn move fell back to the
+		// root's clock and was faded as if it had reset nothing.
+		if ev.fiftyKnown {
 			clock = ev.FiftyClock
 		}
 	}

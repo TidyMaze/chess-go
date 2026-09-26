@@ -688,7 +688,7 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 	// every node evaluated at the root's clock and a shuffle looked
 	// exactly as good as a pawn push.
 	if c.ev != nil && ply < maxSearchPly {
-		c.ev.FiftyClock = c.fifty[ply]
+		c.ev.FiftyClock, c.ev.fiftyKnown = c.fifty[ply], true
 	}
 	// The clock is read every 2048 nodes rather than every node: time.Now
 	// is a syscall-ish read and this is the hottest loop in the engine.
