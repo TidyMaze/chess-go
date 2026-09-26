@@ -1697,3 +1697,25 @@ mid-sequence. Champion against champion at 100 ms:
 
 Pooled, cap 16 is +17 +/- 15 over 2,000 games and was adopted. It agrees with
 the 10 ms screen of 2026-09-12 (+21 +/- 34) that nobody had confirmed.
+
+## One ply is the difference, and depth transfers to Stockfish at about half
+
+The 88 games lost or drawn to Stockfish 2700 at 100 ms
+(`analyses/sf2700-losses/study-100ms-88-games.md`): in 44% the decisive move
+is avoided by our own depth-14 search. Replayed 10 times each with a seeded
+tie-break (`tools/lossaudit/depth_probe.py`), the losing move comes back in
+21.1% of searches alone (median depth 9) and 31.7% under match load, 5 engines
+at once (depth 8). Cut-off iterations explain 2 of the 465 bad moves.
+
+Adopted on that evidence:
+
+| change | against the previous champion | against Stockfish |
+| --- | --- | --- |
+| lazy legality, in-check screen, cheaper clip: 15% faster, same tree | +63 +/- 30 (530 games, binary vs binary) | |
+| SPSA-482 margins in the champion file | +43 +/- 21 (1,038 games) | |
+| both, paired on the same openings, alternated | | old -265, new -207: +58 |
+
+The first unpaired Stockfish check (-216 on openings.txt offset 100000) looked
+like no transfer. Paired on the same balanced openings, 460 games each, the new
+engine is ahead in both halves. A Stockfish result on a subset of openings is
+only comparable to another on the same subset.
