@@ -235,19 +235,38 @@ const maxQuiescePly = 4
 
 // basePly is the search ply of the node quiescence started from, so the
 // accumulator stack keeps counting below it and a mate is scored by its
-// distance from the root, basePly+ply.
+// distance from the root, basePly+ply. quiesce does not know the halfmove
+// clock; quiesceWithKey is told it by the search.
 func quiesce(g *game.Game, color, maximizingFor board.Color, alpha, beta float64, ev *Eval, ply, basePly int) float64 {
-	return quiesceWithKey(g, zobristBoard(&g.Board, color), color, maximizingFor, alpha, beta, ev, ply, basePly)
+	return quiesceWithKey(g, zobristBoard(&g.Board, color), color, maximizingFor, alpha, beta, ev, ply, basePly, -1)
 }
 
-func quiesceWithKey(g *game.Game, key uint64, color, maximizingFor board.Color, alpha, beta float64, ev *Eval, ply, basePly int) float64 {
+// clock is the node's halfmove clock, or -1 when the caller does not track
+// it. Out of check every quiescence move is a capture or a pawn move and
+// resets it; the quiet king moves out of check count up, and at 100 the
+// node is a draw, as in the main search: without it a quiet check at the
+// horizon walked past the fifty-move rule. Each node also publishes its
+// clock for the fade, which used to see the clock of the node quiescence
+// started from, even after a capture.
+func quiesceWithKey(g *game.Game, key uint64, color, maximizingFor board.Color, alpha, beta float64, ev *Eval, ply, basePly, clock int) float64 {
 	atomic.AddInt64(&quiesceNodes, 1)
 	if deadPosition(&g.Board) {
 		return 0
 	}
+	if clock >= 0 {
+		if ev != nil {
+			ev.FiftyClock, ev.fiftyKnown = clock, true
+		}
+		if clock >= 100 && basePly+ply > 0 {
+			if moves.IsInCheck(&g.Board, color) && !g.HasAnyLegalMoveInCheck(color, true) {
+				return terminalScore(g, color, maximizingFor, basePly+ply)
+			}
+			return 0
+		}
+	}
 	tt := ev.table()
 	if tt != nil {
-		if score, ok := tt.probe(key, 0, basePly+ply, 0, maximizingFor, alpha, beta); ok {
+		if score, ok := tt.probe(key, 0, basePly+ply, max(clock, 0), maximizingFor, alpha, beta); ok {
 			return score
 		}
 	}
@@ -271,9 +290,13 @@ func quiesceWithKey(g *game.Game, key uint64, color, maximizingFor board.Color, 
 		}
 		orderInPlace(g, legal)
 		for _, m := range legal {
+			childClock := clock
+			if clock >= 0 {
+				childClock = childFiftyClock(g, m, clock)
+			}
 			undo, promoted := makeSearchMove(g, m)
 			childKey := zobristUpdate(key, &g.Board, m, undo, promoted)
-			value := quiesceWithKey(g, childKey, color.Other(), maximizingFor, alpha, beta, ev, ply+1, basePly)
+			value := quiesceWithKey(g, childKey, color.Other(), maximizingFor, alpha, beta, ev, ply+1, basePly, childClock)
 			g.Board.UnmakeMove(undo)
 			if maximizing {
 				if value > best {
@@ -390,7 +413,8 @@ func quiesceWithKey(g *game.Game, key uint64, color, maximizingFor board.Color, 
 			continue
 		}
 		childKey := zobristUpdate(key, &g.Board, m, undo, promoted)
-		value := quiesceWithKey(g, childKey, color.Other(), maximizingFor, alpha, beta, ev, ply+1, basePly)
+		// A capture, en passant or a promotion: the clock starts again.
+		value := quiesceWithKey(g, childKey, color.Other(), maximizingFor, alpha, beta, ev, ply+1, basePly, min(clock, 0))
 		g.Board.UnmakeMove(undo)
 		if maximizing {
 			if value > best {

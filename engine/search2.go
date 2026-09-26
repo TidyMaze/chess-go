@@ -779,7 +779,7 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 	// on the heap. The allocation profile put 48% of all bytes there.
 	if depth <= 0 {
 		if c.quiescence {
-			return quiesceWithKey(g, key, color, maximizingFor, alpha, beta, c.ev, 0, ply)
+			return quiesceWithKey(g, key, color, maximizingFor, alpha, beta, c.ev, 0, ply, c.fifty[ply])
 		}
 		var moveBuf [96]game.Move
 		legal, _ := g.AppendLegalMovesInCheck(moveBuf[:0], color)
@@ -847,7 +847,7 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 			staticEval, haveStatic = evalPositionFor(g, color, maximizingFor, c.ev), true
 		}
 		if t.cutsRazor(depth, staticEval, alpha, beta, maximizing) {
-			q := quiesceWithKey(g, key, color, maximizingFor, alpha, beta, c.ev, 0, ply)
+			q := quiesceWithKey(g, key, color, maximizingFor, alpha, beta, c.ev, 0, ply, c.fifty[ply])
 			if maximizing && q <= alpha {
 				return q
 			}

@@ -201,6 +201,58 @@ func TestNodeAfterAResetFadesAtItsOwnClock(t *testing.T) {
 	}
 }
 
+// quiescenceAt runs the champion's kind of search from a node at ply 1 whose
+// halfmove clock is clock, with no depth left, so the node goes straight to
+// quiescence.
+func quiescenceAt(t *testing.T, fen string, color board.Color, clock int) float64 {
+	t.Helper()
+	g := mustFEN(t, fen)
+	ctx := searchCtxPool.Get().(*searchCtx)
+	defer searchCtxPool.Put(ctx)
+	ctx.reset()
+	ctx.ev, ctx.quiescence, ctx.extensions = &Eval{}, true, false
+	ctx.fifty[1] = clock
+	return ctx.search(g, color, board.White, 0, 1, negInf, posInf)
+}
+
+// Quiescence follows quiet king moves out of check and did not count them.
+// Here Black is in check at clock 99 and every reply is a king move that
+// reaches 100 without mate: the node is a draw, and at the horizon it
+// scored 2.68 for White. Found by review.
+func TestQuiescenceSeesTheFiftyMoveDraw(t *testing.T) {
+	if got := quiescenceAt(t, "4R2k/8/8/8/8/8/8/2K5 b - - 99 80", board.Black, 99); got != 0 {
+		t.Errorf("in check at clock 99, only quiet replies: scored %v, want the draw", got)
+	}
+}
+
+// Quiescence keeps FIDE 9.3 too: a node at clock 100 whose side to move is
+// checkmated is mate, not a draw; any other node there is a draw.
+func TestQuiescenceMateOnTheHundredthHalfmoveIsStillMate(t *testing.T) {
+	mated := mustFEN(t, "R5k1/5ppp/8/8/8/8/5PPP/6K1 b - - 100 60")
+	key := zobristBoard(&mated.Board, board.Black)
+	if got := quiesceWithKey(mated, key, board.Black, board.White, negInf, posInf, &Eval{}, 0, 1, 100); got != mateScore-1 {
+		t.Errorf("mated at clock 100: scored %v, want mate at ply 1, %v", got, float64(mateScore-1))
+	}
+	alive := mustFEN(t, "6k1/5ppp/8/8/8/8/5PPP/R5K1 b - - 100 60")
+	key = zobristBoard(&alive.Board, board.Black)
+	if got := quiesceWithKey(alive, key, board.Black, board.White, negInf, posInf, &Eval{}, 0, 1, 100); got != 0 {
+		t.Errorf("not mated at clock 100: scored %v, want the draw", got)
+	}
+}
+
+// A capture resets the clock inside quiescence too. exd5 wins the queen,
+// and the position after it has clock 0 whatever the clock before it, so
+// the score may not depend on that clock. Every quiescence node used to be
+// faded at the clock of the node quiescence started from.
+func TestQuiescenceFadesAfterACaptureAtClockZero(t *testing.T) {
+	const fen = "4k3/8/8/3q4/4P3/8/8/4K3 w - - 0 1"
+	fresh := quiescenceAt(t, fen, board.White, 0)
+	late := quiescenceAt(t, fen, board.White, 60)
+	if fresh != late {
+		t.Errorf("exd5 scored %v from clock 0 and %v from clock 60; after the capture the clock is 0 either way", fresh, late)
+	}
+}
+
 // The Lichess bot keeps one table for the whole game. Searched first at a
 // fresh clock, the table holds a mate in two behind Kg6; at clock 98 that
 // line runs into the rule (Kg6 Kg8 is the hundredth halfmove, before Ra8
