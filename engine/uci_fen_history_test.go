@@ -30,3 +30,17 @@ func TestUCIPositionFromFENKeepsTheHistory(t *testing.T) {
 		t.Errorf("the losing side played %s, want g8h8 (threefold repetition, a draw)", got)
 	}
 }
+
+// The same shuffle, but the first occurrence comes right after a7-a5, when
+// the board holds an a6 en passant square no white pawn can use. FIDE
+// counts it as the same position, so Kg8-h8 is still the third one.
+func TestSearchCountsTheOccurrenceAfterAnUnusableDoublePush(t *testing.T) {
+	g := uciPosition(strings.Fields("fen 7k/p4ppp/8/8/8/8/R7/1NKQ4 b - - 0 1 moves a7a5 " + strings.Join(shuffleMoves, " ")))
+	m, ok := PlayerPick(repetitionPlayer(6), g)
+	if !ok {
+		t.Fatal("no move")
+	}
+	if got := m.UCI(); got != "g8h8" {
+		t.Errorf("the losing side played %s, want g8h8 (threefold repetition, a draw)", got)
+	}
+}

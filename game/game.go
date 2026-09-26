@@ -487,7 +487,14 @@ func (g *Game) recordPosition() {
 		g.positionCounts = make(map[uint64]int, 128)
 	}
 	g.positionCounts[g.positionKey()]++
-	g.playedBoards = append(g.playedBoards, g.Board)
+	// The search hashes these boards with the raw en passant square, so
+	// drop one no pawn can use: the same pieces a few moves later, without
+	// it, are the same position.
+	b := g.Board
+	if _, ok := usableEP(&b); !ok {
+		b.SetEPSquare(board.Sq{}, false)
+	}
+	g.playedBoards = append(g.playedBoards, b)
 }
 
 // AppendQuiescenceMoves is AppendLegalMovesInCheck restricted to what the
