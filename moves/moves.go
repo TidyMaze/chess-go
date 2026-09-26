@@ -218,6 +218,61 @@ func castlingMoves(dst []board.Sq, b *board.Board, sq board.Sq, color board.Colo
 	return dst
 }
 
+// sliderRays[k][i] is every square from square index i to the board edge
+// in direction queenDirs[k], blockers ignored. Only the direction matters:
+// it tells which of two attackers the ray walk would have met first.
+var sliderRays = func() (t [8][64]uint64) {
+	for k, d := range queenDirs {
+		for i := 0; i < 64; i++ {
+			for f, r := i%8+d[0], i/8+d[1]; f >= 0 && f < 8 && r >= 0 && r < 8; f, r = f+d[0], r+d[1] {
+				t[k][i] |= 1 << (r*8 + f)
+			}
+		}
+	}
+	return t
+}()
+
+// sliderAttacker is AttackerOfType for a bishop, rook or queen, on
+// bitboards instead of a square-by-square walk. Each ray is cut at its
+// first man, so a ray holds at most one attacker. When two pieces of the
+// type attack sq it returns the one on the earlier direction of
+// queenDirs, the one the walk met first: exchange evaluation takes that
+// piece first, and a different pick changes SEE values and the tree.
+func sliderAttacker(b *board.Board, sq board.Sq, by board.Color, typ board.PieceType) (board.Sq, bool) {
+	own := b.PieceBitboard(by, typ)
+	if own == 0 {
+		return board.Sq{}, false
+	}
+	i := uint8(sq.Rank*8 + sq.File)
+	occupied := b.ColorBitboard(board.White) | b.ColorBitboard(board.Black)
+	var reach uint64
+	first, last := 0, 8 // queenDirs: the four diagonals, then the four lines
+	if typ != board.Rook {
+		reach = board.BishopAttacks(i, occupied)
+	} else {
+		first = 4
+	}
+	if typ != board.Bishop {
+		reach |= board.RookAttacks(i, occupied)
+	} else {
+		last = 4
+	}
+	attackers := reach & own
+	if attackers == 0 {
+		return board.Sq{}, false
+	}
+	if attackers&(attackers-1) != 0 {
+		for k := first; k < last; k++ {
+			if a := sliderRays[k][i] & attackers; a != 0 {
+				attackers = a
+				break
+			}
+		}
+	}
+	idx := bits.TrailingZeros64(attackers)
+	return board.Sq{File: int8(idx % 8), Rank: int8(idx / 8)}, true
+}
+
 // AttackerOfType finds one piece of colour by and type typ that attacks
 // sq, for static exchange evaluation, which wants attackers cheapest
 // first. Sliders are found along their rays, the first piece met on a ray
@@ -253,28 +308,7 @@ func AttackerOfType(b *board.Board, sq board.Sq, by board.Color, typ board.Piece
 			}
 		}
 	case board.Bishop, board.Rook, board.Queen:
-
-		dirs := queenDirs[:]
-		if typ == board.Bishop {
-			dirs = bishopDirs[:]
-		} else if typ == board.Rook {
-			dirs = rookDirs[:]
-		}
-		for _, d := range dirs {
-			from := sq
-			for {
-				from = board.Sq{File: from.File + int8(d[0]), Rank: from.Rank + int8(d[1])}
-				if b.CellOffBoard(from) {
-					break
-				}
-				if p, ok := b.CellPiece(from); ok {
-					if p.Color == by && p.Type == typ {
-						return from, true
-					}
-					break
-				}
-			}
-		}
+		return sliderAttacker(b, sq, by, typ)
 	}
 	return board.Sq{}, false
 }
