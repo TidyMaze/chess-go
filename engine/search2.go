@@ -248,7 +248,10 @@ type searchCtx struct {
 	// step with the list as pickMove hands its moves out, each carrying
 	// its capture's exchange value.
 	orderKeys [maxSearchPly][128]int64
-	prevMove  game.Move
+	// moveBuf[ply] reuses move slice storage across recursive plies, avoiding
+	// zeroing a 1.5 KB moveBuf array on the stack for every node.
+	moveBuf  [maxSearchPly][128]game.Move
+	prevMove game.Move
 }
 
 // recordCounter remembers reply as the refutation of prev by colour.
@@ -781,8 +784,13 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 		if c.quiescence {
 			return quiesceWithKey(g, key, color, maximizingFor, alpha, beta, c.ev, 0, ply, c.fifty[ply])
 		}
-		var moveBuf [96]game.Move
-		legal, _ := g.AppendLegalMovesInCheck(moveBuf[:0], color)
+		var legal []game.Move
+		if ply < maxSearchPly {
+			legal, _ = g.AppendLegalMovesInCheck(c.moveBuf[ply][:0], color)
+		} else {
+			var moveBuf [96]game.Move
+			legal, _ = g.AppendLegalMovesInCheck(moveBuf[:0], color)
+		}
 		if len(legal) == 0 {
 			return terminalScore(g, color, maximizingFor, ply)
 		}
@@ -1062,13 +1070,21 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 	// of those are rejected without being played: scoring and sorting the
 	// whole list to search the few legal moves cost more than filtering it
 	// up front, after which the zero Legality tests nothing.
-	var moveBuf [96]game.Move
 	var list []game.Move
 	var legality game.Legality
-	if inCheck {
-		list = g.AppendLegalMovesGivenCheck(moveBuf[:0], color, true)
+	if ply < maxSearchPly {
+		if inCheck {
+			list = g.AppendLegalMovesGivenCheck(c.moveBuf[ply][:0], color, true)
+		} else {
+			list, legality = g.AppendPseudoLegalMoves(c.moveBuf[ply][:0], color, false)
+		}
 	} else {
-		list, legality = g.AppendPseudoLegalMoves(moveBuf[:0], color, false)
+		var moveBuf [96]game.Move
+		if inCheck {
+			list = g.AppendLegalMovesGivenCheck(moveBuf[:0], color, true)
+		} else {
+			list, legality = g.AppendPseudoLegalMoves(moveBuf[:0], color, false)
+		}
 	}
 	if !ttSearched {
 		// The first legal move in generation order backs the table entry
