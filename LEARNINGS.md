@@ -1719,3 +1719,37 @@ The first unpaired Stockfish check (-216 on openings.txt offset 100000) looked
 like no transfer. Paired on the same balanced openings, 460 games each, the new
 engine is ahead in both halves. A Stockfish result on a subset of openings is
 only comparable to another on the same subset.
+
+## Round 2 of depth: a half-working shortcut and two kernels, gap 265 to 175
+
+Three candidates built in parallel, each screened binary against binary at
+100 ms a move:
+
+| change | seeded nodes | speed | Elo | verdict |
+| --- | --- | --- | --- | --- |
+| NEON kernel for accumulator rows, bit-identical | 719267, same | median 0.89 time ratio, 12 of 12 pairs | +9 +/- 42 (268 games) | adopted on speed: same tree |
+| pick the next move on demand, SEE deferred | 719267, same | 10% fewer instructions, wall clock lost in noise | +1 +/- 41 (272) | adopted on speed: same tree |
+| table move tried first for either side | 641868 | about 17% faster | +16 +/- 15 (1,306, five screens) | adopted |
+| also restore the previous move after every child | 607717 | | -7 +/- 24 (496) | rejected |
+
+The table-move shortcut checked legality with `g.IsLegalMove`, which reads
+`g.Turn`, and the search never moves `g.Turn`: the shortcut only ran at nodes
+where the root side was to move. The test that pins it
+(`TestSearchIgnoresGameTurn`) runs the same search with `g.Turn` flipped and
+wants the same score and node count. Restoring `c.prevMove` after the table
+move's subtree was needed for the fix to keep countermoves useful; doing the
+same after every child of the main loop cut 5% more nodes and lost Elo, so fewer
+nodes is not a gain on its own.
+
+Against Stockfish 2700, same balanced openings (offsets 6000 and 6250):
+
+| engine | W-D-L | Elo |
+| --- | --- | --- |
+| eb8d244, before round 1 | 47-70-343 | -265 +/- 34 |
+| round 1: speed + SPSA-482 | 68-79-315 | -207 +/- 31 |
+| round 2 (cafe78d) | 93-76-321 | -175 +/- 30 |
+
+The gap shrank by 90 Elo, 34%. The round 2 runs came hours after the old ones,
+not alternated with them, and the first ran at load 6.4 against 4 for the
+others, which costs our engine depth and not Stockfish (whose strength is set
+by `UCI_Elo`, not nodes).
