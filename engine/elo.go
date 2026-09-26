@@ -568,6 +568,9 @@ func matchOpening(pair int) *game.Game {
 	pair += MatchOpeningOffset
 	if n := len(MatchOpenings); n > 0 {
 		if g, err := game.ParseFEN(MatchOpenings[pair%n]); err == nil {
+			// Tracking on, as game.New has it for random openings: IsOver
+			// and the search see threefolds only through it.
+			g.EnableRepetitionTracking()
 			return g
 		}
 	}
