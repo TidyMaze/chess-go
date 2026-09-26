@@ -18,7 +18,12 @@ func TestSEECacheInOrderMoves(t *testing.T) {
 	c := &searchCtx{ev: ev}
 	legal := g.AllLegalMoves(board.White)
 
-	c.orderMoves(g, legal, game.Move{}, 0, board.White)
+	// The search reads the exchange off the key of each move it picks.
+	keys := make([]int64, len(legal))
+	c.scoreMoves(g, legal, keys, game.Move{}, 0, board.White)
+	for j := range legal {
+		pickMove(&g.Board, legal, keys, j)
+	}
 
 	foundCapture := false
 	for i, m := range legal {
@@ -31,7 +36,7 @@ func TestSEECacheInOrderMoves(t *testing.T) {
 			if mvvLvaPiece[victim.Type] < mvvLvaPiece[attacker.Type] {
 				foundCapture = true
 				expectedSEE := see(&g.Board, m)
-				cachedSEE := int(c.seeVals[0][i])
+				cachedSEE := int(keySEE(keys[i]))
 				if cachedSEE != expectedSEE {
 					t.Errorf("move %v: cached SEE %d != expected %d", m, cachedSEE, expectedSEE)
 				}

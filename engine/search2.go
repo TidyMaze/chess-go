@@ -243,9 +243,12 @@ type searchCtx struct {
 	// moves straight on the board and never touched Game.HalfmoveClock,
 	// so every node saw the root's value and the fifty move rule was
 	// invisible below the root.
-	fifty    [maxSearchPly]int
-	seeVals  [maxSearchPly][128]int16
-	prevMove game.Move
+	fifty [maxSearchPly]int
+	// orderKeys[ply] are the ordering keys of that node's move list, in
+	// step with the list as pickMove hands its moves out, each carrying
+	// its capture's exchange value.
+	orderKeys [maxSearchPly][128]int64
+	prevMove  game.Move
 }
 
 // recordCounter remembers reply as the refutation of prev by colour.
@@ -532,12 +535,10 @@ func (c *searchCtx) scoreMove(g *game.Game, m game.Move, ttMove game.Move, ply i
 			if mvvLvaPiece[victim.Type] >= mvvLvaPiece[attacker.Type] {
 				return 1<<20 + (mvvLvaPiece[victim.Type]-mvvLvaPiece[attacker.Type])*100 + mvvLvaPiece[victim.Type], 0
 			}
-			x := see(&g.Board, m)
-			if x < 0 {
-				return -1<<20 + x*100, int16(x)
-			} else {
-				return 1<<20 + x*100 + mvvLvaPiece[victim.Type], int16(x)
-			}
+			// An exchange never wins more than the victim, so this is the
+			// most exchangeScore can give; pickMove asks for the real one
+			// only if the capture ever comes up best.
+			return 1<<20 + mvvLvaPiece[victim.Type]*101, seeUnknown
 		}
 		return 1<<20 + mvvLvaPiece[victim.Type]*100 - mvvLvaPiece[attacker.Type], 0
 	}
@@ -555,54 +556,101 @@ func (c *searchCtx) scoreMove(g *game.Game, m game.Move, ttMove game.Move, ply i
 	if c.ev != nil && c.ev.Countermoves && m == c.counterFor(color, c.prevMove) {
 		return 1 << 18, 0
 	}
-	if c.ev != nil && c.ev.PawnPush && advancedPawnPush(&g.Board, m, color) {
+	if hasAttacker && attacker.Type == board.Pawn && c.ev != nil && c.ev.PawnPush && advancedPawnPush(&g.Board, m, color) {
 		return 1<<18 - 50, 0
 	}
 	score := int(c.history[color][sqIndex(m.From)][sqIndex(m.To)])
-	if slot := c.contSlot(color, g, m); slot != nil {
-		score += int(*slot)
+	// contSlot's entry, read on the piece already looked up.
+	if hasAttacker && c.ev != nil && c.ev.ContHist && c.prevMove != (game.Move{}) {
+		score += int(c.cont[color][sqIndex(c.prevMove.To)][attacker.Type][sqIndex(m.To)])
 	}
 	return score, 0
 }
 
-func (c *searchCtx) orderMoves(g *game.Game, ms []game.Move, ttMove game.Move, ply int, color board.Color) {
-	// Insertion sort by descending score: move lists are short (tens of
-	// entries), so this beats a general sort with its allocation and
-	// comparator indirection.
-	// On the stack for any realistic move list; a fresh slice per node
-	// was 8% of all bytes allocated.
-	var scoreBuf [96]int
-	scores := scoreBuf[:0]
-	if len(ms) > len(scoreBuf) {
-		scores = make([]int, 0, len(ms))
+// orderKey packs a move's ordering score, its index in the generated list
+// and its exchange value into one integer. No two keys of a list are equal,
+// and the larger key is the higher score or, on equal scores, the earlier
+// move: the order a stable descending sort gives, whatever algorithm puts
+// the keys in order. Room for any sum of two int32 history entries, lists
+// under 4096 moves, and exchanges within a byte (they stay within a king's
+// value, 20, either way).
+func orderKey(score, idx int, sv int16) int64 {
+	return int64(score)<<20 | int64(0xFFF-idx)<<8 | int64(uint8(sv))
+}
+
+// keySEE is the exchange value orderKey packed.
+func keySEE(k int64) int16 { return int16(int8(uint8(k))) }
+
+// keyIndex is the generated-list index orderKey packed.
+func keyIndex(k int64) int { return 0xFFF - int(k>>8&0xFFF) }
+
+// seeUnknown is the exchange value of a key whose exchange is not yet
+// evaluated. Its score is the most the capture could be worth, and
+// pickMove evaluates it only once it is the best candidate left.
+const seeUnknown = math.MinInt8
+
+// pickMove brings the best of ms[j:] to position j, with its key.
+//
+// Picking on demand instead of sorting the whole list: a node that cuts
+// off on its first moves never pays to order the rest, and the swap is
+// safe because the keys carry the tie-break. A pending exchange that comes
+// out best is evaluated and the pick run again: every other key is a
+// score or a bound above one, so the best settled key is the true best.
+func pickMove(b *board.Board, ms []game.Move, keys []int64, j int) {
+	best := bestKey(keys, j)
+	for keySEE(keys[best]) == seeUnknown {
+		sc, sv := exchangeScore(b, ms[best])
+		keys[best] = orderKey(sc, keyIndex(keys[best]), sv)
+		best = bestKey(keys, j)
 	}
-	scores = scores[:len(ms)]
-	canCacheSEE := ply < maxSearchPly && len(ms) <= 128
+	ms[j], ms[best] = ms[best], ms[j]
+	keys[j], keys[best] = keys[best], keys[j]
+}
+
+// bestKey is the index of the largest of keys[j:].
+func bestKey(keys []int64, j int) int {
+	best, top := j, keys[j]
+	for k, v := range keys[j+1:] {
+		if v > top {
+			best, top = j+1+k, v
+		}
+	}
+	return best
+}
+
+// exchangeScore places a capture of a cheaper piece by its exchange
+// evaluation: winning captures first by what they win, losing captures
+// after every quiet move.
+func exchangeScore(b *board.Board, m game.Move) (int, int16) {
+	victim, _ := b.PieceAt(m.To)
+	x := see(b, m)
+	if x < 0 {
+		return -1<<20 + x*100, int16(x)
+	}
+	return 1<<20 + x*100 + mvvLvaPiece[victim.Type], int16(x)
+}
+
+// scoreMoves keys every move of ms for pickMove, into keys. The scores
+// read the history tables, which the children's searches change, so they
+// are all taken before the first move is searched, as for a sort.
+func (c *searchCtx) scoreMoves(g *game.Game, ms []game.Move, keys []int64, ttMove game.Move, ply int, color board.Color) {
 	for i, m := range ms {
 		sc, sv := c.scoreMove(g, m, ttMove, ply, color)
-		scores[i] = sc
-		if canCacheSEE {
-			c.seeVals[ply][i] = sv
-		}
+		keys[i] = orderKey(sc, i, sv)
 	}
-	for i := 1; i < len(ms); i++ {
-		m, sc := ms[i], scores[i]
-		var sv int16
-		if canCacheSEE {
-			sv = c.seeVals[ply][i]
-		}
-		j := i - 1
-		for j >= 0 && scores[j] < sc {
-			ms[j+1], scores[j+1] = ms[j], scores[j]
-			if canCacheSEE {
-				c.seeVals[ply][j+1] = c.seeVals[ply][j]
-			}
-			j--
-		}
-		ms[j+1], scores[j+1] = m, sc
-		if canCacheSEE {
-			c.seeVals[ply][j+1] = sv
-		}
+}
+
+// orderMoves sorts ms by descending score, ties in generation order.
+func (c *searchCtx) orderMoves(g *game.Game, ms []game.Move, ttMove game.Move, ply int, color board.Color) {
+	var keys []int64
+	if ply < maxSearchPly && len(ms) <= len(c.orderKeys[ply]) {
+		keys = c.orderKeys[ply][:len(ms)]
+	} else {
+		keys = make([]int64, len(ms))
+	}
+	c.scoreMoves(g, ms, keys, ttMove, ply, color)
+	for j := range ms {
+		pickMove(&g.Board, ms, keys, j)
 	}
 }
 
@@ -1005,15 +1053,28 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 		list = list[first:]
 	}
 
-	c.orderMoves(g, list, ttMove, ply, color)
-	cacheSEE := ply < maxSearchPly && len(list) <= len(c.seeVals[ply])
+	// Ordered on demand, one pick per move searched, when the keys fit the
+	// per-ply buffer; sorted up front otherwise.
+	picking := ply < maxSearchPly && len(list) <= len(c.orderKeys[ply])
+	var keys []int64
+	if picking {
+		keys = c.orderKeys[ply][:len(list)]
+		c.scoreMoves(g, list, keys, ttMove, ply, color)
+	} else {
+		c.orderMoves(g, list, ttMove, ply, color)
+	}
 
 	// legal compacts the legal moves over the front of list as they are
 	// met, so legal[:i] is the history malus's list of moves tried before
 	// the i-th. i counts legal moves only: the reductions, pruning and
-	// history read it as "how late in the ordering is this move".
+	// history read it as "how late in the ordering is this move". It only
+	// writes at or below j, so the moves still to pick are untouched.
 	legal := list[:0]
-	for j, m := range list {
+	for j := 0; j < len(list); j++ {
+		if picking {
+			pickMove(&g.Board, list, keys, j)
+		}
+		m := list[j]
 		if m == c.excludedAt(ply) {
 			if legality.IsLegal(&g.Board, m) {
 				legal = append(legal, m)
@@ -1035,8 +1096,8 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 				victim = board.Piece{Type: board.Pawn}
 			}
 			if mvvLvaPiece[victim.Type] < mvvLvaPiece[attacker.Type] {
-				if cacheSEE && m != ttMove {
-					exchange = int(c.seeVals[ply][j])
+				if picking && m != ttMove {
+					exchange = int(keySEE(keys[j]))
 				} else {
 					exchange = see(&g.Board, m)
 				}
