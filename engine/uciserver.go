@@ -121,6 +121,10 @@ func uciPosition(fields []string) *game.Game {
 			end++
 		}
 		if parsed, err := game.ParseFEN(strings.Join(fields[1:end], " ")); err == nil {
+			// ParseFEN leaves tracking off; game.New turns it on. Without
+			// it the moves below leave no history and the search cannot
+			// see a threefold.
+			parsed.EnableRepetitionTracking()
 			g = parsed
 		}
 		i = end
