@@ -126,8 +126,24 @@ func TestMoveUCIForLichessAddsQOnAPromotingPawn(t *testing.T) {
 	if !ok {
 		t.Fatal("could not parse a7a8")
 	}
-	if got := moveUCIForLichess(g, m); got != "a7a8q" {
+	if got := g.MoveUCI(m); got != "a7a8q" {
 		t.Errorf("got %q, want a7a8q", got)
+	}
+}
+
+// A book move can be an underpromotion: it goes out with its own letter,
+// once.
+func TestMoveUCIForLichessKeepsAnUnderpromotionLetter(t *testing.T) {
+	g, err := applyMovesString("4k3/8/8/8/8/8/p7/4K3 b - - 0 1", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, ok := game.MoveFromUCI("a2a1n")
+	if !ok {
+		t.Fatal("could not parse a2a1n")
+	}
+	if got := g.MoveUCI(m); got != "a2a1n" {
+		t.Errorf("got %q, want a2a1n", got)
 	}
 }
 
@@ -140,7 +156,7 @@ func TestMoveUCIForLichessLeavesAnOrdinaryPawnPushAlone(t *testing.T) {
 	if !ok {
 		t.Fatal("could not parse e2e4")
 	}
-	if got := moveUCIForLichess(g, m); got != "e2e4" {
+	if got := g.MoveUCI(m); got != "e2e4" {
 		t.Errorf("got %q, want e2e4 with no promotion suffix", got)
 	}
 }
@@ -154,7 +170,7 @@ func TestMoveUCIForLichessLeavesANonPawnMoveAlone(t *testing.T) {
 	if !ok {
 		t.Fatal("could not parse g1f3")
 	}
-	if got := moveUCIForLichess(g, m); got != "g1f3" {
+	if got := g.MoveUCI(m); got != "g1f3" {
 		t.Errorf("got %q, want g1f3", got)
 	}
 }

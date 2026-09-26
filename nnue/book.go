@@ -88,7 +88,7 @@ func BuildBookFromPGN(r io.Reader, w io.Writer, maxPlies, minGames, minElo int) 
 			case 0.5:
 				rec.draws++
 			}
-			g.ApplyMove(m.From, m.To)
+			g.Apply(m)
 		}
 	}
 	keys := make([]string, 0, len(book))

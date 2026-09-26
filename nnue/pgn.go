@@ -288,7 +288,7 @@ func ImportPGN(r io.Reader, poolPath string, maxKeep, labelDepth, skipPlies int,
 						bad = true
 						break
 					}
-					g.ApplyMove(m.From, m.To)
+					g.Apply(m)
 					if ply < skipPlies {
 						continue
 					}

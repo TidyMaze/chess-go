@@ -12,6 +12,13 @@ import (
 
 type Move struct {
 	From, To board.Sq
+	// Promo is the piece a pawn reaching the last rank becomes when that
+	// is not a queen. The zero value means a queen: the move generator
+	// and the search only ever queen, so their moves leave it unset and
+	// compare equal to a parsed "e7e8q". Only moves from outside (a
+	// lichess opponent, a GUI, Stockfish, a PGN) carry a knight, bishop
+	// or rook here.
+	Promo board.PieceType
 }
 
 type Game struct {
@@ -50,8 +57,12 @@ func From(b board.Board, turn board.Color) *Game {
 // EnableRepetitionTracking turns on threefold-repetition tracking and
 // records the current position as the first occurrence. Must be called
 // right after construction (not mid-game) or the position count starts
-// one occurrence short.
+// one occurrence short. On a game already tracking (game.New) it does
+// nothing, or the start position would count twice.
 func (g *Game) EnableRepetitionTracking() {
+	if g.TrackRepetition {
+		return
+	}
 	if g.playedBoards == nil {
 		// A game is a few hundred plies; growing this by doubling churns
 		// the allocator on every game the generator plays.
@@ -194,7 +205,7 @@ func (g *Game) appendMoves(dst []Move, color board.Color, inCheck, legalOnly boo
 	var targetBuf [28]board.Sq
 	for _, ps := range pieces {
 		for _, target := range moves.AppendLegalTargets(targetBuf[:0], &g.Board, ps.Sq, color, ps.Type) {
-			m := Move{ps.Sq, target}
+			m := Move{From: ps.Sq, To: target}
 			if legalOnly && !legality.IsLegal(&g.Board, m) {
 				continue
 			}
@@ -337,7 +348,15 @@ func (g *Game) IsOver() bool {
 		g.IsFiftyMoveDraw() || g.IsThreefoldRepetition()
 }
 
+// ApplyMove plays from -> to, promoting to a queen.
 func (g *Game) ApplyMove(from, to board.Sq) {
+	g.Apply(Move{From: from, To: to})
+}
+
+// Apply plays m, promoting to m.Promo when it is a knight, bishop or rook
+// and to a queen otherwise.
+func (g *Game) Apply(m Move) {
+	from, to := m.From, m.To
 	movingPiece, _ := g.Board.PieceAt(from)
 	captured, capturedOk := g.Board.PieceAt(to)
 	if capturedOk && captured.Type == board.King {
@@ -356,14 +375,16 @@ func (g *Game) ApplyMove(from, to board.Sq) {
 	// Duplicating that here is how the two paths drift apart.
 	g.Board.MakeMove(from, to)
 
-	// Auto-promote to a queen. Underpromotion is legal but is the right
-	// choice so rarely that always taking a queen is the standard
-	// simplification; without any promotion at all a pawn reaching the
-	// last rank would simply have no moves.
+	// A queen unless the move names another piece. The engine itself only
+	// ever queens, but a move from outside has to land as it was played.
 	if movingPiece.Type == board.Pawn {
 		if (movingPiece.Color == board.White && to.Rank == 7) ||
 			(movingPiece.Color == board.Black && to.Rank == 0) {
-			g.Board.Place(to, board.Piece{Color: movingPiece.Color, Type: board.Queen})
+			promo := board.Queen
+			if m.Promo == board.Knight || m.Promo == board.Bishop || m.Promo == board.Rook {
+				promo = m.Promo
+			}
+			g.Board.Place(to, board.Piece{Color: movingPiece.Color, Type: promo})
 		}
 	}
 
@@ -390,7 +411,8 @@ func (g *Game) CountIfPlayed(from, to board.Sq) int {
 	return g.positionCounts[trial.positionKey()]
 }
 
-// positionKey encodes piece placement + side to move as a string: cheap
+// positionKey encodes piece placement, side to move, castling rights and
+// en passant: cheap
 // enough (called once per real move played, not once per search node --
 // TrackRepetition is off by default for the search's throwaway positions)
 // and simple to get right compared to a numeric zobrist hash.
@@ -411,17 +433,57 @@ func (g *Game) positionKey() uint64 {
 	var h uint64
 	var buf [32]board.ColoredPiece
 	for _, p := range g.Board.AppendAllPieces(buf[:0]) {
-		v := uint64(p.Sq.Rank*8+p.Sq.File)<<8 | uint64(p.Type)<<4 | uint64(p.Color)
-		// A cheap integer mix so that neighbouring squares do not produce
-		// neighbouring hashes, then XOR so piece order does not matter.
-		v *= 0x9E3779B97F4A7C15
-		v ^= v >> 29
-		h ^= v
+		// XOR so piece order does not matter.
+		h ^= keyMix(uint64(p.Sq.Rank*8+p.Sq.File)<<8 | uint64(p.Type)<<4 | uint64(p.Color))
 	}
 	if g.Turn == board.Black {
 		h ^= 0xD6E8FEB86659FD93
 	}
+	// Castling rights and en passant are part of the position (FIDE 9.2).
+	// Without them the position after 1.e4 e5, when both sides could
+	// still castle, counted with the same pieces after two king walks, and
+	// harness and training games ended on a threefold that was not one.
+	h ^= keyMix(1<<20 | uint64(g.Board.Castle()))
+	if ep, ok := usableEP(&g.Board); ok {
+		h ^= keyMix(1<<21 | uint64(ep.File))
+	}
 	return h
+}
+
+// usableEP is the board's en passant square when a pawn beside the pawn
+// that just stepped past it can legally take. The board sets the square
+// after every double push, but FIDE, lichess and python-chess count it in
+// a repeated position only when the capture is legal, so a pinned taker
+// does not count.
+func usableEP(b *board.Board) (board.Sq, bool) {
+	ep, ok := b.EPSquare()
+	if !ok {
+		return ep, false
+	}
+	pushedRank, taker := 3, board.Black // a white pawn went to rank 4
+	if ep.Rank == 5 {
+		pushedRank, taker = 4, board.White // a black pawn went to rank 5
+	}
+	pawns := b.PieceBitboard(taker, board.Pawn)
+	for _, f := range [2]int{ep.File - 1, ep.File + 1} {
+		if f < 0 || f >= 8 || pawns&(uint64(1)<<(pushedRank*8+f)) == 0 {
+			continue
+		}
+		undo := b.MakeMove(board.Sq{File: f, Rank: pushedRank}, ep)
+		inCheck := moves.IsInCheck(b, taker)
+		b.UnmakeMove(undo)
+		if !inCheck {
+			return ep, true
+		}
+	}
+	return ep, false
+}
+
+// keyMix is a cheap integer mix so that neighbouring inputs do not produce
+// neighbouring hashes.
+func keyMix(v uint64) uint64 {
+	v *= 0x9E3779B97F4A7C15
+	return v ^ v>>29
 }
 
 func (g *Game) recordPosition() {
@@ -429,7 +491,14 @@ func (g *Game) recordPosition() {
 		g.positionCounts = make(map[uint64]int, 128)
 	}
 	g.positionCounts[g.positionKey()]++
-	g.playedBoards = append(g.playedBoards, g.Board)
+	// The search hashes these boards with the raw en passant square, so
+	// drop one no pawn can use: the same pieces a few moves later, without
+	// it, are the same position.
+	b := g.Board
+	if _, ok := usableEP(&b); !ok {
+		b.SetEPSquare(board.Sq{}, false)
+	}
+	g.playedBoards = append(g.playedBoards, b)
 }
 
 // AppendQuiescenceMoves is AppendLegalMovesInCheck restricted to what the
@@ -477,7 +546,7 @@ func (g *Game) AppendQuiescenceMoves(dst []Move, color board.Color) ([]Move, boo
 			}
 			anyLegal = true
 			if wanted {
-				result = append(result, Move{ps.Sq, target})
+				result = append(result, Move{From: ps.Sq, To: target})
 			}
 		}
 	}

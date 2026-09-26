@@ -63,7 +63,6 @@ func MoveFromSAN(g *Game, san string) (Move, bool) {
 		promo = p
 		s = s[:i]
 	}
-	_ = promo // the engine auto-queens; recorded for clarity, see below
 
 	// Leading piece letter. Absent means a pawn move.
 	piece := board.Pawn
@@ -124,6 +123,9 @@ func MoveFromSAN(g *Game, san string) (Move, bool) {
 		// than one means the PGN under-disambiguated. Either way the game
 		// cannot be replayed faithfully, so refuse it.
 		return Move{}, false
+	}
+	if promo != board.Queen {
+		found.Promo = promo
 	}
 	return found, true
 }

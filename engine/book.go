@@ -91,6 +91,7 @@ func (b *Book) Move(g *game.Game) (game.Move, bool) {
 	}
 	for _, m := range g.AllLegalMoves(g.Turn) {
 		if m.From == want.From && m.To == want.To {
+			m.Promo = want.Promo
 			return m, true
 		}
 	}

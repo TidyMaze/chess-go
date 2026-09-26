@@ -568,6 +568,9 @@ func matchOpening(pair int) *game.Game {
 	pair += MatchOpeningOffset
 	if n := len(MatchOpenings); n > 0 {
 		if g, err := game.ParseFEN(MatchOpenings[pair%n]); err == nil {
+			// Tracking on, as game.New has it for random openings: IsOver
+			// and the search see threefolds only through it.
+			g.EnableRepetitionTracking()
 			return g
 		}
 	}
@@ -639,9 +642,10 @@ func playFrom(g *game.Game, white, black Player, maxMoves int, live LiveHook) (w
 		if !ok {
 			break
 		}
-		g.ApplyMove(move.From, move.To)
+		uci := g.MoveUCI(move)
+		g.Apply(move)
 		if rec != nil {
-			rec.Moves = append(rec.Moves, move.UCI())
+			rec.Moves = append(rec.Moves, uci)
 			rec.Scores = append(rec.Scores, score)
 		}
 		if live != nil {

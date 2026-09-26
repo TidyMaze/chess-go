@@ -291,7 +291,7 @@ func ExtractBook(r io.Reader, path string, max, minPieces int) error {
 				}
 				written++
 			}
-			g.ApplyMove(legal.From, legal.To)
+			g.Apply(want)
 			if max > 0 && written >= max {
 				break
 			}

@@ -173,7 +173,9 @@ func probeWorst(championFile string, worst []result, top int) {
 			q.TimeBudget = time.Duration(ms) * time.Millisecond
 			m, sc, ok := engine.PlayerPickScored(q, g)
 			if ok {
-				picks[k], scores[k] = m.UCI(), sc
+				// The record's spelling, "q" included, or a repeated
+				// queen promotion reads as a different move.
+				picks[k], scores[k] = g.MoveUCI(m), sc
 			}
 		}
 		verdict := "same move: blind spot"

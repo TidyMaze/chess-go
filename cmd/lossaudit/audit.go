@@ -114,7 +114,7 @@ func replay(r engine.GameRecord, judge func(*game.Game) (float64, bool, bool), d
 		_, capture := g.Board.PieceAt(m.To)
 		mover := g.Turn
 		before := g.FEN()
-		g.ApplyMove(m.From, m.To)
+		g.Apply(m)
 		e, mate, ok := judge(g)
 		if !ok {
 			continue

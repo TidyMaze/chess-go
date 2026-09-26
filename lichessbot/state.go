@@ -85,7 +85,7 @@ func applyMovesString(fen, moves string) (*game.Game, error) {
 		if !ok {
 			break
 		}
-		g.ApplyMove(m.From, m.To)
+		g.Apply(m)
 	}
 	return g, nil
 }
@@ -98,28 +98,6 @@ func isOurTurn(g *game.Game, ourColor string) bool {
 		return g.Turn == board.White
 	}
 	return g.Turn == board.Black
-}
-
-// moveUCIForLichess is m.UCI() with the promotion letter lichess requires.
-// The engine's own Move.UCI() omits it because ApplyMove always queens a
-// pawn that reaches the last rank without being told which piece to
-// become, which is fine between two calls into this engine but not
-// understood as a promotion by the lichess API: a bare "e7e8" there is
-// read as an illegal pawn move two ranks past the board, not a queening.
-func moveUCIForLichess(g *game.Game, m game.Move) string {
-	uci := m.UCI()
-	p, ok := g.Board.PieceAt(m.From)
-	if !ok || p.Type != board.Pawn {
-		return uci
-	}
-	lastRank := 7 // rank 8, zero-indexed, for a white pawn
-	if p.Color == board.Black {
-		lastRank = 0 // rank 1
-	}
-	if m.To.Rank != lastRank {
-		return uci
-	}
-	return uci + "q"
 }
 
 // unlimitedBudget is what one move gets in a game with no clock, a
