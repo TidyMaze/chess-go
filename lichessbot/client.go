@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -85,9 +86,35 @@ func (a *httpAPI) do(ctx context.Context, method, url string, body io.Reader, co
 	if resp.StatusCode >= 300 {
 		defer resp.Body.Close()
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return nil, fmt.Errorf("%s %s: %s: %s", method, url, resp.Status, string(b))
+		return nil, &statusError{code: resp.StatusCode, msg: fmt.Sprintf("%s %s: %s: %s", method, url, resp.Status, string(b))}
 	}
 	return resp, nil
+}
+
+// statusError is lichess answering, as opposed to lichess not being reached.
+// The difference decides whether trying again can help: a 400 on a move or a
+// 404 on a game says the same thing next time, a dropped connection or a 502
+// while lichess restarts does not.
+type statusError struct {
+	code int
+	msg  string
+}
+
+func (e *statusError) Error() string { return e.msg }
+
+// isDefinitive reports whether err is lichess refusing the request itself (a
+// 4xx other than 429), which no retry will change.
+func isDefinitive(err error) bool {
+	var se *statusError
+	return errors.As(err, &se) && se.code >= 400 && se.code < 500 && se.code != http.StatusTooManyRequests
+}
+
+// isRateLimited reports whether err is lichess answering 429: the token is
+// over a rate limit, and lichess asks for a minute's pause before the next
+// request (lichess-api.yaml, "Rate limiting").
+func isRateLimited(err error) bool {
+	var se *statusError
+	return errors.As(err, &se) && se.code == http.StatusTooManyRequests
 }
 
 func (a *httpAPI) streamAt(ctx context.Context, url string) (io.ReadCloser, error) {

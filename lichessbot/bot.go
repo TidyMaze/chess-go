@@ -7,6 +7,8 @@ import (
 	"io"
 	"log"
 	"net/url"
+	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -46,8 +48,98 @@ type Bot struct {
 	ReconnectDelay    time.Duration
 	MaxReconnectDelay time.Duration
 	HealthyConnection time.Duration
+	// RateLimitWait is the pause before any request that follows a 429. Zero
+	// means the minute lichess asks for.
+	RateLimitWait time.Duration
 
 	gamesInPlay atomic.Int32
+	// active holds the id of every game a playGame loop is running for.
+	// Lichess announces every ongoing game again as gameStart each time the
+	// event stream connects, so without it a reconnect starts a second loop
+	// for a game already being played: two searches per move on the same
+	// cores, two posts, and one game counted twice against MaxGames.
+	active sync.Map
+}
+
+// gameSession is what one game carries from one move to the next.
+type gameSession struct {
+	// One estimate per game: the overhead is a property of who is on the
+	// other side, so it must not be shared between games or carried across
+	// them.
+	overhead *overheadEstimate
+	// One transposition table per game, so subsequent moves in the same game
+	// reuse previously explored branches rather than re-allocating 24-96 MB
+	// every move.
+	table *engine.TranspositionTable
+
+	// The rest is shared with a move post being retried, hence the lock.
+	mu sync.Mutex
+	// claimed is the move list the bot is answering or has answered. An
+	// opponent who offers a draw or proposes a takeback while the bot thinks
+	// makes lichess queue a gameState with that same list; searching it
+	// again blocks the stream while the real reply waits on the bot's clock,
+	// and the stale move is then refused, or accepted as the answer to a
+	// position the bot never looked at.
+	claimed  string
+	hasClaim bool
+	// latest is the newest state read from the game stream, at latestAt.
+	latest   gameState
+	latestAt time.Time
+}
+
+func (s *gameSession) observe(st gameState, at time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.latest, s.latestAt = st, at
+}
+
+// outageDeadline is the last moment the game can still be running while the
+// bot cannot reach it: both clocks of the newest state read, run down one
+// after the other from when it was read, since nobody gains time without
+// moving and the bot cannot move. It is never earlier than window after the
+// stream last worked, which also covers a game whose clocks are not known.
+func (s *gameSession) outageDeadline(lastWorked time.Time, window time.Duration) time.Time {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	deadline := lastWorked.Add(window)
+	if !s.latestAt.IsZero() {
+		clocks := time.Duration(s.latest.WhiteTimeMS+s.latest.BlackTimeMS) * time.Millisecond
+		if byClock := s.latestAt.Add(clocks); byClock.After(deadline) {
+			deadline = byClock
+		}
+	}
+	return deadline
+}
+
+func (s *gameSession) isClaimed(moves string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.hasClaim && s.claimed == moves
+}
+
+func (s *gameSession) claim(moves string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.claimed, s.hasClaim = moves, true
+}
+
+// release gives the claim on moves back once its move turned out not to be
+// posted, so a later event with the same moves, such as a reconnect's
+// gameFull, may try again.
+func (s *gameSession) release(moves string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.claimed == moves {
+		s.hasClaim = false
+	}
+}
+
+// stillExpects reports whether the game, as the stream last showed it, is
+// still waiting for the move that answers moves.
+func (s *gameSession) stillExpects(moves string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return !gameOver(s.latest.Status) && strings.TrimSpace(s.latest.Moves) == moves
 }
 
 const (
@@ -57,7 +149,37 @@ const (
 	// How many connections to a game's stream may hand over nothing at all
 	// before the bot accepts that lichess no longer serves that game.
 	maxEmptyGameStreams = 3
+
+	// A move post that fails without lichess refusing it (a dropped request,
+	// a 502, a timeout) is made again, because nothing else will: lichess
+	// sends no event until someone moves, so a lost post leaves the bot on a
+	// silent stream until its flag falls. The wait doubles from the first
+	// delay up to the cap, for as long as the bot's clock lasts, or for the
+	// window when lichess reports no clock for it.
+	firstMoveRetryDelay    = 100 * time.Millisecond
+	maxMoveRetryDelay      = time.Second
+	noClockMoveRetryWindow = time.Minute
+
+	// Lichess on a 429: "waiting one minute before retrying will be
+	// sufficient". The limit is per token, so a request made sooner prolongs
+	// it for every game in play and the event stream.
+	defaultRateLimitWait = time.Minute
 )
+
+func (b *Bot) rateLimitWait() time.Duration {
+	if b.RateLimitWait > 0 {
+		return b.RateLimitWait
+	}
+	return defaultRateLimitWait
+}
+
+// waitAfter is wait, stretched to the rate-limit pause when err is a 429.
+func (b *Bot) waitAfter(err error, wait time.Duration) time.Duration {
+	if isRateLimited(err) {
+		return max(wait, b.rateLimitWait())
+	}
+	return wait
+}
 
 func (b *Bot) healthyConnection() time.Duration {
 	if b.HealthyConnection > 0 {
@@ -207,6 +329,11 @@ func (b *Bot) handleChallenge(line []byte) {
 // rather than incrementally tracked; a dropped or reordered event then
 // costs one extra replay instead of a desynced board.
 func (b *Bot) playGame(ctx context.Context, gameID string) {
+	if _, running := b.active.LoadOrStore(gameID, struct{}{}); running {
+		b.logf("game %s: already playing it, ignoring the repeated gameStart", gameID)
+		return
+	}
+	defer b.active.Delete(gameID)
 	inPlay := b.gamesInPlay.Add(1)
 	defer b.gamesInPlay.Add(-1)
 	// A game the bot plays without saying so is a game nobody can tell it is
@@ -219,15 +346,9 @@ func (b *Bot) playGame(ctx context.Context, gameID string) {
 	defer func() {
 		b.logf("game %s: finished after %s", gameID, time.Since(started).Round(time.Second))
 	}()
-	// One estimate per game: the overhead is a property of who is on the
-	// other side, so it must not be shared between games or carried across
-	// them.
-	overhead := newOverheadEstimate()
-	// One transposition table per game, so subsequent moves in the same game
-	// reuse previously explored branches rather than re-allocating 24-96 MB every move.
-	var gameTable *engine.TranspositionTable
+	sess := &gameSession{overhead: newOverheadEstimate()}
 	if b.Player.TTBits > 0 {
-		gameTable = engine.NewTranspositionTable(b.Player.TTBits)
+		sess.table = engine.NewTranspositionTable(b.Player.TTBits)
 	}
 	gameCtx, dropGame := context.WithCancel(ctx)
 	defer dropGame()
@@ -241,24 +362,47 @@ func (b *Bot) playGame(ctx context.Context, gameID string) {
 	var full gameFull
 	haveFull := false
 	empties := 0
+	lastWorked := time.Now()
+	outageDelay := b.reconnectDelay()
 	for {
 		if gameCtx.Err() != nil {
 			return
 		}
-		lines, over, err := b.readGameStream(gameCtx, gameID, &full, &haveFull, overhead, gameTable)
+		lines, opened, over, err := b.readGameStream(gameCtx, gameID, &full, &haveFull, sess)
 		if over {
 			return
 		}
-		// Progress is the thing worth retrying on. A connection that handed
-		// over even one line is a game lichess still knows about; several in
-		// a row that hand over nothing are a game it has forgotten, and
-		// retrying those forever would leave a goroutine spinning for the
-		// life of the process.
-		if lines > 0 {
+		wait := b.reconnectDelay()
+		switch {
+		case lines > 0:
+			// Progress is the thing worth retrying on: a connection that
+			// handed over even one line is a game lichess still knows about.
 			empties = 0
-		} else if empties++; empties >= maxEmptyGameStreams {
-			b.logf("game %s: giving up after %d connections that delivered nothing", gameID, empties)
-			return
+			lastWorked = time.Now()
+			outageDelay = b.reconnectDelay()
+		case opened || isDefinitive(err):
+			// Several connections in a row that hand over nothing, or that
+			// lichess refuses outright (a 404), are a game it has forgotten,
+			// and retrying those forever would leave a goroutine spinning for
+			// the life of the process.
+			if empties++; empties >= maxEmptyGameStreams {
+				b.logf("game %s: giving up after %d connections that delivered nothing", gameID, empties)
+				return
+			}
+		default:
+			// Not reached at all: the network is down, or lichess is
+			// restarting. That says nothing about the game, which goes on
+			// running on the clocks, so it is tried again with a growing
+			// wait until the clocks read last have both run out. Three tries
+			// a second apart used to abandon a live game after two seconds of
+			// outage.
+			if time.Now().After(sess.outageDeadline(lastWorked, b.maxReconnectDelay())) {
+				b.logf("game %s: giving up: no connection since %s, and the game clocks have run out",
+					gameID, lastWorked.Format(time.TimeOnly))
+				return
+			}
+			wait = b.waitAfter(err, outageDelay)
+			outageDelay = b.nextReconnectDelay(outageDelay, 0)
 		}
 		if err != nil && err != io.EOF {
 			b.logf("game %s: stream ended: %v; reconnecting", gameID, err)
@@ -266,20 +410,21 @@ func (b *Bot) playGame(ctx context.Context, gameID string) {
 		select {
 		case <-gameCtx.Done():
 			return
-		case <-time.After(b.reconnectDelay()):
+		case <-time.After(wait):
 		}
 	}
 }
 
 // readGameStream reads one connection to a game's stream to its end. It
-// reports how many lines it managed to read, so the caller can tell a
-// dropped connection from a game lichess no longer serves, and whether the
-// game is over, which is the only reason to stop reconnecting.
-func (b *Bot) readGameStream(ctx context.Context, gameID string, full *gameFull, haveFull *bool, overhead *overheadEstimate, gameTable *engine.TranspositionTable) (lines int, over bool, err error) {
+// reports how many lines it managed to read and whether the connection opened
+// at all, so the caller can tell a dropped connection or an outage from a
+// game lichess no longer serves, and whether the game is over, which is the
+// only reason to stop reconnecting.
+func (b *Bot) readGameStream(ctx context.Context, gameID string, full *gameFull, haveFull *bool, sess *gameSession) (lines int, opened, over bool, err error) {
 	stream, err := b.API.streamNDJSON(ctx, "/api/bot/game/stream/"+gameID)
 	if err != nil {
 		b.logf("game %s: stream failed: %v", gameID, err)
-		return 0, false, err
+		return 0, false, false, err
 	}
 	defer stream.Close()
 
@@ -300,7 +445,7 @@ func (b *Bot) readGameStream(ctx context.Context, gameID string, full *gameFull,
 			}
 			*haveFull = true
 			over = over || gameOver(full.State.Status)
-			b.maybeMove(gameID, *full, full.State, received, overhead, gameTable)
+			b.maybeMove(ctx, gameID, *full, full.State, received, sess)
 		case "gameState":
 			if !*haveFull {
 				return nil
@@ -310,11 +455,11 @@ func (b *Bot) readGameStream(ctx context.Context, gameID string, full *gameFull,
 				return nil
 			}
 			over = over || gameOver(st.Status)
-			b.maybeMove(gameID, *full, st, received, overhead, gameTable)
+			b.maybeMove(ctx, gameID, *full, st, received, sess)
 		}
 		return nil
 	})
-	return lines, over, err
+	return lines, true, over, err
 }
 
 // effectivePlayer applies this move's own clock to the champion, when
@@ -336,8 +481,15 @@ func effectivePlayer(base engine.Player, ourColor string, st gameState, speed st
 	return base
 }
 
-func (b *Bot) maybeMove(gameID string, full gameFull, st gameState, received time.Time, overhead *overheadEstimate, gameTable *engine.TranspositionTable) {
+// maybeMove answers st when it is our turn. ctx is the game's: it bounds a
+// move post being retried after maybeMove has returned.
+func (b *Bot) maybeMove(ctx context.Context, gameID string, full gameFull, st gameState, received time.Time, sess *gameSession) {
+	sess.observe(st, received)
 	if gameOver(st.Status) {
+		return
+	}
+	moves := strings.TrimSpace(st.Moves)
+	if sess.isClaimed(moves) {
 		return
 	}
 	color, err := ourColor(full, b.Username)
@@ -357,12 +509,13 @@ func (b *Bot) maybeMove(gameID string, full gameFull, st gameState, received tim
 	if !isOurTurn(g, color) {
 		return
 	}
-	player := effectivePlayer(b.Player, color, st, full.Speed, overhead)
+	sess.claim(moves)
+	player := effectivePlayer(b.Player, color, st, full.Speed, sess.overhead)
 	searchStart := time.Now()
 	var m game.Move
 	var ok bool
-	if gameTable != nil {
-		m, ok = engine.PlayerPickWith(player, g, gameTable)
+	if sess.table != nil {
+		m, ok = engine.PlayerPickWith(player, g, sess.table)
 	} else {
 		m, ok = engine.PlayerPick(player, g)
 	}
@@ -372,14 +525,22 @@ func (b *Bot) maybeMove(gameID string, full gameFull, st gameState, received tim
 		return
 	}
 	uci := g.MoveUCI(m)
+	path := "/api/bot/game/" + gameID + "/move/" + url.PathEscape(uci)
 	postStart := time.Now()
-	err = b.API.postForm("/api/bot/game/"+gameID+"/move/"+url.PathEscape(uci), "")
+	err = b.API.postForm(path, "")
 	posted := time.Since(postStart)
 	// Feed it back, so the next move of this game budgets for what this one
 	// actually cost rather than for what a constant guessed.
-	overhead.observe(posted)
+	sess.overhead.observe(posted)
 	if err != nil {
 		b.logf("game %s: move %s failed: %v", gameID, uci, err)
+		if isDefinitive(err) {
+			sess.release(moves)
+			return
+		}
+		// Retried off the stream's goroutine, so the stream keeps being read
+		// and can show whether the game still waits for this move.
+		go b.retryMove(ctx, gameID, uci, path, moves, flagFalls(color, st, received), sess, err)
 		return
 	}
 	// Split, because the clock charges for both and only one of them is the
@@ -395,6 +556,58 @@ func (b *Bot) maybeMove(gameID string, full gameFull, st gameState, received tim
 		gameID, uci, searched.Round(time.Millisecond), posted.Round(time.Millisecond),
 		time.Since(received).Round(time.Millisecond),
 		player.TimeBudget.Round(time.Millisecond))
+}
+
+// flagFalls is when our clock runs out if we never move, going by the state
+// received at at. With no clock reported, it is the fixed retry window.
+func flagFalls(ourColor string, st gameState, at time.Time) time.Time {
+	ms := st.WhiteTimeMS
+	if ourColor == "black" {
+		ms = st.BlackTimeMS
+	}
+	if ms <= 0 {
+		return at.Add(noClockMoveRetryWindow)
+	}
+	return at.Add(time.Duration(ms) * time.Millisecond)
+}
+
+// retryMove posts a move whose post failed again, with a doubling wait, for
+// as long as the game still waits for it and the clock leaves time for it.
+// It stops at once on a refusal from lichess, which no retry will change, and
+// waits out a rate limit before the next try. err is how the last post failed.
+func (b *Bot) retryMove(ctx context.Context, gameID, uci, path, moves string, flag time.Time, sess *gameSession, err error) {
+	posted := false
+	defer func() {
+		if !posted {
+			sess.release(moves)
+		}
+	}()
+	for delay := firstMoveRetryDelay; ; delay = min(2*delay, maxMoveRetryDelay) {
+		wait := b.waitAfter(err, delay)
+		if time.Now().Add(wait).After(flag) {
+			b.logf("game %s: move %s not posted, and the clock runs out before the next try", gameID, uci)
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(wait):
+		}
+		if !sess.stillExpects(moves) {
+			b.logf("game %s: move %s: the game has moved on, not posting it again", gameID, uci)
+			return
+		}
+		err = b.API.postForm(path, "")
+		if err == nil {
+			posted = true
+			b.logf("game %s: %s posted on a retry", gameID, uci)
+			return
+		}
+		b.logf("game %s: move %s failed again: %v", gameID, uci, err)
+		if isDefinitive(err) {
+			return
+		}
+	}
 }
 
 func (b *Bot) logf(format string, args ...any) {
