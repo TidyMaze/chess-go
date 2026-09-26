@@ -446,11 +446,11 @@ func (g *Game) positionKey() uint64 {
 	return h
 }
 
-// usableEP is the board's en passant square when a pawn stands beside the
-// pawn that just stepped past it, ready to take. The board sets the square
+// usableEP is the board's en passant square when a pawn beside the pawn
+// that just stepped past it can legally take. The board sets the square
 // after every double push, but FIDE, lichess and python-chess count it in
-// a repeated position only when a capture is possible. Pins are not
-// checked, the polyglot convention.
+// a repeated position only when the capture is legal, so a pinned taker
+// does not count.
 func usableEP(b *board.Board) (board.Sq, bool) {
 	ep, ok := b.EPSquare()
 	if !ok {
@@ -462,7 +462,13 @@ func usableEP(b *board.Board) (board.Sq, bool) {
 	}
 	pawns := b.PieceBitboard(taker, board.Pawn)
 	for _, f := range [2]int{ep.File - 1, ep.File + 1} {
-		if f >= 0 && f < 8 && pawns&(uint64(1)<<(pushedRank*8+f)) != 0 {
+		if f < 0 || f >= 8 || pawns&(uint64(1)<<(pushedRank*8+f)) == 0 {
+			continue
+		}
+		undo := b.MakeMove(board.Sq{File: f, Rank: pushedRank}, ep)
+		inCheck := moves.IsInCheck(b, taker)
+		b.UnmakeMove(undo)
+		if !inCheck {
 			return ep, true
 		}
 	}

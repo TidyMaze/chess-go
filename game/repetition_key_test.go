@@ -63,3 +63,18 @@ func TestThreefoldIgnoresAnUnusableEnPassantSquare(t *testing.T) {
 		t.Error("third occurrence missed: the en passant square after a7-a5, which no pawn can use, split the count")
 	}
 }
+
+// The e5 pawn is pinned to its king by the e8 rook, so exd6 e.p. is
+// illegal after d7-d5: FIDE, lichess and python-chess count the three
+// occurrences as one position.
+func TestThreefoldIgnoresAnEnPassantSquareOnlyAPinnedPawnCouldUse(t *testing.T) {
+	g, err := ParseFEN("4r1k1/3p4/8/4P3/8/8/8/4K1N1 b - - 0 1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	g.EnableRepetitionTracking()
+	playUCI(t, g, "d7d5 g1f3 g8h8 f3g1 h8g8 g1f3 g8h8 f3g1 h8g8")
+	if !g.IsThreefoldRepetition() {
+		t.Error("third occurrence missed: exd6 e.p. is illegal (pinned pawn), yet the en passant square split the count")
+	}
+}
