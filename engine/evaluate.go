@@ -684,8 +684,13 @@ func evalPosition(g *game.Game, maximizingFor board.Color, ev *Eval) float64 {
 	if ev != nil {
 		ev.STM = g.Turn
 	}
-	return fadeForFiftyMove(PositionScoreEval(&g.Board, maximizingFor, ev), g.HalfmoveClock)
+	return fadeWithMaterialFloor(&g.Board, PositionScoreEval(&g.Board, maximizingFor, ev), g.HalfmoveClock, maximizingFor)
 }
+
+const (
+	fiftyLimit     = 100 // plies, the fifty move rule
+	fiftyFadeAfter = 20  // leave early play completely alone
+)
 
 // fadeForFiftyMove pulls a score toward the draw as the fifty move clock
 // runs out, and returns the draw itself once it has.
@@ -707,27 +712,60 @@ func evalPosition(g *game.Game, maximizingFor board.Color, ev *Eval) float64 {
 // untouched: at the fresh clock of almost every position the engine ever
 // sees, the score is returned exactly as it came in.
 func fadeForFiftyMove(score float64, halfmoveClock int) float64 {
-	const (
-		limit     = 100 // plies, the fifty move rule
-		fadeAfter = 20  // leave early play completely alone
-		// The fade stops here rather than reaching zero. Fading all the
-		// way creates an incentive to throw material away: a capture
-		// resets the clock, so at a fade of 0.3 a side six pawns up scores
-		// 1.8, while sacrificing a bishop to reset it scores 3.0. The
-		// engine did exactly that, handing a lone king a bishop in the
-		// two-bishop mate test, which is how this was caught.
-		floor = 0.5
-	)
-	if halfmoveClock >= limit {
+	// The fade stops here rather than reaching zero. Fading all the way
+	// creates an incentive to throw material away: a capture resets the
+	// clock, so at a fade of 0.3 a side six pawns up scores 1.8, while
+	// sacrificing a bishop to reset it scores 3.0. The engine did exactly
+	// that, handing a lone king a bishop in the two-bishop mate test, which
+	// is how this was caught.
+	const floor = 0.5
+	if halfmoveClock >= fiftyLimit {
 		// The draw has actually happened. This one is not a fade, it is
 		// the result.
 		return 0
 	}
-	if halfmoveClock <= fadeAfter {
+	if halfmoveClock <= fiftyFadeAfter {
 		return score
 	}
-	spent := float64(halfmoveClock-fadeAfter) / float64(limit-fadeAfter)
+	spent := float64(halfmoveClock-fiftyFadeAfter) / float64(fiftyLimit-fiftyFadeAfter)
 	return score * (1 - (1-floor)*spent)
+}
+
+// fadeWithMaterialFloor is the fade the evaluation applies: in a won
+// position only the part of the score above the material balance fades.
+// The floor above was not enough there. A capture resets the clock, so a
+// fade that eats into the material rewards giving material away, and the
+// net stops valuing material once it is far ahead: with queen, bishop and
+// knight against two pawns, Bxg6 (a bishop for a pawn) cost 0.3 pawns of
+// net score while the fade took 4.4 off +14 at clock 70, and the bot played
+// it. Counted on the board, material cannot be undervalued, so giving it up
+// to reset the clock costs it in full. What lies above the material keeps
+// fading, so a king drive toward mate keeps its direction at any clock.
+//
+// The material is kept from a lead of 4 pawns (the king drive's winning
+// edge), in full from 8: rook, bishop and knight against two pawns, 9.3 of
+// material, already scored 8.7. Below that the net values material
+// properly, and a score under the material means a fortress or a
+// perpetual the net can see, which the fade must keep pulling toward the
+// draw. The score stays increasing in the net's score throughout.
+func fadeWithMaterialFloor(b *board.Board, score float64, halfmoveClock int, maximizingFor board.Color) float64 {
+	lead := abs(score)
+	if halfmoveClock <= fiftyFadeAfter || halfmoveClock >= fiftyLimit || lead <= 4 {
+		return fadeForFiftyMove(score, halfmoveClock)
+	}
+	sign := 1.0
+	if score < 0 {
+		sign = -1
+	}
+	material := min(max(sign*materialBalance(b, maximizingFor), 0), lead)
+	kept := sign * material * min((lead-4)/4, 1)
+	return kept + fadeForFiftyMove(score-kept, halfmoveClock)
+}
+
+// materialBalance is color's material minus the other side's, in pawns.
+func materialBalance(b *board.Board, color board.Color) float64 {
+	pawns := func(c board.Color) float64 { return float64(bits.OnesCount64(b.PieceBitboard(c, board.Pawn))) }
+	return pieceMaterial(b, color) + pawns(color) - pieceMaterial(b, color.Other()) - pawns(color.Other())
 }
 
 // evalPositionFor is evalPosition told which side is to move, for the
@@ -753,5 +791,5 @@ func evalPositionFor(g *game.Game, sideToMove, maximizingFor board.Color, ev *Ev
 	if ev != nil && ev.DrawScale {
 		score = drawScale(&g.Board, score, maximizingFor)
 	}
-	return fadeForFiftyMove(score, clock)
+	return fadeWithMaterialFloor(&g.Board, score, clock, maximizingFor)
 }
