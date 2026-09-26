@@ -296,6 +296,7 @@ func quiesceWithKey(g *game.Game, key uint64, color, maximizingFor board.Color, 
 			}
 			undo, promoted := makeSearchMove(g, m)
 			childKey := zobristUpdate(key, &g.Board, m, undo, promoted)
+			tt.prefetch(childKey)
 			value := quiesceWithKey(g, childKey, color.Other(), maximizingFor, alpha, beta, ev, ply+1, basePly, childClock)
 			g.Board.UnmakeMove(undo)
 			if maximizing {
@@ -413,6 +414,7 @@ func quiesceWithKey(g *game.Game, key uint64, color, maximizingFor board.Color, 
 			continue
 		}
 		childKey := zobristUpdate(key, &g.Board, m, undo, promoted)
+		tt.prefetch(childKey)
 		// A capture, en passant or a promotion: the clock starts again.
 		value := quiesceWithKey(g, childKey, color.Other(), maximizingFor, alpha, beta, ev, ply+1, basePly, min(clock, 0))
 		g.Board.UnmakeMove(undo)

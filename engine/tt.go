@@ -4,6 +4,7 @@ import (
 	"math/bits"
 	"math/rand"
 	"sync"
+	"unsafe"
 
 	"chess/board"
 	"chess/game"
@@ -166,19 +167,36 @@ const (
 // so a mate score near 1000 quantises to steps coarser than the window
 // itself. Scores came back from the table just different enough to fail
 // the window and trigger a re-search.
+//
+// Adding gen took the entry to 18 bytes of fields, padded to 24: a third of
+// the slots then straddled two cache lines and the champion's 2^22 table
+// was 96 MB. The move, flag and side fit in 15 bits, so they share one
+// uint16 and the entry is back to 16 bytes, four to a cache line.
 type ttEntry struct {
 	score float64 // pawns; see the note below on why not float32
 	key32 uint32  // upper half of the Zobrist key, for verification
 	depth int8
-	flag  ttFlag
-	// maximizingFor matters: a stored score is from one side's point of
-	// view, and reusing it for the other side would invert its meaning.
-	maximizingFor uint8
-	from, to      uint8 // square index, rank*8+file
 	// gen is the search this entry was written in. An entry from an older
 	// search is stale and may be replaced whatever its depth, which is what
 	// stops a depth-preferred table silting up and never accepting anything.
 	gen uint8
+	// data packs, from bit 0: the best move's from and to squares (6 bits
+	// each, rank*8+file), the flag (2 bits) and maximizingFor (1 bit). The
+	// side matters: a stored score is from one side's point of view, and
+	// reusing it for the other side would invert its meaning.
+	data uint16
+}
+
+func packTTData(from, to uint8, flag ttFlag, maximizingFor uint8) uint16 {
+	return uint16(from) | uint16(to)<<6 | uint16(flag)<<12 | uint16(maximizingFor)<<14
+}
+
+func (e *ttEntry) from() uint8          { return uint8(e.data & 63) }
+func (e *ttEntry) to() uint8            { return uint8(e.data >> 6 & 63) }
+func (e *ttEntry) flag() ttFlag         { return ttFlag(e.data >> 12 & 3) }
+func (e *ttEntry) maximizingFor() uint8 { return uint8(e.data >> 14 & 1) }
+func (e *ttEntry) move() game.Move {
+	return game.Move{From: indexToSq(e.from()), To: indexToSq(e.to())}
 }
 
 func sqToIndex(s board.Sq) uint8 { return uint8(s.Rank*8 + s.File) }
@@ -265,29 +283,20 @@ const ttNoCutoffClock = 90
 // window, since alpha and beta are root-relative too. clock is the node's
 // halfmove clock.
 func (t *TranspositionTable) probe(key uint64, depth, ply, clock int, maximizingFor board.Color, alpha, beta float64) (float64, bool) {
-	if t == nil {
+	// The clock test first: past it no entry can cut off, so the slot is
+	// not even read.
+	if t == nil || clock >= ttNoCutoffClock {
 		return 0, false
 	}
-	idx := key & t.mask
-	var e *ttEntry
-	var stackEntry ttEntry
-	if t.shared {
-		l := &t.locks[idx&(ttStripes-1)]
-		l.Lock()
-		stackEntry = t.entries[idx]
-		l.Unlock()
-		e = &stackEntry
-	} else {
-		e = &t.entries[idx]
-	}
-	if e.key32 != keyUpper(key) || int(e.depth) < depth || e.maximizingFor != uint8(maximizingFor) || clock >= ttNoCutoffClock {
+	e := t.load(key & t.mask)
+	if e.key32 != keyUpper(key) || int(e.depth) < depth || e.maximizingFor() != uint8(maximizingFor) {
 		return 0, false
 	}
 	score, ok := scoreFromTT(e.score, ply, clock)
 	if !ok {
 		return 0, false
 	}
-	switch e.flag {
+	switch e.flag() {
 	case ttExact:
 		return score, true
 	case ttLowerBound:
@@ -307,31 +316,19 @@ func (t *TranspositionTable) probeWithMove(key uint64, depth, ply, clock int, ma
 	if t == nil {
 		return 0, false, game.Move{}, false
 	}
-	idx := key & t.mask
-	var e *ttEntry
-	var stackEntry ttEntry
-	if t.shared {
-		l := &t.locks[idx&(ttStripes-1)]
-		l.Lock()
-		stackEntry = t.entries[idx]
-		l.Unlock()
-		e = &stackEntry
-	} else {
-		e = &t.entries[idx]
-	}
+	e := t.load(key & t.mask)
 	if e.key32 != keyUpper(key) {
 		return 0, false, game.Move{}, false
 	}
-	m = game.Move{From: indexToSq(e.from), To: indexToSq(e.to)}
-	okMove = true
-	if int(e.depth) < depth || e.maximizingFor != uint8(maximizingFor) || clock >= ttNoCutoffClock {
+	m = e.move()
+	if int(e.depth) < depth || e.maximizingFor() != uint8(maximizingFor) || clock >= ttNoCutoffClock {
 		return 0, false, m, true
 	}
 	score, ok := scoreFromTT(e.score, ply, clock)
 	if !ok {
 		return 0, false, m, true
 	}
-	switch e.flag {
+	switch e.flag() {
 	case ttExact:
 		return score, true, m, true
 	case ttLowerBound:
@@ -359,9 +356,8 @@ func (t *TranspositionTable) storeWithMove(key uint64, score float64, depth, ply
 	}
 	idx := key & t.mask
 	entry := ttEntry{
-		key32: keyUpper(key), score: scoreToTT(score, ply), depth: int8(depth), flag: flag,
-		maximizingFor: uint8(maximizingFor),
-		from:          sqToIndex(best.From), to: sqToIndex(best.To),
+		key32: keyUpper(key), score: scoreToTT(score, ply), depth: int8(depth),
+		data: packTTData(sqToIndex(best.From), sqToIndex(best.To), flag, uint8(maximizingFor)),
 	}
 	if !t.shared {
 		t.put(idx, depth, &entry)
@@ -381,22 +377,39 @@ func (t *TranspositionTable) bestMove(key uint64) (game.Move, bool) {
 	if t == nil {
 		return game.Move{}, false
 	}
-	idx := key & t.mask
-	var e *ttEntry
-	var stackEntry ttEntry
-	if t.shared {
-		l := &t.locks[idx&(ttStripes-1)]
-		l.Lock()
-		stackEntry = t.entries[idx]
-		l.Unlock()
-		e = &stackEntry
-	} else {
-		e = &t.entries[idx]
-	}
+	e := t.load(key & t.mask)
 	if e.key32 != keyUpper(key) {
 		return game.Move{}, false
 	}
-	return game.Move{From: indexToSq(e.from), To: indexToSq(e.to)}, true
+	return e.move(), true
+}
+
+// prefetch starts loading key's slot. The slot is a random line of a table
+// far bigger than the caches, and every cycle of probe's time in the profile
+// sat on that one load; asked for as soon as a child's key is known, it
+// arrives while the child does its node count, repetition and dead-position
+// tests instead of after them.
+func (t *TranspositionTable) prefetch(key uint64) {
+	if t != nil {
+		prefetchLine(unsafe.Pointer(&t.entries[key&t.mask]))
+	}
+}
+
+// load reads slot idx by value. A shared table copies it under the slot's
+// stripe lock, out of line, so the single-threaded probe stays small.
+func (t *TranspositionTable) load(idx uint64) ttEntry {
+	if t.shared {
+		return t.loadShared(idx)
+	}
+	return t.entries[idx]
+}
+
+func (t *TranspositionTable) loadShared(idx uint64) ttEntry {
+	l := &t.locks[idx&(ttStripes-1)]
+	l.Lock()
+	e := t.entries[idx]
+	l.Unlock()
+	return e
 }
 
 // put writes an entry unless the slot already holds a deeper one for the
@@ -408,22 +421,11 @@ func (t *TranspositionTable) entryFor(key uint64) (score float64, depth int, fla
 	if t == nil {
 		return 0, 0, 0, false
 	}
-	idx := key & t.mask
-	var e *ttEntry
-	var stackEntry ttEntry
-	if t.shared {
-		l := &t.locks[idx&(ttStripes-1)]
-		l.Lock()
-		stackEntry = t.entries[idx]
-		l.Unlock()
-		e = &stackEntry
-	} else {
-		e = &t.entries[idx]
-	}
+	e := t.load(key & t.mask)
 	if e.key32 != keyUpper(key) {
 		return 0, 0, 0, false
 	}
-	return e.score, int(e.depth), e.flag, true
+	return e.score, int(e.depth), e.flag(), true
 }
 
 // put is depth-preferred within a search and always-replace across

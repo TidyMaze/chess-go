@@ -916,6 +916,7 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 				nullKey ^= zobristEP[ep.File]
 			}
 			c.path[ply+1] = nullKey
+			tt.prefetch(nullKey)
 			// No move is played, so the clock stands where it was. Unset,
 			// the child read whatever a sibling left here, and a stale 100
 			// made passing an instant draw.
@@ -995,6 +996,7 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 		}
 		if ply+1 < maxSearchPly {
 			c.path[ply+1] = zobristUpdate(key, &g.Board, m, undo, promoted)
+			tt.prefetch(c.path[ply+1])
 			c.fifty[ply+1] = childClock
 		}
 
@@ -1222,6 +1224,7 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 
 		if ply+1 < maxSearchPly {
 			c.path[ply+1] = zobristUpdate(key, &g.Board, m, undo, promoted)
+			tt.prefetch(c.path[ply+1])
 			c.fifty[ply+1] = childClock
 		}
 
