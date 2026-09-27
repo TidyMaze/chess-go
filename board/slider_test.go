@@ -168,3 +168,33 @@ func BenchmarkIsAttackedBy(bench *testing.B) {
 		_ = b.IsAttackedBy(sq, White)
 	}
 }
+
+func BenchmarkMakeUnmake(bench *testing.B) {
+	b := Initial()
+	from := Sq{File: 4, Rank: 1} // e2
+	to := Sq{File: 4, Rank: 3}   // e4
+	bench.ResetTimer()
+	for i := 0; i < bench.N; i++ {
+		u := b.MakeMove(from, to)
+		b.UnmakeMove(u)
+	}
+}
+
+func BenchmarkAppendPiecesOf(bench *testing.B) {
+	b := Initial()
+	var buf [16]PieceAtSquare
+	bench.ResetTimer()
+	for i := 0; i < bench.N; i++ {
+		_ = b.AppendPiecesOf(buf[:0], White)
+	}
+}
+
+func BenchmarkAppendAllPieces(bench *testing.B) {
+	b := Initial()
+	var buf [32]ColoredPiece
+	bench.ResetTimer()
+	for i := 0; i < bench.N; i++ {
+		_ = b.AppendAllPieces(buf[:0])
+	}
+}
+
