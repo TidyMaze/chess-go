@@ -59,31 +59,6 @@ func findWorstDrop(evals []plyEval) worstDrop {
 	return w
 }
 
-// LossCategory is the automated root cause classification of a lost or drawn game.
-type LossCategory string
-
-const (
-	LossBookTrap          LossCategory = "book_trap"
-	LossTacticalBlunder   LossCategory = "tactical_blunder"
-	LossEndgameConversion LossCategory = "endgame_conversion"
-	LossBleed             LossCategory = "bleed"
-)
-
-// classifyLoss categorizes the game's decisive failure into a discrete root cause.
-func classifyLoss(evals []plyEval, threshold float64) LossCategory {
-	w := findWorstDrop(evals)
-	if w.found && w.drop >= threshold {
-		if w.ply <= 16 {
-			return LossBookTrap
-		}
-		if phase(w.at.material) == "endgame" && w.fromE >= 1.0 {
-			return LossEndgameConversion
-		}
-		return LossTacticalBlunder
-	}
-	return LossBleed
-}
-
 // phase names the position by non-pawn men on both sides.
 func phase(material int) string {
 	switch {
