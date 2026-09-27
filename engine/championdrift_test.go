@@ -19,9 +19,11 @@ import (
 //
 // Evaluation terms are allowed to differ: champion.json carries
 // kingsafety, which hand_blend 0 makes inert anyway. Search features are
-// not, because a search feature is strength.
+// not, because a search feature is strength. stabletime is clock
+// management, not search: only the bot plays on a real clock, and on the
+// fixed time per move of races and screens it would break equal time.
 func TestChampionFilesAgreeOnSearchFeatures(t *testing.T) {
-	evaluationTerms := map[string]bool{"kingsafety": true, "structure": true, "mobility": true, "shelter": true}
+	evaluationTerms := map[string]bool{"kingsafety": true, "structure": true, "mobility": true, "shelter": true, "stabletime": true}
 	searchFeatures := func(path string) []string {
 		c := ReadChampion("../" + path)
 		if c.Features == "" {
