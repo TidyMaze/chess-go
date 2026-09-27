@@ -420,6 +420,31 @@ func (b *Board) AppendSlideMoves(dst []Sq, sq Sq, color Color, dirs [][2]int) []
 	return moves
 }
 
+// AppendSlideCaptures appends to dst only capture targets for a slider at sq moving along dirs.
+func (b *Board) AppendSlideCaptures(dst []Sq, sq Sq, color Color, dirs [][2]int) []Sq {
+	moves := dst
+	baseIdx := index(sq)
+	for _, d := range dirs {
+		delta := d[1]*width + d[0]
+		currIdx := baseIdx
+		for {
+			currIdx += delta
+			code := b.cells[currIdx]
+			if code == codeOffBoard {
+				break
+			}
+			if code == codeEmpty {
+				continue
+			}
+			if cellColor[code] != color {
+				moves = append(moves, cellToSq[currIdx])
+			}
+			break
+		}
+	}
+	return moves
+}
+
 // AppendStepMoves appends to dst all pseudo-legal target squares for a stepper at sq using offsets.
 func (b *Board) AppendStepMoves(dst []Sq, sq Sq, color Color, offsets [][2]int) []Sq {
 	moves := dst
@@ -431,6 +456,20 @@ func (b *Board) AppendStepMoves(dst []Sq, sq Sq, color Color, offsets [][2]int) 
 			continue
 		}
 		if code == codeEmpty || cellColor[code] != color {
+			moves = append(moves, cellToSq[idx])
+		}
+	}
+	return moves
+}
+
+// AppendStepCaptures appends to dst only capture targets for a stepper at sq using offsets.
+func (b *Board) AppendStepCaptures(dst []Sq, sq Sq, color Color, offsets [][2]int) []Sq {
+	moves := dst
+	baseIdx := index(sq)
+	for _, d := range offsets {
+		idx := baseIdx + d[1]*width + d[0]
+		code := b.cells[idx]
+		if code != codeOffBoard && code != codeEmpty && cellColor[code] != color {
 			moves = append(moves, cellToSq[idx])
 		}
 	}

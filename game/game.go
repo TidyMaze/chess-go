@@ -523,17 +523,14 @@ func (g *Game) AppendQuiescenceMoves(dst []Move, color board.Color) ([]Move, boo
 	enemyOcc := g.Board.ColorBitboard(color.Other())
 	for _, ps := range pieces {
 		needsCheckTest := ps.Type == board.King || pinned.Has(ps.Sq)
-		for _, target := range moves.AppendLegalTargets(targetBuf[:0], &g.Board, ps.Sq, color, ps.Type) {
+		for _, target := range moves.AppendQuiescenceTargets(targetBuf[:0], &g.Board, ps.Sq, color, ps.Type) {
 			epCapture := hasEP && ps.Type == board.Pawn &&
 				target == epSquare && ps.Sq.File != target.File
 			occupied := (enemyOcc & (uint64(1) << (target.Rank*8 + target.File))) != 0
 			// Pawns never move backwards, so either end of the board is
 			// the last rank for whichever colour is moving.
 			promotes := ps.Type == board.Pawn && (target.Rank == 0 || target.Rank == 7)
-			wanted := occupied || epCapture || promotes
-			// One legal quiet move is all the stalemate question needs;
-			// the rest are skipped before their legality test.
-			if !wanted && anyLegal {
+			if !occupied && !epCapture && !promotes {
 				continue
 			}
 			if needsCheckTest || epCapture {
@@ -545,10 +542,11 @@ func (g *Game) AppendQuiescenceMoves(dst []Move, color board.Color) ([]Move, boo
 				}
 			}
 			anyLegal = true
-			if wanted {
-				result = append(result, Move{From: ps.Sq, To: target})
-			}
+			result = append(result, Move{From: ps.Sq, To: target})
 		}
+	}
+	if !anyLegal {
+		anyLegal = g.HasAnyLegalMoveInCheck(color, false)
 	}
 	return result, false, anyLegal
 }

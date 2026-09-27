@@ -64,6 +64,26 @@ func AppendLegalTargets(dst []board.Sq, b *board.Board, sq board.Sq, color board
 	panic("unknown piece type")
 }
 
+// AppendQuiescenceTargets appends capture and promotion target squares for a piece at sq.
+// Skips quiet moves for sliders and steppers, emitting only enemy blockers along the same rays.
+func AppendQuiescenceTargets(dst []board.Sq, b *board.Board, sq board.Sq, color board.Color, pt board.PieceType) []board.Sq {
+	switch pt {
+	case board.Pawn:
+		return pawnMoves(dst, b, sq, color)
+	case board.Knight:
+		return b.AppendKnightCaptures(dst, sq, color)
+	case board.King:
+		return b.AppendKingCaptures(dst, sq, color)
+	case board.Bishop:
+		return b.AppendSlideCaptures(dst, sq, color, bishopDirSlice)
+	case board.Rook:
+		return b.AppendSlideCaptures(dst, sq, color, rookDirSlice)
+	case board.Queen:
+		return b.AppendSlideCaptures(dst, sq, color, queenDirSlice)
+	}
+	panic("unknown piece type")
+}
+
 // LegalTargets is the allocating convenience form, for tests and callers
 // outside the search hot path.
 func LegalTargets(b *board.Board, sq board.Sq, color board.Color, pt board.PieceType) []board.Sq {

@@ -169,8 +169,16 @@ func (b *Board) AppendKnightMoves(dst []Sq, sq Sq, color Color) []Sq {
 	return appendFromBitboard(dst, KnightAttacks[squareIndex(sq)]&^b.colorBB[color])
 }
 
+func (b *Board) AppendKnightCaptures(dst []Sq, sq Sq, color Color) []Sq {
+	return appendFromBitboard(dst, KnightAttacks[squareIndex(sq)]&b.colorBB[color.Other()])
+}
+
 func (b *Board) AppendKingMoves(dst []Sq, sq Sq, color Color) []Sq {
 	return appendFromBitboard(dst, KingAttacks[squareIndex(sq)]&^b.colorBB[color])
+}
+
+func (b *Board) AppendKingCaptures(dst []Sq, sq Sq, color Color) []Sq {
+	return appendFromBitboard(dst, KingAttacks[squareIndex(sq)]&b.colorBB[color.Other()])
 }
 
 func (b *Board) AppendPawnMoves(dst []Sq, sq Sq, color Color) []Sq {
