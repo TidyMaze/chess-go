@@ -16,9 +16,10 @@ import (
 
 // result is one audited game with its worst challenger move.
 type result struct {
-	r engine.GameRecord
-	w worstDrop
-	n int
+	r   engine.GameRecord
+	w   worstDrop
+	cat LossCategory
+	n   int
 }
 
 func main() {
@@ -82,7 +83,7 @@ func main() {
 				if err != nil {
 					continue
 				}
-				results[i] = result{r: audited[i], w: findWorstDrop(evals), n: len(evals)}
+				results[i] = result{r: audited[i], w: findWorstDrop(evals), cat: classifyLoss(evals, *threshold), n: len(evals)}
 			}
 		}(judgeEngine)
 	}
@@ -92,11 +93,12 @@ func main() {
 	close(jobs)
 	wg.Wait()
 
-	byPhase, byKind, byPlyBucket := bucketCount{}, bucketCount{}, bucketCount{}
+	byPhase, byKind, byPlyBucket, byCategory := bucketCount{}, bucketCount{}, bucketCount{}, bucketCount{}
 	bleeds, blunders := 0, 0
 	sawIt, missedIt := 0, 0
 	var worst []result
 	for _, res := range results {
+		byCategory[string(res.cat)]++
 		if !res.w.found || res.w.drop < *threshold {
 			bleeds++
 			continue
@@ -130,7 +132,7 @@ func main() {
 	for _, name := range []struct {
 		title string
 		b     bucketCount
-	}{{"by phase", byPhase}, {"by move kind", byKind}, {"by ply", byPlyBucket}} {
+	}{{"by root-cause category", byCategory}, {"by phase", byPhase}, {"by move kind", byKind}, {"by ply", byPlyBucket}} {
 		fmt.Printf("\n%s:\n", name.title)
 		for _, k := range name.b.sortedKeys() {
 			fmt.Printf("  %-14s %d\n", k, name.b[k])

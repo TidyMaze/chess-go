@@ -93,3 +93,47 @@ func TestOutcomeFromTheChallengersSide(t *testing.T) {
 		t.Error("undecided is a draw")
 	}
 }
+
+func TestClassifyLoss(t *testing.T) {
+	threshold := 1.5
+
+	// Case 1: Early collapse within ply 16 -> book_trap
+	evalsBook := []plyEval{
+		{ply: 1, ours: true, eval: 0.1, material: 14},
+		{ply: 2, ours: false, eval: 0.1, material: 14},
+		{ply: 3, ours: true, eval: -2.0, material: 14}, // drop 2.1 at ply 3
+	}
+	if got := classifyLoss(evalsBook, threshold); got != LossBookTrap {
+		t.Errorf("got %v, want %v", got, LossBookTrap)
+	}
+
+	// Case 2: Big drop in middlegame -> tactical_blunder
+	evalsBlunder := []plyEval{
+		{ply: 19, ours: false, eval: 0.0, material: 8},
+		{ply: 20, ours: true, eval: -2.5, material: 8}, // drop 2.5 at ply 20
+	}
+	if got := classifyLoss(evalsBlunder, threshold); got != LossTacticalBlunder {
+		t.Errorf("got %v, want %v", got, LossTacticalBlunder)
+	}
+
+	// Case 3: Ahead in endgame, then collapsed -> endgame_conversion
+	evalsEndgame := []plyEval{
+		{ply: 39, ours: false, eval: 2.0, material: 2},
+		{ply: 40, ours: true, eval: 0.2, material: 2}, // drop 1.8 from +2.0
+	}
+	if got := classifyLoss(evalsEndgame, threshold); got != LossEndgameConversion {
+		t.Errorf("got %v, want %v", got, LossEndgameConversion)
+	}
+
+	// Case 4: No drop >= threshold -> bleed
+	evalsBleed := []plyEval{
+		{ply: 1, ours: true, eval: 0.1, material: 12},
+		{ply: 2, ours: false, eval: 0.0, material: 12},
+		{ply: 3, ours: true, eval: -0.3, material: 12},
+		{ply: 4, ours: false, eval: -0.5, material: 12},
+		{ply: 5, ours: true, eval: -0.9, material: 12},
+	}
+	if got := classifyLoss(evalsBleed, threshold); got != LossBleed {
+		t.Errorf("got %v, want %v", got, LossBleed)
+	}
+}
