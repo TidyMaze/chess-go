@@ -406,7 +406,7 @@ func (g *Game) CountIfPlayed(from, to board.Sq) int {
 	trial := *g
 	trial.Board = g.Board.Clone()
 	trial.TrackRepetition = false // don't mutate g's positionCounts map (shared by struct copy)
-	trial.Board.Move(from, to)
+	trial.Board.MakeMove(from, to)
 	trial.Turn = trial.Turn.Other()
 	return g.positionCounts[trial.positionKey()]
 }

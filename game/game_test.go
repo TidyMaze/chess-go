@@ -301,6 +301,26 @@ func TestIsLegalMoveForMatchesIsLegalMoveWithThatTurn(t *testing.T) {
 	}
 }
 
+func TestCountIfPlayedCastling(t *testing.T) {
+	g, err := ParseFEN("r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	g.EnableRepetitionTracking()
+	e1 := board.Sq{File: 4, Rank: 0}
+	g1 := board.Sq{File: 6, Rank: 0}
+	g.ApplyMove(e1, g1)
+
+	pre, _ := ParseFEN("r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1")
+	pre.EnableRepetitionTracking()
+	for k, v := range g.positionCounts {
+		pre.positionCounts[k] = v
+	}
+	if got := pre.CountIfPlayed(e1, g1); got != 1 {
+		t.Errorf("CountIfPlayed for castling move = %d, want 1", got)
+	}
+}
+
 func BenchmarkIsLegalMove(b *testing.B) {
 	g := New()
 	m := Move{From: board.Sq{File: 4, Rank: 1}, To: board.Sq{File: 4, Rank: 3}} // e2-e4
