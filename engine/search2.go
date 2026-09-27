@@ -615,10 +615,11 @@ func pickMove(b *board.Board, ms []game.Move, keys []int64, j int) {
 
 // bestKey is the index of the largest of keys[j:].
 func bestKey(keys []int64, j int) int {
-	best, top := j, keys[j]
-	for k, v := range keys[j+1:] {
-		if v > top {
-			best, top = j+1+k, v
+	best := j
+	top := keys[j]
+	for i := j + 1; i < len(keys); i++ {
+		if v := keys[i]; v > top {
+			best, top = i, v
 		}
 	}
 	return best

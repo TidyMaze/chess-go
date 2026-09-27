@@ -402,3 +402,16 @@ func exactMoveValues(t *testing.T, g *game.Game, depth int) map[game.Move]float6
 	}
 	return out
 }
+
+func TestBestKeySelection(t *testing.T) {
+	keys := []int64{10, 50, 20, 80, 40, 70}
+	if got := bestKey(keys, 0); got != 3 {
+		t.Errorf("bestKey(keys, 0) = %d, want 3 (value 80)", got)
+	}
+	if got := bestKey(keys, 4); got != 5 {
+		t.Errorf("bestKey(keys, 4) = %d, want 5 (value 70)", got)
+	}
+	if got := bestKey(keys, 5); got != 5 {
+		t.Errorf("bestKey(keys, 5) = %d, want 5 (value 70)", got)
+	}
+}
