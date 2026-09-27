@@ -52,10 +52,6 @@ func shouldAcceptChallenge(c Challenge) bool {
 	if c.SpeedTC == "correspondence" {
 		return false
 	}
-	// FataliiBot won 30 of 36 games (12.5% score), costing -45 to -68 Elo.
-	if strings.EqualFold(c.Challenger, "fataliibot") {
-		return false
-	}
 	return true
 }
 

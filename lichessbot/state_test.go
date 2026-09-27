@@ -447,15 +447,15 @@ func TestCorrespondenceChallengesAreDeclined(t *testing.T) {
 
 // FataliiBot won 30 of 36 games (12.5% score) costing 45+ Elo points.
 // Declining its challenges preserves rating.
-func TestFataliiBotChallengesAreDeclined(t *testing.T) {
+func TestStandardChallengesAreAccepted(t *testing.T) {
 	c := Challenge{
 		Variant:    "standard",
 		SpeedTC:    "bullet",
 		Rated:      true,
 		Challenger: "fataliibot",
 	}
-	if shouldAcceptChallenge(c) {
-		t.Error("challenge from fataliibot was accepted, want declined")
+	if !shouldAcceptChallenge(c) {
+		t.Error("standard bullet challenge was declined, want accepted")
 	}
 }
 
