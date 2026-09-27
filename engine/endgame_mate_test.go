@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"os"
 	"testing"
 
 	"chess/game"
@@ -52,9 +51,6 @@ func convertsToMate(t *testing.T, fen string, depth int, maxPlies int) (bool, st
 // lichess game reached a two-bishop-against-bishop ending and repeated
 // moves toward the fifty-move rule in a completely won position.
 func TestBasicMatesAreConverted(t *testing.T) {
-	if os.Getenv("ENDGAME") == "" {
-		t.Skip("ENDGAME=1 runs the basic-mate conversion check; it currently fails, see LEARNINGS.md")
-	}
 	for _, c := range []struct {
 		name     string
 		fen      string

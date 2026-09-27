@@ -6,46 +6,7 @@ or when it is disproved with the output that disproves it.
 
 ## Open
 
-### 1. King and two bishops cannot mate a lone king
-Reproducible and deterministic, gated behind `ENDGAME=1` in
-`engine/endgame_mate_test.go`. King and queen and king and rook both
-convert; two bishops never do in 120 plies.
-
-The cause is in `kingDrivingBonus`: it measures the bare king's distance
-from the centre with a Chebyshev distance, which saturates along an
-entire edge and scores a1 and a4 the same, so once the king reaches an
-edge nothing points at a corner, which is where a two-bishop mate has to
-be delivered. Replacing or supplementing that distance fixed the bishops
-and broke the rook mate at every weight tried, so it is not a one line
-change.
-
-Measured across depths on the committed code, the problem is wider than
-the bishops and the whole area is fragile:
-
-| search depth | mates that fail |
-|---|---|
-| 3 | two bishops |
-| 4 | two bishops |
-| 5 | two bishops |
-| 6 | king and rook |
-
-The rook mate failing at depth 6 while converting at 3, 4 and 5 is not
-something a bishop-specific fix explains. Conversion here depends on the
-depth in a way that looks like luck rather than technique.
-
-Three approaches have been tried and all rejected on measurement: a
-Manhattan corner distance replacing the Chebyshev one, the two combined
-with the corner as a tie-break, and a full mop-up term gated to positions
-with no queen or rook. Each fixed one mate and broke another, or moved
-with the depth. The last one made depth 6 worse, two failures against
-one, and fixed nothing.
-
-Low priority, and the game study says why: of 36 games that were not won,
-only 7 involved an advantage of two pawns or more held for ten plies or
-longer. The engine rarely survives far enough ahead for endgame technique
-to decide the game, so this is not where the Elo is.
-
-### 2. Outgoing challenges are rate limited by lichess
+### 1. Outgoing challenges are rate limited by lichess
 Not an engine bug, a consequence of this session sending far too many
 challenges early on: five at a time every minute, and fourteen in a row to
 one opponent.
@@ -90,6 +51,13 @@ now: it cannot do its job while the endpoint is refusing, and retrying a
 limit is how this started.
 
 ## Fixed
+
+- **King and two bishops cannot mate a lone king.** The bare king was
+  driven to the nearest edge by Chebyshev distance from center, but a
+  two-bishop mate requires driving the king into a corner. Fixed in commit
+  `450992c` with a mop-up term driving the lone king to the mating corner
+  for KBNK/KBBK. Guarded by non-regression test `TestBasicMatesAreConverted`
+  in `engine/endgame_mate_test.go`, which now runs enabled by default.
 
 - **The clock rule bled itself into a permanent scramble, and lost a game
   on time.** Blitz game hTmspQs0 was forfeited on time with the opponent
