@@ -1,0 +1,527 @@
+{
+ "games_analyzed": 16,
+ "games": [
+  {
+   "game": "3wbGvp9B",
+   "result": "draw",
+   "rule": "level draw (max +0.11, min -2.37)",
+   "n": 0
+  },
+  {
+   "game": "8NmPGEfJ",
+   "result": "draw",
+   "rule": "draw, opponent failed to convert (low -6.56): ply 44 largest win% drop (-19 win%)",
+   "n": 1
+  },
+  {
+   "game": "AFY8QGAB",
+   "result": "draw",
+   "rule": "level draw (max +0.58, min -0.40)",
+   "n": 0
+  },
+  {
+   "game": "CkzktbwI",
+   "result": "draw",
+   "rule": "level draw (max +0.94, min -0.04)",
+   "n": 0
+  },
+  {
+   "game": "FNBpPuJt",
+   "result": "loss",
+   "rule": "loss: ply 50 largest win% drop (-6 win%)",
+   "n": 1
+  },
+  {
+   "game": "LT6K3dEg",
+   "result": "loss",
+   "rule": "loss: ply 33 largest win% drop (-27 win%); ply 51 largest win% drop (-10 win%)",
+   "n": 2
+  },
+  {
+   "game": "TalsX4r0",
+   "result": "loss",
+   "rule": "loss: ply 32 largest win% drop (-10 win%); ply 42 largest win% drop (-17 win%)",
+   "n": 2
+  },
+  {
+   "game": "WNDEjXT5",
+   "result": "draw",
+   "rule": "level draw (max +0.85, min -1.51)",
+   "n": 0
+  },
+  {
+   "game": "Z5xA3Y1G",
+   "result": "draw",
+   "rule": "level draw (max +1.89, min -0.66)",
+   "n": 0
+  },
+  {
+   "game": "cVtd9Y8I",
+   "result": "loss",
+   "rule": "loss: ply 112 crossed >= -1.0 to <= -2.5 (-14 win%); ply 120 largest win% drop (-19 win%)",
+   "n": 2
+  },
+  {
+   "game": "hThp7eKv",
+   "result": "loss",
+   "rule": "loss: ply 41 largest win% drop (-7 win%); ply 89 largest win% drop (-10 win%)",
+   "n": 2
+  },
+  {
+   "game": "mL2yL18l",
+   "result": "draw",
+   "rule": "level draw (max +1.24, min -0.45)",
+   "n": 0
+  },
+  {
+   "game": "qXlUX6kr",
+   "result": "loss",
+   "rule": "loss: ply 43 largest win% drop (-9 win%); ply 49 largest win% drop (-7 win%)",
+   "n": 2
+  },
+  {
+   "game": "th0nCR2K",
+   "result": "loss",
+   "rule": "loss: ply 16 largest win% drop (-12 win%); ply 104 largest win% drop (-8 win%)",
+   "n": 2
+  },
+  {
+   "game": "xJ46lS17",
+   "result": "draw",
+   "rule": "draw, opponent failed to convert (low -4.33): ply 57 largest win% drop (-14 win%); ply 69 crossed >= -1.0 to <= -2.5 (-17 win%)",
+   "n": 2
+  },
+  {
+   "game": "ymb2SIkJ",
+   "result": "draw",
+   "rule": "level draw (max +0.26, min -2.11)",
+   "n": 0
+  }
+ ],
+ "mistakes": [
+  {
+   "game": "8NmPGEfJ",
+   "ply": 44,
+   "fen": "7r/1kb2p2/4pp2/p6p/5P1P/4B3/PP3KP1/3R4 b - - 0 22",
+   "played": "h8d8",
+   "san": "Rd8",
+   "sf_best": "f6f5",
+   "sf_before": "+0.00",
+   "sf_after": "-2.22",
+   "drop": 2.22,
+   "phase": "endgame",
+   "our_clock_s": 83.0,
+   "result": "draw",
+   "speed": "bullet",
+   "colour": "black",
+   "best_pv": [
+    "f6f5",
+    "d1d7",
+    "h8f8",
+    "e3c5"
+   ],
+   "reply_pv": [
+    "d1d8",
+    "c7d8"
+   ],
+   "note": "draw, opponent failed to convert (low -6.56): ply 44 largest win% drop (-19 win%)"
+  },
+  {
+   "game": "FNBpPuJt",
+   "ply": 50,
+   "fen": "1n1rr1k1/4np1p/p1p2qp1/2Pp4/Q2P1N2/6P1/P4PBP/3RR1K1 b - - 1 25",
+   "played": "h7h5",
+   "san": "h5",
+   "sf_best": "b8d7",
+   "sf_before": "-1.47",
+   "sf_after": "-2.18",
+   "drop": 0.71,
+   "phase": "middlegame",
+   "our_clock_s": 75.0,
+   "result": "loss",
+   "speed": "bullet",
+   "colour": "black",
+   "best_pv": [
+    "b8d7",
+    "e1e3",
+    "g6g5",
+    "f4h5"
+   ],
+   "reply_pv": [
+    "e1e3",
+    "h5h4"
+   ],
+   "note": "loss: ply 50 largest win% drop (-6 win%)"
+  },
+  {
+   "game": "LT6K3dEg",
+   "ply": 33,
+   "fen": "r2qk1r1/1bp2N1p/pn2p3/5p2/1p1P1b2/4Q3/PPP2PPP/1K1R1B1R w q - 0 17",
+   "played": "e3e6",
+   "san": "Qxe6+",
+   "sf_best": "f7d8",
+   "sf_before": "+1.01",
+   "sf_after": "-1.97",
+   "drop": 2.98,
+   "phase": "middlegame",
+   "our_clock_s": 95.0,
+   "result": "loss",
+   "speed": "bullet",
+   "colour": "white",
+   "best_pv": [
+    "f7d8",
+    "f4e3",
+    "d8b7",
+    "e3f2"
+   ],
+   "reply_pv": [
+    "d8e7",
+    "f7d6"
+   ],
+   "note": "loss: ply 33 largest win% drop (-27 win%); ply 51 largest win% drop (-10 win%)"
+  },
+  {
+   "game": "LT6K3dEg",
+   "ply": 51,
+   "fen": "1k3r2/2p4p/Bn1b1q2/3b1p1Q/1p1P4/8/PPP2P1P/1K1RR3 w - - 1 26",
+   "played": "e1g1",
+   "san": "Rg1",
+   "sf_best": "a6f1",
+   "sf_before": "-1.82",
+   "sf_after": "-3.10",
+   "drop": 1.28,
+   "phase": "middlegame",
+   "our_clock_s": 76.0,
+   "result": "loss",
+   "speed": "bullet",
+   "colour": "white",
+   "best_pv": [
+    "a6f1",
+    "f6g6",
+    "h5e2",
+    "g6g4"
+   ],
+   "reply_pv": [
+    "f6e6",
+    "d1e1",
+    "e6d7",
+    "b2b3"
+   ],
+   "note": "loss: ply 33 largest win% drop (-27 win%); ply 51 largest win% drop (-10 win%)"
+  },
+  {
+   "game": "TalsX4r0",
+   "ply": 32,
+   "fen": "r3kb1r/pp1npppb/2p1q3/3PN2p/4P3/5PP1/pB4BP/R2QR1K1 b kq - 0 16",
+   "played": "c6d5",
+   "san": "cxd5",
+   "sf_best": "e6d6",
+   "sf_before": "-0.49",
+   "sf_after": "-1.65",
+   "drop": 1.16,
+   "phase": "middlegame",
+   "our_clock_s": 88.0,
+   "result": "loss",
+   "speed": "bullet",
+   "colour": "black",
+   "best_pv": [
+    "e6d6",
+    "e5d7"
+   ],
+   "reply_pv": [
+    "e4d5",
+    "e6d6"
+   ],
+   "note": "loss: ply 32 largest win% drop (-10 win%); ply 42 largest win% drop (-17 win%)"
+  },
+  {
+   "game": "TalsX4r0",
+   "ply": 42,
+   "fen": "r4b1r/pp1kppp1/8/3P3p/3B4/1q2RPP1/p1bQ2BP/R5K1 b - - 1 21",
+   "played": "b3b1",
+   "san": "Qb1+",
+   "sf_best": "b3a4",
+   "sf_before": "-1.29",
+   "sf_after": "-3.54",
+   "drop": 2.25,
+   "phase": "middlegame",
+   "our_clock_s": 78.0,
+   "result": "loss",
+   "speed": "bullet",
+   "colour": "black",
+   "best_pv": [
+    "b3a4",
+    "g2f1"
+   ],
+   "reply_pv": [
+    "e3e1",
+    "b1b3",
+    "a1c1",
+    "c2f5"
+   ],
+   "note": "loss: ply 32 largest win% drop (-10 win%); ply 42 largest win% drop (-17 win%)"
+  },
+  {
+   "game": "cVtd9Y8I",
+   "ply": 112,
+   "fen": "6k1/pb6/1p1p3p/3P4/5N2/b2BrPP1/1p1Bp1KP/4R3 b - - 2 56",
+   "played": "e3e5",
+   "san": "Re5",
+   "sf_best": "e3d3",
+   "sf_before": "-0.96",
+   "sf_after": "-2.60",
+   "drop": 1.64,
+   "phase": "endgame",
+   "our_clock_s": 41.0,
+   "result": "loss",
+   "speed": "bullet",
+   "colour": "black",
+   "best_pv": [
+    "e3d3",
+    "f4d3",
+    "b7a6",
+    "d3b2"
+   ],
+   "reply_pv": [
+    "f4e2",
+    "a7a5",
+    "e1b1",
+    "b7d5"
+   ],
+   "note": "loss: ply 112 crossed >= -1.0 to <= -2.5 (-14 win%); ply 120 largest win% drop (-19 win%)"
+  },
+  {
+   "game": "cVtd9Y8I",
+   "ply": 120,
+   "fen": "8/p4k2/1pbp3p/4r3/4N3/b2B1PP1/1p1B2KP/1R6 b - - 3 60",
+   "played": "c6e4",
+   "san": "Bxe4",
+   "sf_best": "c6b5",
+   "sf_before": "-1.22",
+   "sf_after": "-3.73",
+   "drop": 2.51,
+   "phase": "endgame",
+   "our_clock_s": 39.0,
+   "result": "loss",
+   "speed": "bullet",
+   "colour": "black",
+   "best_pv": [
+    "c6b5",
+    "d3f1"
+   ],
+   "reply_pv": [
+    "d3e4",
+    "e5c5",
+    "d2h6",
+    "d6d5"
+   ],
+   "note": "loss: ply 112 crossed >= -1.0 to <= -2.5 (-14 win%); ply 120 largest win% drop (-19 win%)"
+  },
+  {
+   "game": "hThp7eKv",
+   "ply": 41,
+   "fen": "2r1r1k1/1p3pbp/p1bppnp1/8/P2BP2q/1BN1Q2P/1PP2PP1/3RR1K1 w - - 1 21",
+   "played": "d4f6",
+   "san": "Bxf6",
+   "sf_best": "e3d2",
+   "sf_before": "+0.36",
+   "sf_after": "-0.41",
+   "drop": 0.77,
+   "phase": "middlegame",
+   "our_clock_s": 88.0,
+   "result": "loss",
+   "speed": "bullet",
+   "colour": "white",
+   "best_pv": [
+    "e3d2",
+    "d6d5"
+   ],
+   "reply_pv": [
+    "g7f6",
+    "d1d6"
+   ],
+   "note": "loss: ply 41 largest win% drop (-7 win%); ply 89 largest win% drop (-10 win%)"
+  },
+  {
+   "game": "hThp7eKv",
+   "ply": 89,
+   "fen": "8/1p3p1k/p3p1p1/4P2p/1PPb1P1P/6P1/N3R1K1/1r6 w - - 1 45",
+   "played": "c4c5",
+   "san": "c5",
+   "sf_best": "e2d2",
+   "sf_before": "-0.76",
+   "sf_after": "-1.88",
+   "drop": 1.12,
+   "phase": "endgame",
+   "our_clock_s": 51.0,
+   "result": "loss",
+   "speed": "bullet",
+   "colour": "white",
+   "best_pv": [
+    "e2d2",
+    "d4a1",
+    "g2h3",
+    "b1b2"
+   ],
+   "reply_pv": [
+    "h7g7",
+    "g2f3"
+   ],
+   "note": "loss: ply 41 largest win% drop (-7 win%); ply 89 largest win% drop (-10 win%)"
+  },
+  {
+   "game": "qXlUX6kr",
+   "ply": 43,
+   "fen": "3brrk1/2pq3p/3p4/1p1P1pp1/4n3/1Q2BN1P/1P3PP1/R1R3K1 w - - 0 22",
+   "played": "c1c6",
+   "san": "Rc6",
+   "sf_best": "c1c2",
+   "sf_before": "-0.56",
+   "sf_after": "-1.57",
+   "drop": 1.01,
+   "phase": "middlegame",
+   "our_clock_s": 49.0,
+   "result": "loss",
+   "speed": "bullet",
+   "colour": "white",
+   "best_pv": [
+    "c1c2",
+    "f5f4"
+   ],
+   "reply_pv": [
+    "h7h5",
+    "f3d4"
+   ],
+   "note": "loss: ply 43 largest win% drop (-9 win%); ply 49 largest win% drop (-7 win%)"
+  },
+  {
+   "game": "qXlUX6kr",
+   "ply": 49,
+   "fen": "3brrk1/2pq3p/2Rp4/1p1P4/3Nn3/1Q2B1p1/1P3PP1/R5K1 w - - 0 25",
+   "played": "f2g3",
+   "san": "fxg3",
+   "sf_best": "d4e6",
+   "sf_before": "-1.91",
+   "sf_after": "-2.89",
+   "drop": 0.98,
+   "phase": "middlegame",
+   "our_clock_s": 46.0,
+   "result": "loss",
+   "speed": "bullet",
+   "colour": "white",
+   "best_pv": [
+    "d4e6",
+    "g3f2"
+   ],
+   "reply_pv": [
+    "d7g7",
+    "d4e6"
+   ],
+   "note": "loss: ply 43 largest win% drop (-9 win%); ply 49 largest win% drop (-7 win%)"
+  },
+  {
+   "game": "th0nCR2K",
+   "ply": 16,
+   "fen": "r1bqkb1r/pp1p1ppp/2n1pn2/3P4/4P3/2P2N2/5PPP/RNBQKB1R b KQkq - 0 8",
+   "played": "c6e7",
+   "san": "Ne7",
+   "sf_best": "c6b8",
+   "sf_before": "-0.26",
+   "sf_after": "-1.65",
+   "drop": 1.39,
+   "phase": "opening",
+   "our_clock_s": 110.0,
+   "result": "loss",
+   "speed": "bullet",
+   "colour": "black",
+   "best_pv": [
+    "c6b8",
+    "c1g5"
+   ],
+   "reply_pv": [
+    "d5d6",
+    "e7c6"
+   ],
+   "note": "loss: ply 16 largest win% drop (-12 win%); ply 104 largest win% drop (-8 win%)"
+  },
+  {
+   "game": "th0nCR2K",
+   "ply": 104,
+   "fen": "3b4/6p1/r7/4pk1p/pB2N3/R2p1KP1/5P2/8 b - - 1 52",
+   "played": "d3d2",
+   "san": "d2",
+   "sf_best": "g7g5",
+   "sf_before": "-1.12",
+   "sf_after": "-2.03",
+   "drop": 0.91,
+   "phase": "endgame",
+   "our_clock_s": 41.0,
+   "result": "loss",
+   "speed": "bullet",
+   "colour": "black",
+   "best_pv": [
+    "g7g5",
+    "e4d6"
+   ],
+   "reply_pv": [
+    "e4d2",
+    "g7g5"
+   ],
+   "note": "loss: ply 16 largest win% drop (-12 win%); ply 104 largest win% drop (-8 win%)"
+  },
+  {
+   "game": "xJ46lS17",
+   "ply": 57,
+   "fen": "8/p2k3p/1p2p1p1/1P3p2/1P5P/P1NnP3/2b1B1P1/5K2 w - - 0 29",
+   "played": "g2g4",
+   "san": "g4",
+   "sf_best": "e2d3",
+   "sf_before": "-0.23",
+   "sf_after": "-1.87",
+   "drop": 1.64,
+   "phase": "endgame",
+   "our_clock_s": 69.0,
+   "result": "draw",
+   "speed": "bullet",
+   "colour": "white",
+   "best_pv": [
+    "e2d3",
+    "c2d3"
+   ],
+   "reply_pv": [
+    "f5g4",
+    "e2g4"
+   ],
+   "note": "draw, opponent failed to convert (low -4.33): ply 57 largest win% drop (-14 win%); ply 69 crossed >= -1.0 to <= -2.5 (-17 win%)"
+  },
+  {
+   "game": "xJ46lS17",
+   "ply": 69,
+   "fen": "8/p7/1p1k3p/1P2npp1/PP5P/1bN1P1K1/4B3/8 w - - 2 35",
+   "played": "h4h5",
+   "san": "h5",
+   "sf_best": "a4a5",
+   "sf_before": "-0.77",
+   "sf_after": "-2.81",
+   "drop": 2.04,
+   "phase": "endgame",
+   "our_clock_s": 60.0,
+   "result": "draw",
+   "speed": "bullet",
+   "colour": "white",
+   "best_pv": [
+    "a4a5",
+    "e5d7",
+    "e2f3",
+    "b3c4"
+   ],
+   "reply_pv": [
+    "e5d7",
+    "e2f3",
+    "d6e5",
+    "a4a5"
+   ],
+   "note": "draw, opponent failed to convert (low -4.33): ply 57 largest win% drop (-14 win%); ply 69 crossed >= -1.0 to <= -2.5 (-17 win%)"
+  }
+ ]
+}

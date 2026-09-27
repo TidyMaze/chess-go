@@ -1,0 +1,638 @@
+{
+ "games_analyzed": 16,
+ "games": [
+  {
+   "game": "19WhnReJ",
+   "result": "loss",
+   "rule": "loss; window ply 81 (-0.04) to ply 91 (-3.85); final -10.00",
+   "n": 2
+  },
+  {
+   "game": "6w2cGg7b",
+   "result": "loss",
+   "rule": "loss; window ply 74 (-0.34) to ply 88 (-4.87); final -10.00",
+   "n": 2
+  },
+  {
+   "game": "9Tr32GxM",
+   "result": "draw",
+   "rule": "draw, never >= +2.5, we were lost and the opponent did not convert; window ply 62 (-0.13) to ply 64 (-4.00); final +0.00; ended by threefold repetition",
+   "n": 2
+  },
+  {
+   "game": "CMvgOPEQ",
+   "result": "draw",
+   "rule": "level draw (max +1.36, min -1.01, final +0.00); ended by fifty-move rule",
+   "n": 0
+  },
+  {
+   "game": "EOS2sALb",
+   "result": "draw",
+   "rule": "thrown win; window ply 37 (+2.63) to ply 241 (+0.00); final +0.00; ended by fifty-move rule",
+   "n": 1
+  },
+  {
+   "game": "LCmlLCpG",
+   "result": "loss",
+   "rule": "loss; window ply 19 (+1.15) to ply 73 (-3.88); final -10.00",
+   "n": 2
+  },
+  {
+   "game": "PQEsDaH8",
+   "result": "draw",
+   "rule": "level draw (max +0.36, min -1.29, final +0.00); ended by fifty-move rule",
+   "n": 0
+  },
+  {
+   "game": "VTao8ub0",
+   "result": "draw",
+   "rule": "level draw (max +0.75, min -1.15, final +0.00); ended by fifty-move rule",
+   "n": 0
+  },
+  {
+   "game": "YwJ4nQC2",
+   "result": "loss",
+   "rule": "loss; window ply 24 (-0.39) to ply 38 (-4.35); final -10.00",
+   "n": 2
+  },
+  {
+   "game": "aJeii27Z",
+   "result": "loss",
+   "rule": "loss; window ply 126 (-0.48) to ply 138 (-4.35); final -10.00",
+   "n": 1
+  },
+  {
+   "game": "fRMNWevI",
+   "result": "loss",
+   "rule": "loss; window ply 63 (+0.00) to ply 73 (-4.78); final -10.00",
+   "n": 1
+  },
+  {
+   "game": "lYIjzJrt",
+   "result": "loss",
+   "rule": "loss; window ply 18 (-0.37) to ply 36 (-4.62); final -10.00",
+   "n": 1
+  },
+  {
+   "game": "p3uIqx8X",
+   "result": "draw",
+   "rule": "thrown win; window ply 162 (+5.13) to ply 232 (+0.00); final +0.00; ended by threefold repetition",
+   "n": 1
+  },
+  {
+   "game": "tFbHzkWe",
+   "result": "loss",
+   "rule": "loss; window ply 116 (-0.39) to ply 138 (-3.87); final -10.00",
+   "n": 1
+  },
+  {
+   "game": "uScrvAwN",
+   "result": "loss",
+   "rule": "loss; window ply 30 (-0.41) to ply 44 (-3.62); final -10.00",
+   "n": 2
+  },
+  {
+   "game": "yaoQt85S",
+   "result": "draw",
+   "rule": "level draw (max +2.19, min -0.07, final +0.00); ended by threefold repetition",
+   "n": 0
+  }
+ ],
+ "mistakes": [
+  {
+   "game": "19WhnReJ",
+   "ply": 85,
+   "fen": "8/1br3pk/4np2/7p/qP2PP1P/1RP1Q3/P2R3K/8 w - - 1 43",
+   "played": "f4f5",
+   "san": "f5",
+   "sf_best": "b4b5",
+   "sf_before": "-0.64",
+   "sf_after": "-1.08",
+   "sf_1s": "-0.36 -> -2.03",
+   "drop": 0.44,
+   "drop_1s": 1.67,
+   "phase": "middlegame",
+   "our_clock_s": 54.0,
+   "result": "loss",
+   "speed": "bullet",
+   "colour": "white",
+   "best_pv": [
+    "b4b5",
+    "a4a8"
+   ],
+   "reply_pv": [
+    "e6f8",
+    "b4b5",
+    "c7c4",
+    "b3b4"
+   ],
+   "note": "largest confirmed drop in window; loss; window ply 81 (-0.04) to ply 91 (-3.85); final -10.00",
+   "comment": "f5 kicks Ne6 to f8 (Nf8 b5 Rc4) while b5 at once was the plan; start of the slide."
+  },
+  {
+   "game": "19WhnReJ",
+   "ply": 87,
+   "fen": "5n2/1br3pk/5p2/5P1p/qP2P2P/1RP1Q3/P2R3K/8 w - - 1 44",
+   "played": "b3b2",
+   "san": "Rbb2",
+   "sf_best": "b4b5",
+   "sf_before": "-1.41",
+   "sf_after": "-2.45",
+   "sf_1s": "-1.68 -> -2.91",
+   "drop": 1.04,
+   "drop_1s": 1.23,
+   "phase": "middlegame",
+   "our_clock_s": 53.0,
+   "result": "loss",
+   "speed": "bullet",
+   "colour": "white",
+   "best_pv": [
+    "b4b5",
+    "c7c4"
+   ],
+   "reply_pv": [
+    "a4e8",
+    "d2d4",
+    "f8d7",
+    "b2d2"
+   ],
+   "note": "largest confirmed drop in window; loss; window ply 81 (-0.04) to ply 91 (-3.85); final -10.00",
+   "comment": "passive Rbb2 (Qe8 Rd4 Nd7); b5 still best. Rook-and-queen middlegame lost from here."
+  },
+  {
+   "game": "6w2cGg7b",
+   "ply": 74,
+   "fen": "1r6/1P2q2k/p2p2p1/P1pB1p1p/2P4P/1P3QPK/R4P2/4r3 b - - 5 37",
+   "played": "e7e5",
+   "san": "Qe5",
+   "sf_best": "e1e4",
+   "sf_before": "-0.34",
+   "sf_after": "-0.59",
+   "sf_1s": "-0.23 -> -1.28",
+   "drop": 0.25,
+   "drop_1s": 1.05,
+   "phase": "middlegame",
+   "our_clock_s": 60.0,
+   "result": "loss",
+   "speed": "bullet",
+   "colour": "black",
+   "best_pv": [
+    "e1e4",
+    "h3g2"
+   ],
+   "reply_pv": [
+    "d5c6",
+    "e5e7"
+   ],
+   "note": "largest confirmed drop in window; loss; window ply 74 (-0.34) to ply 88 (-4.87); final -10.00",
+   "comment": "Qe5 lets Bc6 and Qe7 in; Re4 kept it near level. Warm-up to the ply-88 blunder."
+  },
+  {
+   "game": "6w2cGg7b",
+   "ply": 88,
+   "fen": "3r4/1Pq4k/p1Bp2p1/P1p2p1p/2P4P/1P3QPK/3R1P2/4r3 b - - 19 44",
+   "played": "e1a1",
+   "san": "Ra1",
+   "sf_best": "d8b8",
+   "sf_before": "-0.64",
+   "sf_after": "-4.87",
+   "sf_1s": "-0.64 -> -5.53",
+   "drop": 4.23,
+   "drop_1s": 4.89,
+   "phase": "middlegame",
+   "our_clock_s": 52.0,
+   "result": "loss",
+   "speed": "bullet",
+   "colour": "black",
+   "best_pv": [
+    "d8b8",
+    "d2d3"
+   ],
+   "reply_pv": [
+    "d2e2",
+    "a1d1",
+    "e2e6",
+    "d1d4"
+   ],
+   "note": "one-move collapse; loss; window ply 74 (-0.34) to ply 88 (-4.87); final -10.00",
+   "comment": "Ra1 abandons the e-file: Re2-e6 invades next to the b7 passer (SF 3 s: Re2 Rb8 Re6 Qf7 Rxd6). Rb8 blockade was needed."
+  },
+  {
+   "game": "9Tr32GxM",
+   "ply": 62,
+   "fen": "6k1/p6r/1pP1p3/PP1p4/3Pprpp/8/5PP1/R4RK1 b - - 0 31",
+   "played": "b6a5",
+   "san": "bxa5",
+   "sf_best": "f4f8",
+   "sf_before": "-0.13",
+   "sf_after": "-0.89",
+   "sf_1s": "-0.10 -> -1.22",
+   "drop": 0.76,
+   "drop_1s": 1.12,
+   "phase": "endgame",
+   "our_clock_s": 65.0,
+   "result": "draw",
+   "speed": "bullet",
+   "colour": "black",
+   "best_pv": [
+    "f4f8",
+    "a5b6"
+   ],
+   "reply_pv": [
+    "a1a5",
+    "f4f7"
+   ],
+   "note": "largest confirmed drop in window; draw, never >= +2.5, we were lost and the opponent did not convert; window ply 62 (-0.13) to ply 64 (-4.00); final +0.00; ended by threefold repetition",
+   "comment": "bxa5 Rxa5 Rff7 gives White the 7th rank; Rf8 kept it level."
+  },
+  {
+   "game": "9Tr32GxM",
+   "ply": 64,
+   "fen": "6k1/p6r/2P1p3/RP1p4/3Pprpp/8/5PP1/5RK1 b - - 0 32",
+   "played": "h7c7",
+   "san": "Rc7",
+   "sf_best": "f4f7",
+   "sf_before": "-0.99",
+   "sf_after": "-4.00",
+   "sf_1s": "-1.00 -> -4.72",
+   "drop": 3.01,
+   "drop_1s": 3.72,
+   "phase": "endgame",
+   "our_clock_s": 63.0,
+   "result": "draw",
+   "speed": "bullet",
+   "colour": "black",
+   "best_pv": [
+    "f4f7",
+    "f1a1",
+    "g4g3",
+    "f2g3"
+   ],
+   "reply_pv": [
+    "f1a1",
+    "f4f7"
+   ],
+   "note": "one-move collapse; draw, never >= +2.5, we were lost and the opponent did not convert; window ply 62 (-0.13) to ply 64 (-4.00); final +0.00; ended by threefold repetition",
+   "comment": "Rc7 drops to -4 (Rfa1 Rff7); Rff7 was the defence. Opponent failed to convert, and later the game ended by threefold (Kc5/Kd6 shuffle, ply 118-121) while SF on the final FEN says +1.87 for us: the bot repeated in a better rook ending."
+  },
+  {
+   "game": "EOS2sALb",
+   "ply": 37,
+   "fen": "5rk1/5pp1/p1p2b1p/4p3/3rP3/1PN5/1PP2PPP/1K1R3R w - - 1 19",
+   "played": "h2h4",
+   "san": "h4",
+   "sf_best": "f2f3",
+   "sf_before": "+2.63",
+   "sf_after": "+1.27",
+   "sf_1s": "+2.48 -> +1.34",
+   "drop": 1.36,
+   "drop_1s": 1.14,
+   "phase": "endgame",
+   "our_clock_s": 93.0,
+   "result": "draw",
+   "speed": "bullet",
+   "colour": "white",
+   "best_pv": [
+    "f2f3",
+    "f8d8",
+    "d1d4",
+    "e5d4"
+   ],
+   "reply_pv": [
+    "f8d8",
+    "d1d4"
+   ],
+   "note": "largest confirmed drop in window; thrown win; window ply 37 (+2.63) to ply 241 (+0.00); final +0.00; ended by fifty-move rule",
+   "comment": "queenless middlegame; h4 lets Rfd8 double on the d-file, f3 (then Rxd4 exd4) was best. Won rook ending never came back; fifty-move draw at R vs R."
+  },
+  {
+   "game": "LCmlLCpG",
+   "ply": 19,
+   "fen": "r1b1kb1r/1p2pppp/p1np1n2/8/3NP3/q1N1BP2/P1PQ2PP/1R2KB1R w Kkq - 2 10",
+   "played": "f1b5",
+   "san": "Bb5",
+   "sf_best": "d4c6",
+   "sf_before": "+1.15",
+   "sf_after": "-0.71",
+   "sf_1s": "+0.92 -> -0.79",
+   "drop": 1.86,
+   "drop_1s": 1.71,
+   "phase": "opening",
+   "our_clock_s": 117.0,
+   "result": "loss",
+   "speed": "bullet",
+   "colour": "white",
+   "best_pv": [
+    "d4c6",
+    "b7c6"
+   ],
+   "reply_pv": [
+    "a6b5",
+    "d4b5"
+   ],
+   "note": "largest confirmed drop in window; loss; window ply 19 (+1.15) to ply 73 (-3.88); final -10.00",
+   "comment": "Bb5 is an unsound piece offer (axb5 Ndxb5) against the Qa3 raid; Nxc6 bxc6 kept +1."
+  },
+  {
+   "game": "LCmlLCpG",
+   "ply": 73,
+   "fen": "8/3n1pkp/1p1p2p1/2nP4/r1PbrPP1/P4R1P/Q7/1R5K w - - 1 37",
+   "played": "h1g2",
+   "san": "Kg2",
+   "sf_best": "a2d2",
+   "sf_before": "-2.28",
+   "sf_after": "-3.88",
+   "sf_1s": "-2.30 -> -4.04",
+   "drop": 1.6,
+   "drop_1s": 1.74,
+   "phase": "middlegame",
+   "our_clock_s": 59.0,
+   "result": "loss",
+   "speed": "bullet",
+   "colour": "white",
+   "best_pv": [
+    "a2d2",
+    "h7h6"
+   ],
+   "reply_pv": [
+    "a4a8",
+    "a2d2",
+    "a8e8",
+    "g2h1"
+   ],
+   "note": "largest confirmed drop in window; loss; window ply 19 (+1.15) to ply 73 (-3.88); final -10.00",
+   "comment": "already -2.3; Kg2 allows Ra8-e8 doubling, Qd2 was needed."
+  },
+  {
+   "game": "YwJ4nQC2",
+   "ply": 34,
+   "fen": "1k1r3r/pp2bppp/2np1nq1/8/3N4/2N1B2P/PP3PP1/R2R1QK1 b - - 2 17",
+   "played": "c6d4",
+   "san": "Nxd4",
+   "sf_best": "d8c8",
+   "sf_before": "-0.92",
+   "sf_after": "-2.58",
+   "sf_1s": "-1.16 -> -2.69",
+   "drop": 1.66,
+   "drop_1s": 1.53,
+   "phase": "middlegame",
+   "our_clock_s": 92.0,
+   "result": "loss",
+   "speed": "bullet",
+   "colour": "black",
+   "best_pv": [
+    "d8c8",
+    "a1c1"
+   ],
+   "reply_pv": [
+    "d1d4",
+    "g6f5"
+   ],
+   "note": "one-move collapse; loss; window ply 24 (-0.39) to ply 38 (-4.35); final -10.00",
+   "comment": "Nxd4 Rxd4 hands White the d-file and Qf5 pressure; Rc8 kept it near -1. One-move collapse."
+  },
+  {
+   "game": "YwJ4nQC2",
+   "ply": 38,
+   "fen": "1k1r3r/1p2bppp/p2p1nq1/8/1P1B4/2N4P/P4PP1/R2R1QK1 b - - 0 19",
+   "played": "h8e8",
+   "san": "Rhe8",
+   "sf_best": "d6d5",
+   "sf_before": "-2.71",
+   "sf_after": "-4.35",
+   "sf_1s": "-2.34 -> -4.76",
+   "drop": 1.64,
+   "drop_1s": 2.42,
+   "phase": "middlegame",
+   "our_clock_s": 87.0,
+   "result": "loss",
+   "speed": "bullet",
+   "colour": "black",
+   "best_pv": [
+    "d6d5",
+    "b4b5",
+    "f6e4",
+    "c3e4"
+   ],
+   "reply_pv": [
+    "b4b5",
+    "a6a5",
+    "b5b6",
+    "g6f5"
+   ],
+   "note": "largest confirmed drop in window; loss; window ply 24 (-0.39) to ply 38 (-4.35); final -10.00",
+   "comment": "slow Rhe8 lets b5-b6 storm the king on b8; d5 counterplay needed."
+  },
+  {
+   "game": "aJeii27Z",
+   "ply": 134,
+   "fen": "6k1/2R5/8/3P1b2/5P1p/6n1/1q4PK/6Q1 b - - 14 67",
+   "played": "g3e4",
+   "san": "Ne4",
+   "sf_best": "b2f6",
+   "sf_before": "-2.79",
+   "sf_after": "-2.99",
+   "sf_1s": "-2.81 -> -4.81",
+   "drop": 0.2,
+   "drop_1s": 2.0,
+   "phase": "middlegame",
+   "our_clock_s": 34.0,
+   "result": "loss",
+   "speed": "bullet",
+   "colour": "black",
+   "best_pv": [
+    "b2f6",
+    "d5d6"
+   ],
+   "reply_pv": [
+    "g1a7",
+    "b2f6"
+   ],
+   "note": "largest confirmed drop in window; loss; window ply 126 (-0.48) to ply 138 (-4.35); final -10.00",
+   "comment": "already -2.8; Ne4 allows Qa7, Qf6 was the defence. The slide from -0.5 (ply 126) was gradual."
+  },
+  {
+   "game": "fRMNWevI",
+   "ply": 67,
+   "fen": "2rn3k/3nb1p1/p2p4/3Ppq1p/QPP2r1P/R4N2/3N1P2/2B1RK2 w - - 3 34",
+   "played": "a3e3",
+   "san": "Rae3",
+   "sf_best": "a4a6",
+   "sf_before": "-0.62",
+   "sf_after": "-2.85",
+   "sf_1s": "-0.66 -> -3.17",
+   "drop": 2.23,
+   "drop_1s": 2.51,
+   "phase": "middlegame",
+   "our_clock_s": 64.0,
+   "result": "loss",
+   "speed": "bullet",
+   "colour": "white",
+   "best_pv": [
+    "a4a6",
+    "c8b8"
+   ],
+   "reply_pv": [
+    "d7f6",
+    "a4b3"
+   ],
+   "note": "one-move collapse; loss; window ply 63 (+0.00) to ply 73 (-4.78); final -10.00",
+   "comment": "Rae3 lets Nf6 join the attack on f2/Kf1; Qxa6 at once kept it level. One-move collapse."
+  },
+  {
+   "game": "lYIjzJrt",
+   "ply": 36,
+   "fen": "r1bqr1k1/1p3p2/p1nbpnpp/3p4/1PP5/P3PN2/BBQN1PPP/2R2RK1 b - - 1 18",
+   "played": "a6a5",
+   "san": "a5",
+   "sf_best": "d6f8",
+   "sf_before": "-2.14",
+   "sf_after": "-4.62",
+   "sf_1s": "-2.77 -> -5.22",
+   "drop": 2.48,
+   "drop_1s": 2.45,
+   "phase": "middlegame",
+   "our_clock_s": 87.0,
+   "result": "loss",
+   "speed": "bullet",
+   "colour": "black",
+   "best_pv": [
+    "d6f8",
+    "c2b1"
+   ],
+   "reply_pv": [
+    "b4b5",
+    "c6b8",
+    "e3e4",
+    "d6f8"
+   ],
+   "note": "largest confirmed drop in window; loss; window ply 18 (-0.37) to ply 36 (-4.62); final -10.00",
+   "comment": "already -2.1 after the opening; a5 allows b5 hitting Nc6 (Nb8 retreat), Bf8 held."
+  },
+  {
+   "game": "p3uIqx8X",
+   "ply": 162,
+   "fen": "2B5/8/1p4b1/1p1N2P1/7p/2Kn2k1/8/8 b - - 12 81",
+   "played": "h4h3",
+   "san": "h3",
+   "sf_best": "b5b4",
+   "sf_before": "+5.13",
+   "sf_after": "+0.88",
+   "sf_1s": "+4.64 -> +0.37",
+   "drop": 4.25,
+   "drop_1s": 4.27,
+   "phase": "endgame",
+   "our_clock_s": 29.0,
+   "result": "draw",
+   "speed": "bullet",
+   "colour": "black",
+   "best_pv": [
+    "b5b4",
+    "c3d2",
+    "b4b3",
+    "d5e7"
+   ],
+   "reply_pv": [
+    "c8h3",
+    "g3h3"
+   ],
+   "note": "one-move collapse; thrown win; window ply 162 (+5.13) to ply 232 (+0.00); final +0.00; ended by threefold repetition",
+   "comment": "h3 allows Bxh3 Kxh3 Nxb6 Kg4 Nd5 Kxg5: all pawns come off and B+N vs N is a dead draw (SF 3 s: 0.00). b4+ kept the b-pawns at +4.8. Game ended K+P vs K by threefold."
+  },
+  {
+   "game": "tFbHzkWe",
+   "ply": 120,
+   "fen": "2k5/6r1/1pP2q2/pP1p3p/Pn2bppN/1B4P1/3Q1PP1/4R1K1 b - - 1 60",
+   "played": "f4g3",
+   "san": "fxg3",
+   "sf_best": "f4f3",
+   "sf_before": "-0.60",
+   "sf_after": "-1.81",
+   "sf_1s": "-0.47 -> -2.06",
+   "drop": 1.21,
+   "drop_1s": 1.59,
+   "phase": "middlegame",
+   "our_clock_s": 39.0,
+   "result": "loss",
+   "speed": "bullet",
+   "colour": "black",
+   "best_pv": [
+    "f4f3",
+    "b3d1"
+   ],
+   "reply_pv": [
+    "f2g3",
+    "g7e7",
+    "e1f1",
+    "f6e5"
+   ],
+   "note": "largest confirmed drop in window; loss; window ply 116 (-0.39) to ply 138 (-3.87); final -10.00",
+   "comment": "fxg3 opens lines (Re7, Rf1, Qe5); f3 keeping the pawn chain closed held -0.5."
+  },
+  {
+   "game": "uScrvAwN",
+   "ply": 36,
+   "fen": "r5k1/p1p2rpp/1p1p4/8/2PNb2b/P1KB3q/1P2Q2P/R1B3R1 b - - 3 18",
+   "played": "e4d3",
+   "san": "Bxd3",
+   "sf_best": "d6d5",
+   "sf_before": "-0.66",
+   "sf_after": "-2.04",
+   "sf_1s": "-0.30 -> -1.83",
+   "drop": 1.38,
+   "drop_1s": 1.53,
+   "phase": "middlegame",
+   "our_clock_s": 86.0,
+   "result": "loss",
+   "speed": "bullet",
+   "colour": "black",
+   "best_pv": [
+    "d6d5",
+    "c4d5"
+   ],
+   "reply_pv": [
+    "e2d3",
+    "h3h2"
+   ],
+   "note": "largest confirmed drop in window; loss; window ply 30 (-0.41) to ply 44 (-3.62); final -10.00",
+   "comment": "Bxd3 Qxd3 swaps the strong e4 bishop to grab h2 (Qxh2); d5 kept the pressure on the Kc3."
+  },
+  {
+   "game": "uScrvAwN",
+   "ply": 42,
+   "fen": "5rk1/p1p2rpp/1p1p4/8/2PN2Rb/PK1Q4/1P5q/R1B5 b - - 3 21",
+   "played": "g8h8",
+   "san": "Kh8",
+   "sf_best": "f7f2",
+   "sf_before": "-1.91",
+   "sf_after": "-2.48",
+   "sf_1s": "-1.72 -> -3.58",
+   "drop": 0.57,
+   "drop_1s": 1.86,
+   "phase": "middlegame",
+   "our_clock_s": 80.0,
+   "result": "loss",
+   "speed": "bullet",
+   "colour": "black",
+   "best_pv": [
+    "f7f2",
+    "a1b1"
+   ],
+   "reply_pv": [
+    "b3a2",
+    "h7h5",
+    "g4e4",
+    "f7f1"
+   ],
+   "note": "largest confirmed drop in window; loss; window ply 30 (-0.41) to ply 44 (-3.62); final -10.00",
+   "comment": "passive Kh8 (Ka2 h5 Re4 Rf1); Rf2 was active."
+  }
+ ],
+ "level_draws": {
+  "CMvgOPEQ": "level draw, fifty-move rule at R vs R",
+  "PQEsDaH8": "level draw, fifty-move rule at R vs R",
+  "VTao8ub0": "level by SF with the 50-move counter (max +0.75, min -1.15) but the final FEN alone is -7.02 for us (exchange down): saved by the fifty-move rule",
+  "yaoQt85S": "level draw (max +2.19), opponent perpetual check, threefold"
+ },
+ "selection": "non-won games in games_since_0927.ndjson: 49 (26 draws + 23 losses, all losses by mate), sorted by id, indices [1::3] = 16 games; SF 19, 0.2 s/position, 1 thread, first 8 plies skipped, candidates re-checked at 1 s with move history; evals from our side, mate clipped to +-10 for drops"
+}

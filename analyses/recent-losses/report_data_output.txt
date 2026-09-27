@@ -1,0 +1,70 @@
+games 110: Counter({'win': 61, 'draw': 26, 'loss': 23}); non-wins 49
+non-wins by speed: {('bullet', 'loss'): 22, ('bullet', 'draw'): 25, ('blitz', 'draw'): 1, ('blitz', 'loss'): 1}
+all games by speed: {'bullet': 98, 'blitz': 10, 'classical': 1, 'rapid': 1}
+
+mistakes 50 class: {'eval': 34, 'timing': 9, 'depth-fixed': 7} task-spec: {'eval': 34, 'timing': 13, 'depth-fixed': 3}
+phase {'endgame': {'eval': 11, 'timing': 4, 'depth-fixed': 3}, 'middlegame': {'eval': 20, 'timing': 5, 'depth-fixed': 3}, 'opening': {'eval': 3, 'depth-fixed': 1}}
+speed {'bullet': {'eval': 32, 'timing': 8, 'depth-fixed': 7}, 'blitz': {'eval': 2, 'timing': 1}}
+
+pattern | mistakes | eval | depth+timing | games (L/D) | games with an eval mistake
+passed pawns / pawn races | 15 | 10 | 5 | 10 (7L/3D) | 9: 0pvMtfkF 19WhnReJ 6w2cGg7b 8NmPGEfJ 9Tr32GxM CFxbTTbm TalsX4r0 ZKqmJmWf cVtd9Y8I
+king safety | 12 | 10 | 2 | 8 (8L/0D) | 8: DchppvSq VIv1K6hG YwJ4nQC2 aJeii27Z owIpx8vO qXlUX6kr tFbHzkWe uScrvAwN
+minor-piece & endgame judgement | 9 | 7 | 2 | 6 (3L/3D) | 6: 0pvMtfkF 5oG7XqrX 8eQ3xHrn hThp7eKv p3uIqx8X xJ46lS17
+short tactic | 6 | 3 | 3 | 5 (4L/1D) | 3: MXEKlu5J edywGYGk lYIjzJrt
+conversion / prophylaxis | 3 | 2 | 1 | 3 (0L/3D) | 2: H00KZ8Zi MXEKlu5J
+other positional | 3 | 1 | 2 | 3 (3L/0D) | 1: LCmlLCpG
+opening | 2 | 1 | 1 | 2 (2L/0D) | 1: LCmlLCpG
+
+games whose every probed mistake is depth/timing: 5 ['EOS2sALb', 'FNBpPuJt', 'LT6K3dEg', 'fRMNWevI', 'th0nCR2K'] of 32 games with a probed mistake
+
+| game | result | speed | our colour | status | mistakes (ply: class, pattern) |
+| --- | --- | --- | --- | --- | --- |
+| [0pvMtfkF](https://lichess.org/0pvMtfkF) | loss | bullet | black | mate | 52: eval, minor-piece & endgame judgement; 54: eval, passed pawns / pawn races |
+| [19WhnReJ](https://lichess.org/19WhnReJ) | loss | bullet | white | mate | 85: eval, passed pawns / pawn races; 87: eval, passed pawns / pawn races |
+| [3wbGvp9B](https://lichess.org/3wbGvp9B) | draw | bullet | black | draw | none probed |
+| [5oG7XqrX](https://lichess.org/5oG7XqrX) | draw | blitz | white | draw | 73: eval, minor-piece & endgame judgement |
+| [6w2cGg7b](https://lichess.org/6w2cGg7b) | loss | bullet | black | mate | 74: eval, passed pawns / pawn races; 88: timing, passed pawns / pawn races |
+| [8NmPGEfJ](https://lichess.org/8NmPGEfJ) | draw | bullet | black | draw | 44: eval, passed pawns / pawn races |
+| [8eQ3xHrn](https://lichess.org/8eQ3xHrn) | loss | bullet | black | mate | 80: eval, minor-piece & endgame judgement; 86: eval, minor-piece & endgame judgement |
+| [9Tr32GxM](https://lichess.org/9Tr32GxM) | draw | bullet | black | draw | 62: eval, passed pawns / pawn races; 64: timing, passed pawns / pawn races |
+| [AFY8QGAB](https://lichess.org/AFY8QGAB) | draw | bullet | black | draw | none probed |
+| [CFxbTTbm](https://lichess.org/CFxbTTbm) | loss | bullet | white | mate | 175: timing, passed pawns / pawn races; 201: eval, passed pawns / pawn races |
+| [CMvgOPEQ](https://lichess.org/CMvgOPEQ) | draw | bullet | white | draw | none probed |
+| [CkzktbwI](https://lichess.org/CkzktbwI) | draw | bullet | white | draw | none probed |
+| [DchppvSq](https://lichess.org/DchppvSq) | loss | bullet | black | mate | 48: eval, king safety |
+| [EOS2sALb](https://lichess.org/EOS2sALb) | draw | bullet | white | draw | 37: depth-fixed, conversion / prophylaxis |
+| [FNBpPuJt](https://lichess.org/FNBpPuJt) | loss | bullet | black | mate | 50: timing, other positional |
+| [H00KZ8Zi](https://lichess.org/H00KZ8Zi) | draw | bullet | white | draw | 47: eval, conversion / prophylaxis |
+| [LCmlLCpG](https://lichess.org/LCmlLCpG) | loss | bullet | white | mate | 19: eval, opening; 73: eval, other positional |
+| [LT6K3dEg](https://lichess.org/LT6K3dEg) | loss | bullet | white | mate | 33: depth-fixed, short tactic; 51: depth-fixed, short tactic |
+| [MXEKlu5J](https://lichess.org/MXEKlu5J) | draw | bullet | white | draw | 11: eval, short tactic; 49: eval, conversion / prophylaxis |
+| [PQEsDaH8](https://lichess.org/PQEsDaH8) | draw | bullet | white | draw | none probed |
+| [TalsX4r0](https://lichess.org/TalsX4r0) | loss | bullet | black | mate | 32: eval, passed pawns / pawn races; 42: timing, other positional |
+| [VIv1K6hG](https://lichess.org/VIv1K6hG) | loss | bullet | black | mate | 30: eval, king safety |
+| [VTao8ub0](https://lichess.org/VTao8ub0) | draw | bullet | white | draw | none probed |
+| [WNDEjXT5](https://lichess.org/WNDEjXT5) | draw | bullet | white | draw | none probed |
+| [XlQERAJ3](https://lichess.org/XlQERAJ3) | draw | bullet | white | draw | none probed |
+| [YwJ4nQC2](https://lichess.org/YwJ4nQC2) | loss | bullet | black | mate | 34: eval, king safety; 38: eval, king safety |
+| [Z5xA3Y1G](https://lichess.org/Z5xA3Y1G) | draw | bullet | white | draw | none probed |
+| [ZKqmJmWf](https://lichess.org/ZKqmJmWf) | draw | bullet | black | draw | 164: eval, passed pawns / pawn races |
+| [aJeii27Z](https://lichess.org/aJeii27Z) | loss | bullet | black | mate | 134: eval, king safety |
+| [cVtd9Y8I](https://lichess.org/cVtd9Y8I) | loss | bullet | black | mate | 112: eval, passed pawns / pawn races; 120: depth-fixed, passed pawns / pawn races |
+| [edywGYGk](https://lichess.org/edywGYGk) | loss | bullet | black | mate | 20: eval, short tactic |
+| [fRMNWevI](https://lichess.org/fRMNWevI) | loss | bullet | white | mate | 67: timing, short tactic |
+| [hThp7eKv](https://lichess.org/hThp7eKv) | loss | bullet | white | mate | 41: eval, minor-piece & endgame judgement; 89: depth-fixed, minor-piece & endgame judgement |
+| [iPY04rR0](https://lichess.org/iPY04rR0) | draw | bullet | white | draw | none probed |
+| [lYIjzJrt](https://lichess.org/lYIjzJrt) | loss | bullet | black | mate | 36: eval, short tactic |
+| [mL2yL18l](https://lichess.org/mL2yL18l) | draw | bullet | black | draw | none probed |
+| [owIpx8vO](https://lichess.org/owIpx8vO) | loss | blitz | white | mate | 39: eval, king safety; 59: timing, king safety |
+| [p3uIqx8X](https://lichess.org/p3uIqx8X) | draw | bullet | black | draw | 162: eval, minor-piece & endgame judgement |
+| [qXlUX6kr](https://lichess.org/qXlUX6kr) | loss | bullet | white | mate | 43: depth-fixed, king safety; 49: eval, king safety |
+| [t4ukQM8d](https://lichess.org/t4ukQM8d) | draw | bullet | black | draw | none probed |
+| [tFbHzkWe](https://lichess.org/tFbHzkWe) | loss | bullet | black | mate | 120: eval, king safety |
+| [th0nCR2K](https://lichess.org/th0nCR2K) | loss | bullet | black | mate | 16: depth-fixed, opening; 104: timing, passed pawns / pawn races |
+| [uGY4nUrr](https://lichess.org/uGY4nUrr) | draw | bullet | white | draw | none probed |
+| [uScrvAwN](https://lichess.org/uScrvAwN) | loss | bullet | black | mate | 36: eval, king safety; 42: eval, king safety |
+| [xJ46lS17](https://lichess.org/xJ46lS17) | draw | bullet | white | draw | 57: eval, minor-piece & endgame judgement; 69: timing, minor-piece & endgame judgement |
+| [xmZaheRn](https://lichess.org/xmZaheRn) | draw | bullet | black | draw | none probed |
+| [yaoQt85S](https://lichess.org/yaoQt85S) | draw | bullet | white | draw | none probed |
+| [ymb2SIkJ](https://lichess.org/ymb2SIkJ) | draw | bullet | black | draw | none probed |
+| [zg6ERbPu](https://lichess.org/zg6ERbPu) | draw | bullet | white | draw | none probed |
