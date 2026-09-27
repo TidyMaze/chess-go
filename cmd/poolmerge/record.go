@@ -82,30 +82,3 @@ func positionKey(r record) uint64 {
 	}
 	return h
 }
-
-// FilterConfig holds criteria for screening positions before merging into a training corpus.
-type FilterConfig struct {
-	MinMen        int
-	MaxMen        int
-	MaxDivergence float32 // if > 0, drops records where |target - static| > MaxDivergence
-	MaxAbsTarget  float32 // if > 0, drops records where |target| > MaxAbsTarget (blowouts)
-}
-
-// isQualityPosition reports whether a position meets quality criteria for inclusion in training.
-func isQualityPosition(r record, cfg FilterConfig) bool {
-	m := men(r)
-	if cfg.MinMen > 0 && m < cfg.MinMen {
-		return false
-	}
-	if cfg.MaxMen > 0 && m > cfg.MaxMen {
-		return false
-	}
-	if cfg.MaxDivergence > 0 && float32(math.Abs(float64(r.target-r.static))) > cfg.MaxDivergence {
-		return false
-	}
-	if cfg.MaxAbsTarget > 0 && float32(math.Abs(float64(r.target))) > cfg.MaxAbsTarget {
-		return false
-	}
-	return true
-}
-

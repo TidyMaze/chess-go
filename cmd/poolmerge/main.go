@@ -24,19 +24,10 @@ func main() {
 	out := flag.String("out", "", "pool file to write")
 	minMen := flag.Int("min-men", 0, "keep only positions with at least this many men")
 	maxMen := flag.Int("max-men", 64, "keep only positions with at most this many men")
-	maxDivergence := flag.Float64("max-divergence", 0, "keep only positions where |target - static| <= this (0 = disabled)")
-	maxTarget := flag.Float64("max-target", 0, "keep only positions where |target| <= this (0 = disabled)")
 	flag.Parse()
 	if *out == "" || flag.NArg() == 0 {
-		fmt.Fprintln(os.Stderr, "usage: poolmerge -out merged.bin [-min-men N] [-max-men N] [-max-divergence D] [-max-target T] pool.bin ...")
+		fmt.Fprintln(os.Stderr, "usage: poolmerge -out merged.bin [-min-men N] [-max-men N] pool.bin ...")
 		os.Exit(1)
-	}
-
-	filterCfg := FilterConfig{
-		MinMen:        *minMen,
-		MaxMen:        *maxMen,
-		MaxDivergence: float32(*maxDivergence),
-		MaxAbsTarget:  float32(*maxTarget),
 	}
 
 	f, err := os.Create(*out)
@@ -65,7 +56,8 @@ func main() {
 			if r.game > maxGame {
 				maxGame = r.game
 			}
-			if !isQualityPosition(r, filterCfg) {
+			m := men(r)
+			if m < *minMen || m > *maxMen {
 				filtered++
 				return true
 			}
