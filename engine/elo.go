@@ -77,6 +77,8 @@ type Player struct {
 	Drive2 bool
 	// PawnPush exempts advanced pawn pushes from reduction and pruning.
 	PawnPush bool
+	// Shelter penalizes pushing shield pawns away from a castled king while enemy majors are present.
+	Shelter bool
 
 	// Tuned swaps the hand-picked evaluation constants for the Texel-fitted
 	// ones. Set alongside Weights only if you mean to override the fitted
@@ -220,6 +222,8 @@ func (p *Player) ApplyFeatures(features string) {
 			p.NullPieces = true
 		case "drawscale":
 			p.DrawScale = true
+		case "shelter":
+			p.Shelter = true
 		case "drive2":
 			p.Drive2 = true
 		case "singular":
@@ -795,7 +799,7 @@ func evalForPlayer(p Player) *Eval {
 		Weights: p.Weights, UsePST: p.UsePST, NullMove: p.NullMove,
 		MaterialOnly: p.MaterialOnly, QuiescePly: p.QuiescePly, Tapered: p.Tapered,
 		Extensions: p.Extensions, Aspiration: p.Aspiration, SEEPruning: p.SEEPruning,
-		Structure: p.Structure, Futility: p.Futility, Razoring: p.Razoring, NullPieces: p.NullPieces, DrawScale: p.DrawScale, Drive2: p.Drive2, PawnPush: p.PawnPush, Mobility: p.Mobility,
+		Structure: p.Structure, Futility: p.Futility, Razoring: p.Razoring, NullPieces: p.NullPieces, DrawScale: p.DrawScale, Drive2: p.Drive2, PawnPush: p.PawnPush, Shelter: p.Shelter, Mobility: p.Mobility,
 		KingSafety: p.KingSafety, Net: p.Net, HalfKP: p.HalfKP,
 		HalfKPBlend: p.HalfKPBlend, Tablebases: p.Tablebases,
 		NoCastle: p.NoCastle, NoLMR: p.NoLMR, ScaledLMR: p.ScaledLMR, LMP: p.LMP, DeepLMP: p.DeepLMP,

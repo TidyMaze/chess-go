@@ -412,6 +412,118 @@ func kingSafetyPenalty(b *board.Board, pieces []board.ColoredPiece, color board.
 	return weight * kingDangerScale[attackers] * weightSum * phase
 }
 
+// kingShelterPenalty penalizes a castled king whose direct file shielding pawn has
+// been advanced or lost while the opponent retains major pieces (queen or rooks).
+func kingShelterPenalty(b *board.Board, color board.Color) float64 {
+	enemy := color.Other()
+	if b.PieceBitboard(enemy, board.Queen)|b.PieceBitboard(enemy, board.Rook) == 0 {
+		return 0
+	}
+	ksq := b.KingSquare(color)
+	kf, kr := ksq.File, ksq.Rank
+	ownPawns := b.PieceBitboard(color, board.Pawn)
+	if ownPawns == 0 {
+		return 0
+	}
+
+	if color == board.Black {
+		if (kf == 6 || kf == 7) && kr >= 6 {
+			// Black king on g8/h8: direct g-pawn shield must be on g7 (54) or g6 (46).
+			const gShield = (uint64(1) << 54) | (uint64(1) << 46)
+			if ownPawns&gShield == 0 {
+				return 0.70
+			}
+		} else if (kf == 1 || kf == 0) && kr >= 6 {
+			// Black king on b8/a8: direct b-pawn shield must be on b7 (49) or b6 (41).
+			const bShield = (uint64(1) << 49) | (uint64(1) << 41)
+			if ownPawns&bShield == 0 {
+				return 0.70
+			}
+		}
+	} else {
+		if (kf == 6 || kf == 7) && kr <= 1 {
+			// White king on g1/h1: direct g-pawn shield must be on g2 (14) or g3 (22).
+			const gShield = (uint64(1) << 14) | (uint64(1) << 22)
+			if ownPawns&gShield == 0 {
+				return 0.70
+			}
+		} else if (kf == 1 || kf == 0) && kr <= 1 {
+			// White king on b1/a1: direct b-pawn shield must be on b2 (9) or b3 (17).
+			const bShield = (uint64(1) << 9) | (uint64(1) << 17)
+			if ownPawns&bShield == 0 {
+				return 0.70
+			}
+		}
+	}
+	return 0
+}
+
+// passedKingPenalty penalizes the defending king when it wanders outside
+// the square of an enemy passed pawn in endgames.
+func passedKingPenalty(b *board.Board, color board.Color) float64 {
+	if pieceMaterial(b, board.White)+pieceMaterial(b, board.Black) > 7.0 {
+		return 0
+	}
+	enemy := color.Other()
+	enemyPawns := b.PieceBitboard(enemy, board.Pawn)
+	if enemyPawns == 0 {
+		return 0
+	}
+	ownPawns := b.PieceBitboard(color, board.Pawn)
+	ksq := b.KingSquare(color)
+	kf, kr := int(ksq.File), int(ksq.Rank)
+
+	penalty := 0.0
+	for bb := enemyPawns; bb != 0; bb &= bb - 1 {
+		sq := bits.TrailingZeros64(bb)
+		pf, pr := sq%8, sq/8
+		passed := true
+		for df := -1; df <= 1; df++ {
+			f := pf + df
+			if f < 0 || f > 7 {
+				continue
+			}
+			fmask := board.FileMask[f]
+			if enemy == board.White {
+				if ownPawns&fmask&^((uint64(1)<<((pr+1)*8))-1) != 0 {
+					passed = false
+					break
+				}
+			} else {
+				if ownPawns&fmask&((uint64(1)<<(pr*8))-1) != 0 {
+					passed = false
+					break
+				}
+			}
+		}
+		if !passed {
+			continue
+		}
+		ranksToQueen := 7 - pr
+		promoRank := 7
+		if enemy == board.Black {
+			ranksToQueen = pr
+			promoRank = 0
+		}
+		df := kf - pf
+		if df < 0 {
+			df = -df
+		}
+		dr := kr - promoRank
+		if dr < 0 {
+			dr = -dr
+		}
+		kingDist := df
+		if dr > kingDist {
+			kingDist = dr
+		}
+		if kingDist > ranksToQueen {
+			penalty += 0.50 * float64(kingDist-ranksToQueen)
+		}
+	}
+	return penalty
+}
+
 // Three terms the evaluation does not have, each cheap and each standard.
 //
 // Added together because the useful lesson from mobility and king safety

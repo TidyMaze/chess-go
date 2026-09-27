@@ -140,6 +140,8 @@ type Eval struct {
 	// PawnPush exempts a pawn push to the sixth rank or beyond from
 	// late move reduction and pruning.
 	PawnPush bool
+	// Shelter penalizes pushing shield pawns away from a castled king while enemy majors are present.
+	Shelter bool
 
 	// Mobility adds a bonus per square each piece can reach.
 	Mobility bool
@@ -526,6 +528,12 @@ func PositionScoreEval(b *board.Board, color board.Color, ev *Eval) float64 {
 		} else if score <= -drive {
 			score -= kingDrivingBonus(b, color.Other())
 		}
+		if ev.Shelter {
+			score -= kingShelterPenalty(b, color)
+			score += kingShelterPenalty(b, color.Other())
+			score -= passedKingPenalty(b, color)
+			score += passedKingPenalty(b, color.Other())
+		}
 		return score
 	}
 	if ev != nil && ev.Net != nil && !ev.Net.Residual {
@@ -673,6 +681,12 @@ func PositionScoreEval(b *board.Board, color board.Color, ev *Eval) float64 {
 		score += kingDrivingBonus(b, color)
 	} else if score <= -4 {
 		score -= kingDrivingBonus(b, other)
+	}
+	if ev != nil && ev.Shelter {
+		score -= kingShelterPenalty(b, color)
+		score += kingShelterPenalty(b, color.Other())
+		score -= passedKingPenalty(b, color)
+		score += passedKingPenalty(b, color.Other())
 	}
 	return score
 }
