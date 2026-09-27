@@ -5,6 +5,11 @@
 // safely inside the array, in padding if it went off the real board.
 package board
 
+import (
+	"encoding/binary"
+	"math/bits"
+)
+
 type Color int
 
 const (
@@ -84,6 +89,15 @@ var cellToSq = func() (t [width * width]Sq) {
 		for f := 0; f < 8; f++ {
 			t[(r+pad)*width+(f+pad)] = Sq{File: int8(f), Rank: int8(r)}
 		}
+	}
+	return t
+}()
+
+// sqCell is the padded cell index of each 0-63 square index: one table read
+// where going through a Sq costs a decode and a multiply.
+var sqCell = func() (t [64]uint8) {
+	for i := range t {
+		t[i] = uint8((i>>3+pad)*width + i&7 + pad)
 	}
 	return t
 }()
@@ -361,32 +375,17 @@ func (b *Board) IsAttackedBy(sq Sq, by Color) bool {
 		return true
 	}
 
-	// Sliders. If the attacker has no rooks/queens or bishops/queens,
-	// skip ray calculations entirely. Otherwise check direction-by-direction
-	// to short-circuit as soon as any attacker is found.
+	// Sliders, all four lines at once: hyperbola quintessence has no
+	// per-direction branch to short-circuit on, so there is nothing to gain
+	// by stopping after the first ray. The lines are spelled out rather than
+	// going through RookAttacks and BishopAttacks, which are over the
+	// inlining budget and would cost two calls.
+	occ := b.occupiedBB()
 	rq := b.pieces[by][Rook] | b.pieces[by][Queen]
 	bq := b.pieces[by][Bishop] | b.pieces[by][Queen]
-	if rq != 0 || bq != 0 {
-		occ := b.occupiedBB()
-		if rq != 0 {
-			if rayFrom(dirNorth, sqIdx, occ)&rq != 0 ||
-				rayFrom(dirSouth, sqIdx, occ)&rq != 0 ||
-				rayFrom(dirEast, sqIdx, occ)&rq != 0 ||
-				rayFrom(dirWest, sqIdx, occ)&rq != 0 {
-				return true
-			}
-		}
-		if bq != 0 {
-			if rayFrom(dirNorthEast, sqIdx, occ)&bq != 0 ||
-				rayFrom(dirNorthWest, sqIdx, occ)&bq != 0 ||
-				rayFrom(dirSouthEast, sqIdx, occ)&bq != 0 ||
-				rayFrom(dirSouthWest, sqIdx, occ)&bq != 0 {
-				return true
-			}
-		}
-	}
-
-	return false
+	l := &lineMasks[sqIdx&63]
+	return (lineAttacks(sqIdx, occ, l.file)|lineAttacks(sqIdx, occ, l.rank))&rq|
+		(lineAttacks(sqIdx, occ, l.diag)|lineAttacks(sqIdx, occ, l.anti))&bq != 0
 }
 
 // IsInCheck reports whether the king of color is in check.
@@ -420,29 +419,31 @@ func (b *Board) AppendSlideMoves(dst []Sq, sq Sq, color Color, dirs [][2]int) []
 	return moves
 }
 
-// AppendSlideCaptures appends to dst only capture targets for a slider at sq moving along dirs.
+// AppendSlideCaptures appends to dst only capture targets for a slider at sq
+// moving along dirs, which are unit steps {df, dr}.
+//
+// The enemy men a queen on sq would attack are one attack-set computation,
+// and most of the time there are none, so the usual call returns without a
+// loop. Otherwise each direction's ray holds at most one of them, its first
+// man, so emitting ray by ray in dirs order gives the walk's sequence
+// exactly. Computing the queen's set for a bishop or rook costs two lines
+// it does not need, which is cheaper than working out from dirs which
+// lines it does.
 func (b *Board) AppendSlideCaptures(dst []Sq, sq Sq, color Color, dirs [][2]int) []Sq {
-	moves := dst
-	baseIdx := index(sq)
+	i := squareIndex(sq) & 63
+	occ := b.occupiedBB()
+	l := &lineMasks[i]
+	targets := (lineAttacks(i, occ, l.file) | lineAttacks(i, occ, l.rank) |
+		lineAttacks(i, occ, l.diag) | lineAttacks(i, occ, l.anti)) & b.colorBB[color.Other()]
+	if targets == 0 {
+		return dst
+	}
 	for _, d := range dirs {
-		delta := d[1]*width + d[0]
-		currIdx := baseIdx
-		for {
-			currIdx += delta
-			code := b.cells[currIdx]
-			if code == codeOffBoard {
-				break
-			}
-			if code == codeEmpty {
-				continue
-			}
-			if cellColor[code] != color {
-				moves = append(moves, cellToSq[currIdx])
-			}
-			break
+		if t := rayAttacks[dirOf(d)][i] & targets; t != 0 {
+			dst = append(dst, squareFromIndex(uint8(bits.TrailingZeros64(t))))
 		}
 	}
-	return moves
+	return dst
 }
 
 // AppendStepMoves appends to dst all pseudo-legal target squares for a stepper at sq using offsets.
@@ -511,23 +512,25 @@ func (b *Board) Move(from, to Sq) {
 
 	// Keep the occupied list in step. Order matters: drop the captured
 	// piece's entry for `to` first, then move the mover's entry from
-	// `from` to `to` -- otherwise the two entries collide.
+	// `from` to `to` -- otherwise the two entries collide. Both entries
+	// are found before either write, and the mover's position follows
+	// its entry when the swap-remove moves it (it was the last one).
+	pf := occupiedPos(&b.occupied, squareIndex(from))
 	if captured {
-		toIdx := squareIndex(to)
-		for i := 0; i < b.occupiedCount; i++ {
-			if b.occupied[i] == toIdx {
-				b.occupied[i] = b.occupied[b.occupiedCount-1]
-				b.occupiedCount--
-				break
+		if pt := occupiedPos(&b.occupied, squareIndex(to)); uint(pt) < uint(b.occupiedCount) {
+			last := b.occupiedCount - 1
+			b.occupied[pt] = b.occupied[last]
+			b.occupiedCount = last
+			switch pf {
+			case pt:
+				pf = -1 // from == to: the entry just dropped was the mover's
+			case last:
+				pf = pt
 			}
 		}
 	}
-	fromIdxSq := squareIndex(from)
-	for i := 0; i < b.occupiedCount; i++ {
-		if b.occupied[i] == fromIdxSq {
-			b.occupied[i] = squareIndex(to)
-			break
-		}
+	if uint(pf) < uint(b.occupiedCount) {
+		b.occupied[pf] = squareIndex(to)
 	}
 }
 
@@ -555,19 +558,18 @@ func (b *Board) PiecesOf(c Color) []PieceAtSquare {
 //
 // It walks only the occupied squares recorded in occupied[], not all 64:
 // a full-board scan was ~18% of search CPU, and by the endgame most of
-// those squares are empty.
+// those squares are empty. The colour bitboard drops the other side's men
+// before their cells are read, so only the pieces kept are decoded.
 func (b *Board) AppendPiecesOf(dst []PieceAtSquare, c Color) []PieceAtSquare {
-	result := dst
-	for i := 0; i < b.occupiedCount; i++ {
-		s := squareFromIndex(b.occupied[i])
-		cl := b.cells[index(s)]
-		if cl >= codePieceMin {
-			if p := decodePiece(cl); p.Color == c {
-				result = append(result, PieceAtSquare{s, p.Type})
-			}
+	own := b.colorBB[c]
+	for _, sq := range b.occupied[:b.occupiedCount] {
+		sq &= 63
+		if own&(1<<sq) == 0 {
+			continue
 		}
+		dst = append(dst, PieceAtSquare{squareFromIndex(sq), decoded[b.cells[sqCell[sq]]].Type})
 	}
-	return result
+	return dst
 }
 
 // Undo captures everything Move changes, so a move can be taken back
@@ -580,7 +582,7 @@ type Undo struct {
 	capturedRaw cellCode
 	kings       [2]Sq
 	occupied    [32]uint8
-	occCount    int
+	occCount    uint8
 	castle      uint8
 	// rookFrom/rookTo record the rook's half of a castling move so unmake
 	// can put it back. Zero value means this was not a castling move.
@@ -592,8 +594,9 @@ type Undo struct {
 	epSquare     uint8
 	epCaptured   Sq
 	wasEPCapture bool
-	pieces       [2][6]uint64
-	colorBB      [2]uint64
+	// No copy of the bitboards: UnmakeMove puts them back square by
+	// square. With them (and an int count) the record was 184 bytes, now
+	// 53, and it is built, returned and passed back by value at every node.
 }
 
 func (u Undo) MovedCode() uint8   { return uint8(u.movedCode) }
@@ -613,23 +616,28 @@ func (u Undo) WasEPCapture() bool { return u.wasEPCapture }
 
 // MakeMove applies a move and returns what is needed to undo it.
 func (b *Board) MakeMove(from, to Sq) Undo {
+	moved := b.cells[index(from)]
 	u := Undo{
 		from:        from,
 		to:          to,
-		movedCode:   b.cells[index(from)],
+		movedCode:   moved,
 		capturedRaw: b.cells[index(to)],
 		kings:       b.kings,
 		occupied:    b.occupied,
-		occCount:    b.occupiedCount,
+		occCount:    uint8(b.occupiedCount),
 		castle:      b.castle,
 		epSquare:    b.epSquare,
-		pieces:      b.pieces,
-		colorBB:     b.colorBB,
+	}
+	// The mover's type, or -1 for an empty square, decoded once for the
+	// castling, en passant and double-step tests below.
+	movedType := PieceType(-1)
+	if moved >= codePieceMin {
+		movedType = decoded[moved].Type
 	}
 	// A king stepping two files is a castling move, and the rook has to
 	// travel with it. Detected here rather than encoded in Move so that
 	// every path that moves a piece (search, game, UI) gets it.
-	if p, ok := b.PieceAt(from); ok && p.Type == King && abs(int(to.File-from.File)) == 2 {
+	if movedType == King && abs(int(to.File-from.File)) == 2 {
 		u.wasCastling = true
 		if to.File > from.File {
 			u.rookFrom = Sq{File: 7, Rank: from.Rank}
@@ -642,30 +650,37 @@ func (b *Board) MakeMove(from, to Sq) Undo {
 	// En passant: a pawn moving diagonally onto the empty target square
 	// captures the pawn that passed it, which stands beside the mover
 	// rather than on the destination.
-	if p, ok := b.PieceAt(from); ok && p.Type == Pawn && b.epSquare != noEP &&
-		squareIndex(to) == b.epSquare && from.File != to.File {
-		if _, occupied := b.PieceAt(to); !occupied {
-			victim := Sq{File: to.File, Rank: from.Rank}
-			u.wasEPCapture = true
-			u.epCaptured = victim
-			b.Remove(victim)
-		}
+	if movedType == Pawn && b.epSquare != noEP &&
+		squareIndex(to) == b.epSquare && from.File != to.File && u.capturedRaw < codePieceMin {
+		victim := Sq{File: to.File, Rank: from.Rank}
+		u.wasEPCapture = true
+		u.epCaptured = victim
+		b.Remove(victim)
 	}
 
 	b.Move(from, to)
 	if u.wasCastling {
 		b.Move(u.rookFrom, u.rookTo)
 	}
-	b.castle &^= castlingLost(from) | castlingLost(to)
+	b.castle &^= castleLostAt[squareIndex(from)&63] | castleLostAt[squareIndex(to)&63]
 
 	// A pawn that has just stepped two squares can be captured en passant
 	// on the square it skipped, but only on the very next move.
 	b.epSquare = noEP
-	if p, ok := b.PieceAt(to); ok && p.Type == Pawn && abs(int(to.Rank-from.Rank)) == 2 {
+	if movedType == Pawn && abs(int(to.Rank-from.Rank)) == 2 {
 		b.epSquare = squareIndex(Sq{File: from.File, Rank: (from.Rank + to.Rank) / 2})
 	}
 	return u
 }
+
+// castleLostAt is castlingLost for each 0-63 square index, so MakeMove
+// reads two bytes instead of running two six-way switches.
+var castleLostAt = func() (t [64]uint8) {
+	for i := range t {
+		t[i] = castlingLost(squareFromIndex(uint8(i)))
+	}
+	return t
+}()
 
 func abs(x int) int {
 	if x < 0 {
@@ -675,30 +690,61 @@ func abs(x int) int {
 }
 
 // UnmakeMove restores the position saved in u.
+//
+// The bitboards are put back from the squares the move touched: take off
+// whatever stands on to now, which is the mover or the piece a promotion
+// (SetPiece after MakeMove) replaced it with, then put back the mover on
+// from, the captured man on to, and the rook and en passant victim when
+// there were any.
 func (b *Board) UnmakeMove(u Undo) {
+	fromBit := uint64(1) << (squareIndex(u.from) & 63)
+	toBit := uint64(1) << (squareIndex(u.to) & 63)
+	toCell := index(u.to)
+	if cur := b.cells[toCell]; cur >= codePieceMin {
+		p := decoded[cur]
+		b.pieces[p.Color][p.Type] &^= toBit
+		b.colorBB[p.Color] &^= toBit
+	}
+	if u.movedCode >= codePieceMin {
+		p := decoded[u.movedCode]
+		b.pieces[p.Color][p.Type] |= fromBit
+		b.colorBB[p.Color] |= fromBit
+	}
+	if u.capturedRaw >= codePieceMin {
+		p := decoded[u.capturedRaw]
+		b.pieces[p.Color][p.Type] |= toBit
+		b.colorBB[p.Color] |= toBit
+	}
 	if u.wasCastling {
 		// Put the rook back first: the cell writes below restore only the
 		// king's two squares.
-		b.cells[index(u.rookFrom)] = b.cells[index(u.rookTo)]
+		rook := b.cells[index(u.rookTo)]
+		if rook >= codePieceMin {
+			p := decoded[rook]
+			rookBits := uint64(1)<<(squareIndex(u.rookFrom)&63) | uint64(1)<<(squareIndex(u.rookTo)&63)
+			b.pieces[p.Color][p.Type] ^= rookBits
+			b.colorBB[p.Color] ^= rookBits
+		}
+		b.cells[index(u.rookFrom)] = rook
 		b.cells[index(u.rookTo)] = codeEmpty
 	}
 	b.cells[index(u.from)] = u.movedCode
-	b.cells[index(u.to)] = u.capturedRaw
+	b.cells[toCell] = u.capturedRaw
 	b.kings = u.kings
 	b.occupied = u.occupied
-	b.occupiedCount = u.occCount
+	b.occupiedCount = int(u.occCount)
 	b.castle = u.castle
 	b.epSquare = u.epSquare
-	b.pieces = u.pieces
-	b.colorBB = u.colorBB
 	if u.wasEPCapture {
-
 		// The captured pawn stood on neither square the writes above
-		// touched, so its cell has to be restored explicitly. The
+		// touched, so its cell and bit have to be restored explicitly. The
 		// occupied list is restored wholesale from the undo record and
 		// already contains it.
-		mover := decodePiece(u.movedCode)
-		b.cells[index(u.epCaptured)] = encodePiece(Piece{Color: mover.Color.Other(), Type: Pawn})
+		victim := decodePiece(u.movedCode).Color.Other()
+		bit := uint64(1) << (squareIndex(u.epCaptured) & 63)
+		b.pieces[victim][Pawn] |= bit
+		b.colorBB[victim] |= bit
+		b.cells[index(u.epCaptured)] = encodePiece(Piece{Color: victim, Type: Pawn})
 	}
 }
 
@@ -732,6 +778,29 @@ func (b *Board) AppendAllPieces(dst []ColoredPiece) []ColoredPiece {
 	return result
 }
 
+// occupiedPos is the position of sq in the occupied list, or -1.
+//
+// It reads the list eight bytes at a time instead of one: XOR with sq in
+// every byte turns the wanted entry into a zero byte, and (v-0x01..)&^v&0x80..
+// flags zero bytes. A borrow out of a zero byte can flag the byte above it
+// too, but never one below, so the lowest flag is always the real match.
+// Live entries are distinct and come before the stale tail, so when sq is
+// live the lowest match is its live entry.
+//
+// The byte-at-a-time scan, run twice per Move, was about two thirds of
+// Move's time.
+func occupiedPos(occ *[32]uint8, sq uint8) int {
+	const lo, hi = 0x0101010101010101, 0x8080808080808080
+	pat := uint64(sq) * lo
+	for w := 0; w < 32; w += 8 {
+		v := binary.LittleEndian.Uint64(occ[w:]) ^ pat
+		if z := (v - lo) &^ v & hi; z != 0 {
+			return w + bits.TrailingZeros64(z)>>3
+		}
+	}
+	return -1
+}
+
 // Remove clears a square and drops it from the occupied list.
 //
 // Needed for en passant, where the captured pawn stands on neither the
@@ -747,12 +816,8 @@ func (b *Board) Remove(s Sq) {
 	b.pieces[p.Color][p.Type] &^= sqBit
 	b.colorBB[p.Color] &^= sqBit
 	b.cells[index(s)] = codeEmpty
-	idx := squareIndex(s)
-	for i := 0; i < b.occupiedCount; i++ {
-		if b.occupied[i] == idx {
-			b.occupied[i] = b.occupied[b.occupiedCount-1]
-			b.occupiedCount--
-			return
-		}
+	if i := occupiedPos(&b.occupied, squareIndex(s)); uint(i) < uint(b.occupiedCount) {
+		b.occupied[i] = b.occupied[b.occupiedCount-1]
+		b.occupiedCount--
 	}
 }

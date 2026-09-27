@@ -218,8 +218,8 @@ func (b *Board) AppendPawnMoves(dst []Sq, sq Sq, color Color) []Sq {
 
 	// Captures & En Passant
 	capturable := b.colorBB[color.Other()]
-	if ep, ok := b.EPSquare(); ok {
-		capturable |= uint64(1) << squareIndex(ep)
+	if b.epSquare != noEP {
+		capturable |= uint64(1) << (b.epSquare & 63)
 	}
 	targets |= PawnAttacks[color][sqIdx] & capturable
 
@@ -261,16 +261,12 @@ func appendFromBitboard(dst []Sq, bb uint64) []Sq {
 // Ray attacks for the sliding pieces.
 //
 // rayAttacks[dir][sq] is every square along one compass direction from sq,
-// ignoring occupancy. To account for blockers, intersect the ray with the
-// occupied squares, find the nearest set bit, and subtract that square's own
-// ray: what remains is the ray truncated at the first man, with that man
-// included, which is exactly a capture.
+// ignoring occupancy. The slider attack sets below are computed a line at a
+// time (see lineAttacks); the rays split such a set back into directions,
+// which is what keeps a capture list in its walk order.
 //
-// This is the classical method rather than magic bitboards. It replaces a
-// loop that stepped one square at a time through the padded cell array with
-// two table lookups and a bit scan per direction. Magic would be faster
-// still and needs a magic-number search and 800 KB of tables; PEXT is not an
-// option here at all, being x86 only, and this runs on arm64.
+// Neither magic bitboards nor PEXT: magic needs a magic-number search and
+// 800 KB of tables, and PEXT is x86 only while this runs on arm64.
 const (
 	dirNorth = iota
 	dirSouth
@@ -285,11 +281,18 @@ const (
 
 var rayAttacks [numDirs][64]uint64
 
-// positiveDir says whether a direction's squares have higher indices than
-// their origin, which decides whether the nearest blocker is the lowest set
-// bit or the highest.
-var positiveDir = [numDirs]bool{
-	dirNorth: true, dirEast: true, dirNorthEast: true, dirNorthWest: true,
+// dirByDelta maps a unit step (df, dr), stored at (dr+1)*3 + df+1, to its
+// direction. The centre entry, no step at all, is not a direction.
+var dirByDelta = [9]uint8{
+	dirSouthWest, dirSouth, dirSouthEast,
+	dirWest, 0, dirEast,
+	dirNorthWest, dirNorth, dirNorthEast,
+}
+
+// dirOf is the direction of a unit step d, as the move generator's
+// direction lists write it ({df, dr}).
+func dirOf(d [2]int) int {
+	return int(dirByDelta[(d[1]+1)*3+d[0]+1])
 }
 
 func init() {
@@ -318,41 +321,59 @@ func init() {
 			rayAttacks[d][sq] = mask
 		}
 	}
+	for sq := range lineMasks {
+		lineMasks[sq] = sliderLines{
+			file: rayAttacks[dirNorth][sq] | rayAttacks[dirSouth][sq],
+			rank: rayAttacks[dirEast][sq] | rayAttacks[dirWest][sq],
+			diag: rayAttacks[dirNorthEast][sq] | rayAttacks[dirSouthWest][sq],
+			anti: rayAttacks[dirNorthWest][sq] | rayAttacks[dirSouthEast][sq],
+		}
+	}
 }
 
-// rayFrom is the ray in direction d from sq, truncated at the first
-// occupied square and including it.
-func rayFrom(d int, sq uint8, occupied uint64) uint64 {
-	attacks := rayAttacks[d][sq]
-	blockers := attacks & occupied
-	if blockers == 0 {
-		return attacks
-	}
-	var first int
-	if positiveDir[d] {
-		first = bits.TrailingZeros64(blockers)
-	} else {
-		first = 63 - bits.LeadingZeros64(blockers)
-	}
-	return attacks &^ rayAttacks[d][first]
+// Hyperbola quintessence: the attacks along one line through sq, both
+// directions at once and without a branch.
+//
+// With o the occupied squares on the line, o-2s borrows from the square
+// above sq up to the nearest blocker above, flipping exactly those bits;
+// doing the same on the bit-reversed board (bits.Reverse64 is one RBIT on
+// arm64) flips the squares down to the nearest blocker below. XOR the two
+// and the untouched blockers cancel, leaving both rays with their blockers
+// included. Reversing all 64 bits rather than byte-swapping works for ranks
+// too, so one formula covers the four lines.
+//
+// It replaces a ray per direction cut by a data-dependent bit scan, eight
+// unpredictable branches per queen.
+type sliderLines struct{ file, rank, diag, anti uint64 }
+
+// lineMasks holds the four lines through each square, the square itself
+// left out. Filled in init, after rayAttacks, which it is built from.
+var lineMasks [64]sliderLines
+
+func lineAttacks(sq uint8, occ, mask uint64) uint64 {
+	o := occ & mask
+	up := o - uint64(2)<<(sq&63)
+	down := bits.Reverse64(bits.Reverse64(o) - uint64(2)<<((63-sq)&63))
+	return (up ^ down) & mask
 }
 
 // BishopAttacks, RookAttacks and QueenAttacks are the squares each piece
 // bears on, blockers included and own pieces not yet removed.
 func BishopAttacks(sq uint8, occupied uint64) uint64 {
-	return rayFrom(dirNorthEast, sq, occupied) | rayFrom(dirNorthWest, sq, occupied) |
-		rayFrom(dirSouthEast, sq, occupied) | rayFrom(dirSouthWest, sq, occupied)
+	l := &lineMasks[sq&63]
+	return lineAttacks(sq, occupied, l.diag) | lineAttacks(sq, occupied, l.anti)
 }
 
 func RookAttacks(sq uint8, occupied uint64) uint64 {
-	return rayFrom(dirNorth, sq, occupied) | rayFrom(dirSouth, sq, occupied) |
-		rayFrom(dirEast, sq, occupied) | rayFrom(dirWest, sq, occupied)
+	l := &lineMasks[sq&63]
+	return lineAttacks(sq, occupied, l.file) | lineAttacks(sq, occupied, l.rank)
 }
 
 func (b *Board) occupiedBB() uint64 { return b.colorBB[White] | b.colorBB[Black] }
 
-// Move generation deliberately still walks the rays through the cell array.
-// Measured here, replacing it was not worth it either way round:
+// Quiet move generation (AppendSlideMoves) deliberately still walks the
+// rays through the cell array. Measured here, replacing it was not worth it
+// either way round:
 //
 // Emitting the union of the four rays in square-index order is about 1.7x
 // faster per queen and 7% faster over a depth-5 search, but it reorders the
@@ -366,7 +387,9 @@ func (b *Board) occupiedBB() uint64 { return b.colorBB[White] | b.colorBB[Black]
 // walk they replace: 19.1-19.5 ns per queen against the walk's 19.3-20.1.
 //
 // So the tables earn their place in IsAttackedBy, which returns a bool and
-// has no order to preserve, and nowhere in move generation.
+// has no order to preserve, and in AppendSlideCaptures, where there is at
+// most one target per direction and usually none at all, so one attack-set
+// test replaces the whole walk.
 
 // TargetBitboard is the pseudo-legal target set of a knight, bishop, rook
 // or queen on sq, own pieces removed: the same squares AppendStepMoves and
