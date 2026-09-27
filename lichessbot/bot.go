@@ -72,6 +72,11 @@ type gameSession struct {
 	// reuse previously explored branches rather than re-allocating 24-96 MB
 	// every move.
 	table *engine.TranspositionTable
+	// leftBookAt is the ply of the first position where the book had no
+	// move for us, once leftBook says there has been one. Only the stream's
+	// goroutine touches them, so they sit outside the lock.
+	leftBook   bool
+	leftBookAt int
 
 	// The rest is shared with a move post being retried, hence the lock.
 	mu sync.Mutex
@@ -467,9 +472,26 @@ func (b *Bot) readGameStream(ctx context.Context, gameID string, full *gameFull,
 // lichess sent one: the live wtime/btime/winc/binc on the game state,
 // not the fixed budget champion.json carries for a measurement race.
 // Depth, threads and the network are untouched; only how long the search
-// is allowed to run changes, per move, every move.
-func effectivePlayer(base engine.Player, ourColor string, st gameState, speed string, overhead *overheadEstimate) engine.Player {
-	if budget := moveTimeBudget(ourColor, st, overhead); budget > 0 {
+// is allowed to run changes, per move, every move. The opponent's clock and
+// movesOutOfBook go into it as well, through moveBudget.
+// movesOutOfBook is how many of our moves have been played since the book
+// first had nothing for us, for the position plies half moves in, where
+// inBook says whether the book has a move there. Every move after the first
+// miss counts, a later book hit included. It is worked out from the ply,
+// not counted per call, so a position searched a second time (a reconnect,
+// a claim given back) gets the same answer.
+func (s *gameSession) movesOutOfBook(plies int, inBook bool) int {
+	if !s.leftBook {
+		if inBook {
+			return 0
+		}
+		s.leftBook, s.leftBookAt = true, plies
+	}
+	return (plies - s.leftBookAt) / 2
+}
+
+func effectivePlayer(base engine.Player, ourColor string, st gameState, speed string, overhead *overheadEstimate, movesOutOfBook int) engine.Player {
+	if budget := moveBudget(clockFor(ourColor, st, movesOutOfBook), overhead); budget > 0 {
 		base.TimeBudget = budget
 		return base
 	}
@@ -526,7 +548,11 @@ func (b *Bot) maybeMove(ctx context.Context, gameID string, full gameFull, st ga
 		return
 	}
 	sess.claim(moves)
-	player := effectivePlayer(b.Player, color, st, full.Speed, sess.overhead)
+	// The search looks the book up again; this lookup is only for the
+	// budget, which has to be set before the search starts.
+	_, inBook := b.Player.Book.Move(g)
+	outOfBook := sess.movesOutOfBook(len(strings.Fields(moves)), inBook)
+	player := effectivePlayer(b.Player, color, st, full.Speed, sess.overhead, outOfBook)
 	searchStart := time.Now()
 	var m game.Move
 	var score float64
@@ -576,10 +602,11 @@ func (b *Bot) maybeMove(ctx context.Context, gameID string, full gameFull, st ga
 	// total is everything this process is responsible for. Whatever the
 	// clock lost beyond it is lichess reaching us, which nothing here can
 	// measure directly and nothing here can shorten either.
-	b.logf("game %s: %s in %s search + %s post, %s total (budget %s)",
+	b.logf("game %s: %s in %s search + %s post, %s total (budget %s, opponent %s, %d out of book)",
 		gameID, uci, searched.Round(time.Millisecond), posted.Round(time.Millisecond),
 		time.Since(received).Round(time.Millisecond),
-		player.TimeBudget.Round(time.Millisecond))
+		player.TimeBudget.Round(time.Millisecond),
+		time.Duration(clockFor(color, st, outOfBook).OppMS)*time.Millisecond, outOfBook)
 }
 
 // flagFalls is when our clock runs out if we never move, going by the state

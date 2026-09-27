@@ -6,6 +6,7 @@
 package lichessbot
 
 import (
+	"math"
 	"strings"
 	"time"
 
@@ -140,6 +141,12 @@ const (
 // Whole games at every control the bot accepts are simulated against this
 // function in clocksim_test.go, with the overrun and round trip a real game
 // pays, and the clock has to stay above a floor in all of them.
+//
+// The bot now plays by moveBudget, which boosts this base for the first
+// moves out of book and scales it by the opponent's clock, then applies the
+// same caps. This function stays exactly as it was, because clockaudit
+// scores games with it through MoveTimeBudget.
+//
 // overheadEstimate tracks what a move costs this game beyond its search,
 // because a single constant cannot serve both kinds of opponent. Measured
 // on 2026-09-14: posting a move takes 15 ms to 36 ms against a real bot and
@@ -195,6 +202,45 @@ func (o *overheadEstimate) reserve() float64 {
 	return o.ms
 }
 
+const (
+	// Only half the increment is spent, not most of it. The rule this
+	// replaced spent 0.9 of it plus a twentieth of the clock, which
+	// solves to an equilibrium near 0.7 of the increment: every game
+	// long enough drifted into a permanent two second scramble and
+	// stayed there. Game hTmspQs0 was lost exactly that way, flagging a
+	// 5+3 blitz game while the opponent still held 4:58. Half leaves
+	// enough margin that the clock settles well above the reserve
+	// instead of falling through it.
+	incrementShare = 0.5
+	// What is left above the reserve is spread over this many moves, so
+	// spending tracks the clock rather than a fixed guess at the move.
+	movesToGo = 30
+	// Without an increment there is no equilibrium to settle at: the
+	// clock only goes down, and every move also costs a round trip
+	// whatever the search does. So the same clock is spread much
+	// thinner, which is the one thing the rule this replaced got right.
+	movesToGoWithoutIncrement = 80
+	// The reserve is never spent. It grows with the increment, because
+	// a bigger increment means bigger thinks and more to lose to one
+	// slow search, and is capped as a share of the clock so a 1+10 game
+	// does not reserve most of what it has.
+	baseReserveMs     = 2000
+	reserveIncrements = 5
+	maxReserveShare   = 0.5
+
+	// What a move costs beyond its search is no longer a constant: it
+	// is measured per game by overheadEstimate above, because it is 15 ms
+	// against a real opponent and 700 ms against the lichess AI.
+
+	safetyMarginMs = 200
+	minBudgetMs    = 50
+
+	// No position needs more than 30s on local hardware: at depth 24 the engine
+	// is already searching the universe. A 1800s classical clock gives 36s via
+	// the share rule, which makes opponents disconnect (game blbndbPY).
+	absMaxBudgetMs = 30000
+)
+
 func moveTimeBudget(ourColor string, st gameState, overhead *overheadEstimate) time.Duration {
 	remainMs, incMs := st.WhiteTimeMS, st.WhiteIncMS
 	if ourColor == "black" {
@@ -205,39 +251,14 @@ func moveTimeBudget(ourColor string, st gameState, overhead *overheadEstimate) t
 		// gets a real budget, anything else falls back to the champion's.
 		return 0
 	}
-	const (
-		// Only half the increment is spent, not most of it. The rule this
-		// replaced spent 0.9 of it plus a twentieth of the clock, which
-		// solves to an equilibrium near 0.7 of the increment: every game
-		// long enough drifted into a permanent two second scramble and
-		// stayed there. Game hTmspQs0 was lost exactly that way, flagging a
-		// 5+3 blitz game while the opponent still held 4:58. Half leaves
-		// enough margin that the clock settles well above the reserve
-		// instead of falling through it.
-		incrementShare = 0.5
-		// What is left above the reserve is spread over this many moves, so
-		// spending tracks the clock rather than a fixed guess at the move.
-		movesToGo = 30
-		// Without an increment there is no equilibrium to settle at: the
-		// clock only goes down, and every move also costs a round trip
-		// whatever the search does. So the same clock is spread much
-		// thinner, which is the one thing the rule this replaced got right.
-		movesToGoWithoutIncrement = 80
-		// The reserve is never spent. It grows with the increment, because
-		// a bigger increment means bigger thinks and more to lose to one
-		// slow search, and is capped as a share of the clock so a 1+10 game
-		// does not reserve most of what it has.
-		baseReserveMs     = 2000
-		reserveIncrements = 5
-		maxReserveShare   = 0.5
+	budgetMs := capBudgetMs(baseBudgetMs(remainMs, incMs, overhead), remainMs)
+	return time.Duration(budgetMs) * time.Millisecond
+}
 
-		// What a move costs beyond its search is no longer a constant: it
-		// is measured per game by overheadEstimate above, because it is 15 ms
-		// against a real opponent and 700 ms against the lichess AI.
-
-		safetyMarginMs = 200
-		minBudgetMs    = 50
-	)
+// baseBudgetMs is the spending rule before any cap: half the increment,
+// plus what is above the reserve spread over the moves still to come,
+// less what posting the move is expected to cost.
+func baseBudgetMs(remainMs, incMs int64, overhead *overheadEstimate) float64 {
 	reserveMs := float64(baseReserveMs + reserveIncrements*incMs)
 	if maxReserve := float64(remainMs) * maxReserveShare; reserveMs > maxReserve {
 		reserveMs = maxReserve
@@ -248,7 +269,13 @@ func moveTimeBudget(ourColor string, st gameState, overhead *overheadEstimate) t
 	if incMs <= 0 {
 		spread = movesToGoWithoutIncrement
 	}
-	budgetMs := float64(incMs)*incrementShare + spendable/spread - overhead.reserve()
+	return float64(incMs)*incrementShare + spendable/spread - overhead.reserve()
+}
+
+// capBudgetMs holds a budget to the safety rules, in this order: the
+// ceiling that scales with the clock, the floor that still lets a move be
+// played, the margin under what is left, and the absolute cap.
+func capBudgetMs(budgetMs float64, remainMs int64) float64 {
 	maxBudgetMs := float64(remainMs) / maxBudgetDivisor
 	if maxBudgetMs < minMaxBudgetMs {
 		maxBudgetMs = minMaxBudgetMs
@@ -268,21 +295,97 @@ func moveTimeBudget(ourColor string, st gameState, overhead *overheadEstimate) t
 	if budgetMs > ceiling {
 		budgetMs = ceiling
 	}
-	// No position needs more than 30s on local hardware: at depth 24 the engine
-	// is already searching the universe. A 1800s classical clock gives 36s via
-	// the share rule, which makes opponents disconnect (game blbndbPY).
-	const absMaxBudgetMs = 30000
 	if budgetMs > absMaxBudgetMs {
 		budgetMs = absMaxBudgetMs
 	}
-	return time.Duration(budgetMs) * time.Millisecond
+	return budgetMs
 }
 
 // MoveTimeBudget is moveTimeBudget for callers outside this package, so a
-// tool can audit real games against the rule the bot actually plays by
-// instead of against a copy of it. A copy is exactly how an earlier version
+// tool can audit real games against the rule itself instead of against a
+// copy of it. It is the base of the rule the bot plays by, without the out
+// of book boost and the opponent clock factor that MoveBudget adds. A copy
+// is exactly how an earlier version
 // of this rule was cleared: a hand written model of it said a 120 move game
 // ended with 0.3 s in hand, and the real function flagged.
 func MoveTimeBudget(remainingMS, incrementMS int64) time.Duration {
 	return moveTimeBudget("white", gameState{WhiteTimeMS: remainingMS, WhiteIncMS: incrementMS}, nil)
+}
+
+// Clock is what the rule the bot plays by reads for one move: both clocks
+// and both increments in milliseconds, and how many of our moves have been
+// played since the book first failed to supply one (0 for that first move).
+type Clock struct {
+	OurMS, OppMS, IncMS, OppIncMS int64
+	MovesOutOfBook                int
+}
+
+const (
+	// The first moves after the book are where the game is decided while
+	// the clock is still full, so the first gets 1.8x the base and the
+	// extra falls by a tenth of 0.8 a move, to nothing from the tenth on.
+	outOfBookMoves = 10
+	outOfBookExtra = 0.8
+	// How far the opponent's clock may move the budget either way.
+	minCompensation = 0.7
+	maxCompensation = 1.4
+	// Whatever the boosts ask for, one move never takes more than an
+	// eighth of what is left. Since the reserve is at most half the clock,
+	// this also keeps every budget out of the reserve.
+	maxClockShareDivisor = 8
+)
+
+// outOfBookBoost is the multiplier for the k-th of our moves out of book.
+func outOfBookBoost(k int) float64 {
+	if k < 0 || k >= outOfBookMoves {
+		return 1
+	}
+	return 1 + outOfBookExtra*float64(outOfBookMoves-k)/outOfBookMoves
+}
+
+// clockCompensation spends more when the opponent is short of time and
+// less when we are: the square root of our clock over theirs, clamped. An
+// opponent clock of zero counts as one millisecond, so the ratio stays
+// finite and the clamp decides.
+func clockCompensation(ourMS, oppMS int64) float64 {
+	r := float64(ourMS) / float64(max(oppMS, 1))
+	return min(max(math.Sqrt(r), minCompensation), maxCompensation)
+}
+
+// moveBudget is the rule the bot plays by. It takes moveTimeBudget's base,
+// multiplies it by the out of book boost and the opponent clock factor,
+// and only then applies every cap moveTimeBudget has, plus the eighth of
+// the clock. The boosts can move time between moves; they cannot touch the
+// margins that keep a slow search from flagging.
+//
+// It keeps microseconds rather than whole milliseconds, so that below 8 ms
+// an eighth of the clock is still a positive budget: zero means "no clock"
+// to the caller, which then falls back to the champion's own budget.
+func moveBudget(c Clock, overhead *overheadEstimate) time.Duration {
+	if c.OurMS <= 0 {
+		return 0
+	}
+	budgetMs := baseBudgetMs(c.OurMS, c.IncMS, overhead) *
+		outOfBookBoost(c.MovesOutOfBook) * clockCompensation(c.OurMS, c.OppMS)
+	budgetMs = capBudgetMs(budgetMs, c.OurMS)
+	budgetMs = min(budgetMs, float64(c.OurMS)/maxClockShareDivisor)
+	return time.Duration(math.Round(budgetMs*1000)) * time.Microsecond
+}
+
+// MoveBudget is moveBudget for callers outside this package, with the
+// default overhead estimate, as MoveTimeBudget has.
+func MoveBudget(c Clock) time.Duration { return moveBudget(c, nil) }
+
+// clockFor reads our clock and the opponent's out of a game state.
+func clockFor(ourColor string, st gameState, movesOutOfBook int) Clock {
+	c := Clock{
+		OurMS: st.WhiteTimeMS, OppMS: st.BlackTimeMS,
+		IncMS: st.WhiteIncMS, OppIncMS: st.BlackIncMS,
+		MovesOutOfBook: movesOutOfBook,
+	}
+	if ourColor == "black" {
+		c.OurMS, c.OppMS = c.OppMS, c.OurMS
+		c.IncMS, c.OppIncMS = c.OppIncMS, c.IncMS
+	}
+	return c
 }

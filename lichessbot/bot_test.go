@@ -549,7 +549,7 @@ func TestBotIgnoresItsOwnOutgoingChallenge(t *testing.T) {
 func TestEffectivePlayerUsesTheLiveClockOverTheChampionsFixedBudget(t *testing.T) {
 	base := engine.Player{TimeBudget: 999 * time.Hour, Depth: 3}
 	st := gameState{WhiteTimeMS: 30000, WhiteIncMS: 0}
-	got := effectivePlayer(base, "white", st, "blitz", newOverheadEstimate())
+	got := effectivePlayer(base, "white", st, "blitz", newOverheadEstimate(), 10)
 	if got.TimeBudget == base.TimeBudget {
 		t.Error("the live clock did not override the champion's fixed time budget")
 	}
@@ -565,7 +565,7 @@ func TestEffectivePlayerUsesTheLiveClockOverTheChampionsFixedBudget(t *testing.T
 // own configured budget rather than being handed zero thinking time.
 func TestEffectivePlayerKeepsTheChampionsBudgetWithNoClock(t *testing.T) {
 	base := engine.Player{TimeBudget: 5 * time.Second}
-	got := effectivePlayer(base, "white", gameState{}, "blitz", newOverheadEstimate())
+	got := effectivePlayer(base, "white", gameState{}, "blitz", newOverheadEstimate(), 10)
 	if got.TimeBudget != base.TimeBudget {
 		t.Errorf("got %v, want the champion's own %v kept with no clock data", got.TimeBudget, base.TimeBudget)
 	}
@@ -682,7 +682,7 @@ func TestBotIgnoresItsOwnOutgoingChallengeEvenAtTheGameLimit(t *testing.T) {
 // think and flag it.
 func TestCorrespondenceGetsARealBudget(t *testing.T) {
 	base := engine.Player{TimeBudget: time.Second}
-	got := effectivePlayer(base, "white", gameState{}, "correspondence", newOverheadEstimate())
+	got := effectivePlayer(base, "white", gameState{}, "correspondence", newOverheadEstimate(), 10)
 	if got.TimeBudget <= time.Second {
 		t.Errorf("correspondence got %v, no better than the race budget", got.TimeBudget)
 	}
@@ -690,7 +690,7 @@ func TestCorrespondenceGetsARealBudget(t *testing.T) {
 
 func TestAClockedGameWithNoClockFieldKeepsTheChampionBudget(t *testing.T) {
 	base := engine.Player{TimeBudget: time.Second}
-	got := effectivePlayer(base, "white", gameState{}, "bullet", newOverheadEstimate())
+	got := effectivePlayer(base, "white", gameState{}, "bullet", newOverheadEstimate(), 10)
 	if got.TimeBudget != time.Second {
 		t.Errorf("bullet with no clock field got %v; it must keep the champion's budget, not an unlimited one", got.TimeBudget)
 	}
