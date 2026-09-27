@@ -208,6 +208,11 @@ func main() {
 	refBookPath := flag.String("ref-book", "", "reference plays from this opening book too")
 	matchOpenings := flag.String("match-openings", "", "start games from positions in this file instead of random plies")
 	timeMS := flag.Int("time-ms", 0, "challenger plays to a per-move time budget instead of a fixed depth")
+	clockMS := flag.Int("clock-ms", 0, "play every game on a chess clock: each side starts with this many real milliseconds, loses the wall time of each move and loses the game when it reaches zero. Each move's budget then comes from -budget-rule and -ref-budget-rule, replacing -time-ms. 0 is off")
+	incMS := flag.Int("inc-ms", 0, "increment per move on the -clock-ms clock, in real milliseconds")
+	clockScale := flag.Float64("clock-scale", 1, "the budget rules see both clocks and the increment at this many times their real value, and their budget is divided by it: -clock-ms 12000 -inc-ms 100 -clock-scale 10 is budgeted as a 2+1 game, reserves included, and played ten times faster")
+	budgetRuleName := flag.String("budget-rule", "old", "challenger's budget rule on the clock: old (lichessbot.MoveTimeBudget, our clock only) or new (lichessbot.MoveBudget, also the opponent's clock and the moves since the match opening)")
+	refBudgetRuleName := flag.String("ref-budget-rule", "old", "reference's budget rule on the clock, same choices as -budget-rule")
 	threads := flag.Int("threads", 0, "search threads on both sides (0 or 1 = single-threaded); the harness owns this, not the champion file, so ten workers cannot each spawn four")
 	tunedFile := flag.String("tuned-file", "", "challenger uses the fitted parameters in this file")
 	openingOffset := flag.Int("opening-offset", 0, "shift the openings used, so chunked matches do not repeat games")
@@ -500,7 +505,16 @@ func main() {
 		fmt.Printf("%s tablebases: %d exact positions\n", spec.who, tb.Len())
 	}
 
-	if *timeMS > 0 {
+	// Last of all, so the rules land on the players as they will play,
+	// after every replacement above.
+	clock, err := clockMatch(*clockMS, *incMS, *clockScale, *budgetRuleName, *refBudgetRuleName, &challenger, &reference)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
+	if clock != nil {
+		fmt.Println(clockMatchNote(*clockMS, *incMS, *clockScale, *budgetRuleName, *refBudgetRuleName))
+	} else if *timeMS > 0 {
 		fmt.Println(clockNote(*timeMS, *depth, *refUCI != ""))
 	}
 
@@ -517,8 +531,16 @@ func main() {
 	}
 
 	engine.MatchDeadline = deadlineFor(*maxSeconds, time.Now())
-	res := engine.PlayMatch(challenger, reference, *games, *maxMoves)
+	var res engine.MatchResult
+	if clock != nil {
+		res = engine.PlayMatchOnClock(challenger, reference, *games, *maxMoves, clock)
+	} else {
+		res = engine.PlayMatch(challenger, reference, *games, *maxMoves)
+	}
 	fmt.Printf("challenger (depth %d) vs reference (depth %d), %d games\n", cd, *depth, res.Wins+res.Draws+res.Losses)
 	fmt.Printf("  W-D-L %d-%d-%d   score %.3f\n", res.Wins, res.Draws, res.Losses, res.Score())
+	if clock != nil {
+		fmt.Println(flagNote(res))
+	}
 	fmt.Printf("  Elo gap %+d +/- %d   (%.0fs)\n", res.Elo(), res.EloMargin(), time.Since(t0).Seconds())
 }

@@ -176,6 +176,10 @@ type Player struct {
 	// UCIMoveTimeMS, when positive, gives the external engine a per-move
 	// clock instead of UCIDepth, so a timed match is timed on both sides.
 	UCIMoveTimeMS int
+	// ClockRule, in a match played on a MatchClock, turns the clock into
+	// this player's budget for each move, replacing TimeBudget and
+	// UCIMoveTimeMS for that move. Nil keeps the budget it was given.
+	ClockRule BudgetRule
 	// Tune overrides the search's hand-set pruning and reduction
 	// constants, so an SPSA tuner can race two players with different
 	// values in one process. Nil means the historical defaults.
@@ -341,6 +345,9 @@ func AnchorPlayer() Player {
 
 type MatchResult struct {
 	Wins, Draws, Losses int
+	// FlagLosses are the games the first player lost on time, and
+	// OppFlagLosses the games its opponent did. Both stay zero off the clock.
+	FlagLosses, OppFlagLosses int
 }
 
 func (m MatchResult) Games() int { return m.Wins + m.Draws + m.Losses }
@@ -398,19 +405,32 @@ const gameSkipped = -1.0
 // tallyPairs counts the games whose colour-reversed partner, the game sharing
 // its opening, was also played.
 func tallyPairs(scores []float64) MatchResult {
+	return tallyPairsFlags(scores, nil)
+}
+
+// tallyPairsFlags is tallyPairs that also counts, among the same games,
+// those lost on time, which flagged marks.
+func tallyPairsFlags(scores []float64, flagged []bool) MatchResult {
 	var res MatchResult
 	for i, s := range scores {
 		partner := i ^ 1
 		if s == gameSkipped || partner >= len(scores) || scores[partner] == gameSkipped {
 			continue
 		}
+		flag := i < len(flagged) && flagged[i]
 		switch s {
 		case 1.0:
 			res.Wins++
+			if flag {
+				res.OppFlagLosses++
+			}
 		case 0.5:
 			res.Draws++
 		default:
 			res.Losses++
+			if flag {
+				res.FlagLosses++
+			}
 		}
 	}
 	return res
@@ -419,10 +439,14 @@ func tallyPairs(scores []float64) MatchResult {
 // PlayMatchLive is PlayMatch with a hook on the first game, so a UI can
 // watch one representative game of the match as it happens.
 func PlayMatchLive(a, b Player, games, maxMoves int, live LiveHook) MatchResult {
-	type outcome struct {
-		score float64
-	}
+	return playMatchClocked(a, b, games, maxMoves, live, nil)
+}
+
+// playMatchClocked is PlayMatchLive with every game on clock, or off the
+// clock when clock is nil.
+func playMatchClocked(a, b Player, games, maxMoves int, live LiveHook, clock *MatchClock) MatchResult {
 	scores := make([]float64, games)
+	flagged := make([]bool, games)
 	sem := make(chan struct{}, matchWorkers(a, b, runtime.GOMAXPROCS(0)))
 	var wg sync.WaitGroup
 
@@ -490,16 +514,17 @@ func PlayMatchLive(a, b Player, games, maxMoves int, live LiveHook) MatchResult 
 			// i/2 so the pair sharing an opening gets the same seed, and
 			// the same opening is played twice with colours reversed.
 			start := matchOpening(i / 2)
-			winner, decisive := playFrom(start, white, black, maxMoves, hook)
+			out := playGame(start, white, black, maxMoves, hook, clock)
 			perspective := board.White
 			if !aIsWhite {
 				perspective = board.Black
 			}
-			scores[i] = ResultScore(winner, decisive, perspective)
+			scores[i] = ResultScore(out.winner, out.decisive, perspective)
+			flagged[i] = out.flag
 		}(i)
 	}
 	wg.Wait()
-	return tallyPairs(scores)
+	return tallyPairsFlags(scores, flagged)
 }
 
 // PlayMatchSerial plays the games one at a time. Needed for an external
@@ -612,13 +637,23 @@ type GameRecord struct {
 var GameSink func(GameRecord)
 
 func playFrom(g *game.Game, white, black Player, maxMoves int, live LiveHook) (winner board.Color, decisive bool) {
+	out := playGame(g, white, black, maxMoves, live, nil)
+	return out.winner, out.decisive
+}
+
+// playGame is playFrom on clock, or off the clock when clock is nil.
+func playGame(g *game.Game, white, black Player, maxMoves int, live LiveHook, clock *MatchClock) (out gameOutcome) {
 	var rec *GameRecord
 	if GameSink != nil {
 		rec = &GameRecord{StartFEN: g.FEN(), White: white.Name, Black: black.Name}
 		defer func() {
-			rec.Winner, rec.Decisive = winner, decisive
+			rec.Winner, rec.Decisive = out.winner, out.decisive
 			GameSink(*rec)
 		}()
+	}
+	var clocks *gameClock
+	if clock != nil {
+		clocks = clock.start()
 	}
 	// One table per player per game, not one per move. They must not be
 	// shared between the two players: a stored score is from one side's
@@ -642,7 +677,19 @@ func playFrom(g *game.Game, white, black Player, maxMoves int, live LiveHook) (w
 			p = black
 		}
 		mover := g.Turn
-		move, score, ok := p.pickScored(g, tables[g.Turn])
+		var move game.Move
+		var score float64
+		var ok, flagged bool
+		if clocks != nil {
+			move, score, ok, flagged = clocks.move(mover, p, g, tables[g.Turn])
+		} else {
+			move, score, ok = p.pickScored(g, tables[g.Turn])
+		}
+		if flagged {
+			// Checked before anything else: a move played after the clock
+			// fell does not count, whatever it was.
+			return gameOutcome{winner: mover.Other(), decisive: true, flag: true}
+		}
 		if !ok {
 			break
 		}
@@ -664,16 +711,16 @@ func playFrom(g *game.Game, white, black Player, maxMoves int, live LiveHook) (w
 			favours, gap = mover.Other(), -gap
 		}
 		if winner, decided := adj.observe(favours, gap, plies); decided {
-			return winner, true
+			return gameOutcome{winner: winner, decisive: true}
 		}
 		if _, _, drawn := adj.observeDraw(gap, plies); drawn {
-			return board.White, false
+			return gameOutcome{winner: board.White}
 		}
 	}
 	if g.IsCheckmate(g.Turn) || g.KingCaptured {
-		return g.Turn.Other(), true
+		return gameOutcome{winner: g.Turn.Other(), decisive: true}
 	}
-	return board.White, false
+	return gameOutcome{winner: board.White}
 }
 
 // PlayerPick exposes a Player's move choice for benchmarking harnesses.
@@ -702,7 +749,6 @@ func PlayerPickWith(p Player, g *game.Game, reuse *TranspositionTable) (game.Mov
 func PlayerPickScoredWith(p Player, g *game.Game, reuse *TranspositionTable) (game.Move, float64, bool) {
 	return p.pickScored(g, reuse)
 }
-
 
 // PlayMatchAgainstUCI plays a match against an external engine using one
 // process per worker, so the games run in parallel.
