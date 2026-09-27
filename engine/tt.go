@@ -191,16 +191,16 @@ func packTTData(from, to uint8, flag ttFlag, maximizingFor uint8) uint16 {
 	return uint16(from) | uint16(to)<<6 | uint16(flag)<<12 | uint16(maximizingFor)<<14
 }
 
-func (e *ttEntry) from() uint8          { return uint8(e.data & 63) }
-func (e *ttEntry) to() uint8            { return uint8(e.data >> 6 & 63) }
-func (e *ttEntry) flag() ttFlag         { return ttFlag(e.data >> 12 & 3) }
-func (e *ttEntry) maximizingFor() uint8 { return uint8(e.data >> 14 & 1) }
-func (e *ttEntry) move() game.Move {
+func (e ttEntry) from() uint8          { return uint8(e.data & 63) }
+func (e ttEntry) to() uint8            { return uint8(e.data >> 6 & 63) }
+func (e ttEntry) flag() ttFlag         { return ttFlag(e.data >> 12 & 3) }
+func (e ttEntry) maximizingFor() uint8 { return uint8(e.data >> 14) }
+func (e ttEntry) move() game.Move {
 	return game.Move{From: indexToSq(e.from()), To: indexToSq(e.to())}
 }
 
 func sqToIndex(s board.Sq) uint8 { return uint8(s.Rank*8 + s.File) }
-func indexToSq(i uint8) board.Sq { return board.Sq{File: int8(i % 8), Rank: int8(i / 8)} }
+func indexToSq(i uint8) board.Sq { return board.Sq{File: int8(i & 7), Rank: int8(i >> 3)} }
 func keyUpper(key uint64) uint32 { return uint32(key >> 32) }
 
 // TranspositionTable is a fixed-size, direct-mapped cache. No eviction
@@ -256,20 +256,20 @@ func scoreToTT(score float64, ply int) float64 {
 // or a pawn move on the way resets the clock, and the table cannot tell.
 // Stockfish's value_from_tt does the same.
 func scoreFromTT(score float64, ply, clock int) (float64, bool) {
+	if score < mateBound && score > -mateBound {
+		return score, true
+	}
 	reach := float64(100 - clock)
-	switch {
-	case score >= mateBound:
+	if score >= mateBound {
 		if mateScore-score > reach {
 			return 0, false
 		}
 		return score - float64(ply), true
-	case score <= -mateBound:
-		if mateScore+score > reach {
-			return 0, false
-		}
-		return score + float64(ply), true
 	}
-	return score, true
+	if mateScore+score > reach {
+		return 0, false
+	}
+	return score + float64(ply), true
 }
 
 // ttNoCutoffClock is the halfmove clock from which the table gives no more
