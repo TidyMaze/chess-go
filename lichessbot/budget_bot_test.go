@@ -48,31 +48,10 @@ func TestClockForReadsBothSides(t *testing.T) {
 	}
 }
 
-// The bot plays by the new rule, fed the opponent's clock and the count.
-func TestEffectivePlayerUsesTheOpponentClockAndTheBookCount(t *testing.T) {
-	base := engine.Player{TimeBudget: time.Second, Depth: 3}
-	overhead := newOverheadEstimate()
-	theyAreShort := gameState{WhiteTimeMS: 60000, BlackTimeMS: 15000, WhiteIncMS: 1000, BlackIncMS: 1000}
-	weAreShort := gameState{WhiteTimeMS: 60000, BlackTimeMS: 240000, WhiteIncMS: 1000, BlackIncMS: 1000}
-
-	short := effectivePlayer(base, "white", theyAreShort, "blitz", overhead, 10).TimeBudget
-	long := effectivePlayer(base, "white", weAreShort, "blitz", overhead, 10).TimeBudget
-	if short <= long {
-		t.Errorf("opponent short of time got %v, us short of time %v; the first must think longer", short, long)
-	}
-	if want := moveBudget(clockFor("white", theyAreShort, 10), overhead); short != want {
-		t.Errorf("effective budget %v, want the new rule's %v", short, want)
-	}
-	fresh := effectivePlayer(base, "white", theyAreShort, "blitz", overhead, 0).TimeBudget
-	if fresh <= short {
-		t.Errorf("first move out of book got %v, tenth %v; the first must think longer", fresh, short)
-	}
-}
-
 // End to end through the game stream: a book hit, then three moves out of
-// book, each against a different opponent clock. The budgets logged must
-// be the rule's for that clock and for k = 0, 0, 1, 2: the book hit does
-// not start the count, the first search does.
+// book, each against a different opponent clock. The budgets logged must be
+// the old rule's for our clock alone, whatever the opponent's clock and the
+// count (k = 0, 0, 1, 2, still logged).
 func TestTheBotBudgetsEachMoveWithTheOpponentClockAndTheBookCount(t *testing.T) {
 	bookPath := t.TempDir() + "/book.txt"
 	if err := os.WriteFile(bookPath, []byte("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1|e2e4\n"), 0o644); err != nil {
@@ -121,7 +100,7 @@ func TestTheBotBudgetsEachMoveWithTheOpponentClockAndTheBookCount(t *testing.T) 
 	got := regexp.MustCompile(`\(budget [^)]*\)`).FindAllString(buf.String(), -1)
 	var want []string
 	for _, e := range events {
-		budget := moveBudget(Clock{OurMS: e.ourMS, OppMS: e.oppMS, MovesOutOfBook: e.k}, newOverheadEstimate())
+		budget := moveTimeBudget("white", gameState{WhiteTimeMS: e.ourMS, BlackTimeMS: e.oppMS}, newOverheadEstimate())
 		want = append(want, fmt.Sprintf("(budget %s, opponent %s, %d out of book)",
 			budget.Round(time.Millisecond), time.Duration(e.oppMS)*time.Millisecond, e.k))
 	}

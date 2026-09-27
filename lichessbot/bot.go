@@ -490,9 +490,14 @@ func (s *gameSession) movesOutOfBook(plies int, inBook bool) int {
 	return (plies - s.leftBookAt) / 2
 }
 
-func effectivePlayer(base engine.Player, ourColor string, st gameState, speed string, overhead *overheadEstimate, movesOutOfBook int) engine.Player {
-	if budget := moveBudget(clockFor(ourColor, st, movesOutOfBook), overhead); budget > 0 {
+// effectivePlayer keeps the old per-move rule: the out-of-book boost and
+// the opponent-clock compensation of moveBudget lost 16 +/- 14 Elo against it
+// in scaled 2+1 games, so movesOutOfBook is not used. The stabletime stop may
+// run past the budget, so its hard limit is capped at an eighth of our clock.
+func effectivePlayer(base engine.Player, ourColor string, st gameState, speed string, overhead *overheadEstimate, _ int) engine.Player {
+	if budget := moveTimeBudget(ourColor, st, overhead); budget > 0 {
 		base.TimeBudget = budget
+		base.HardBudget = hardBudget(budget, ourClockMS(ourColor, st))
 		return base
 	}
 	if speed == "correspondence" {
@@ -502,6 +507,26 @@ func effectivePlayer(base engine.Player, ourColor string, st gameState, speed st
 		base.TimeBudget = unlimitedBudget
 	}
 	return base
+}
+
+// hardBudget is twice the budget, at most an eighth of the clock, never
+// below the budget itself.
+func hardBudget(budget time.Duration, clockMS int64) time.Duration {
+	hard := 2 * budget
+	if eighth := time.Duration(clockMS) * time.Millisecond / 8; hard > eighth {
+		hard = eighth
+	}
+	if hard < budget {
+		hard = budget
+	}
+	return hard
+}
+
+func ourClockMS(ourColor string, st gameState) int64 {
+	if ourColor == "black" {
+		return st.BlackTimeMS
+	}
+	return st.WhiteTimeMS
 }
 
 func isPawnless(b *board.Board) bool {
