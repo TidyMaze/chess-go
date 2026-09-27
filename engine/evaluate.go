@@ -4,6 +4,7 @@ package engine
 
 import (
 	"math/bits"
+	"time"
 
 	"chess/board"
 	"chess/game"
@@ -288,6 +289,11 @@ type Eval struct {
 	// (reverse futility, razoring, futility, LMR, LMP, null move,
 	// aspiration, quiescence delta). Nil means the historical defaults.
 	Tune *SearchTune
+	// StableTime makes a timed search's budget a soft target, stopped
+	// early when the best move settles and stretched when it does not.
+	// HardBudget is the absolute limit then; 0 means twice the budget.
+	StableTime bool
+	HardBudget time.Duration
 }
 
 func (e *Eval) pstScale() *[6]float64 {

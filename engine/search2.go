@@ -1565,6 +1565,13 @@ func searchIterative(g *game.Game, color board.Color, maxDepth int, ev *Eval, us
 	ctx.ev, ctx.quiescence, ctx.extensions = ev, useQuiescence, ev.Extensions
 	ctx.ev.acc = &ctx.acc
 	ctx.acc[0].valid = false
+	// Under stabletime the budget is a soft target and hard is the
+	// absolute limit, enforced by the same node-level abort.
+	stable := budget > 0 && ev.StableTime
+	var hard time.Duration
+	if stable {
+		hard = stableHardLimit(budget, ev.HardBudget)
+	}
 	if budget > 0 {
 		ctx.checkMask = clockCheckMask(budget)
 		// Five percent past the budget, hard. The between-iteration check
@@ -1573,6 +1580,9 @@ func searchIterative(g *game.Game, color board.Color, maxDepth int, ev *Eval, us
 		// aborted iteration is discarded and costs nothing now that its
 		// parents no longer store half-finished scores.
 		ctx.deadline = time.Now().Add(budget * 21 / 20)
+		if stable {
+			ctx.deadline = time.Now().Add(hard)
+		}
 	}
 	ctx.played = playedKeys(g)
 	ctx.path[0] = zobristHash(g)
@@ -1592,6 +1602,13 @@ func searchIterative(g *game.Game, color board.Color, maxDepth int, ev *Eval, us
 	best := legal[0]
 	prevScore := 0.0
 	start := time.Now()
+	// The main thread's completed iterations, for the stabletime stop.
+	var hist []iterRecord
+	var stableStart, iterMark time.Time
+	if stable && main {
+		stableStart = stableNow()
+		iterMark = stableStart
+	}
 	for depth := startDepth; depth <= maxDepth; depth++ {
 		if !main && shared != nil {
 			// Stay ahead of the main thread: staggered one to three plies
@@ -1603,7 +1620,13 @@ func searchIterative(g *game.Game, color board.Color, maxDepth int, ev *Eval, us
 				break
 			}
 		}
-		if budget > 0 && depth > startDepth {
+		if stable && depth > startDepth {
+			// The main thread decided at the end of the last iteration.
+			// Helpers search until the hard limit, or until it returns.
+			if !main && time.Since(start) >= hard {
+				break
+			}
+		} else if budget > 0 && depth > startDepth {
 			elapsed := time.Since(start)
 			// Stop outright once the budget is spent. The prediction below
 			// is not enough on its own: in a trivial position the early
@@ -1742,6 +1765,14 @@ func searchIterative(g *game.Game, color board.Color, maxDepth int, ev *Eval, us
 		best = iterBest
 		if ctx.ev != nil && ctx.ev.HistoryAging {
 			ctx.ageHistory()
+		}
+		if stable && main {
+			now := stableNow()
+			hist = append(hist, iterRecord{move: best, score: prevScore, took: now.Sub(iterMark)})
+			iterMark = now
+			if stableTimeStop(now.Sub(stableStart), budget, hard, hist) {
+				break
+			}
 		}
 	}
 	return best, prevScore, true

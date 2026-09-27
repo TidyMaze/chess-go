@@ -164,6 +164,12 @@ type Player struct {
 	// time budget: the search deepens until the next iteration would not
 	// fit. Depth then becomes the ceiling rather than the target.
 	TimeBudget time.Duration
+	// StableTime (feature "stabletime") turns TimeBudget into a soft
+	// target: the search stops early once the best move settles and runs
+	// up to HardBudget when it keeps changing. HardBudget 0 means twice
+	// TimeBudget; a caller may lower it, never raise it.
+	StableTime bool
+	HardBudget time.Duration
 	// Book is an opening book consulted before searching. A hit returns
 	// the move a depth-46 search chose, which is forty plies deeper than
 	// this engine reaches.
@@ -236,6 +242,8 @@ func (p *Player) ApplyFeatures(features string) {
 			p.Extensions = true
 		case "kingsafety":
 			p.KingSafety = 0.01
+		case "stabletime":
+			p.StableTime = true
 		}
 	}
 }
@@ -817,7 +825,8 @@ func evalForPlayer(p Player) *Eval {
 		NullReduction: p.NullReduction, NullScale: p.NullScale,
 		Extras: p.Extras, Shape: p.Shape, ShapeW: p.ShapeW,
 		PSTScale: p.PSTScale, MobilityW: p.MobilityW, StructureW: p.StructureW,
-		Tune: p.Tune,
+		Tune:       p.Tune,
+		StableTime: p.StableTime, HardBudget: p.HardBudget,
 	}
 	if p.Tuned {
 		if p.Weights == nil {
