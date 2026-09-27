@@ -525,8 +525,8 @@ func (c *searchCtx) scoreMove(g *game.Game, m game.Move, ttMove game.Move, ply i
 	if m == ttMove {
 		return 1 << 30, 0
 	}
-	victim, isDirectCapture := g.Board.PieceAt(m.To)
-	attacker, hasAttacker := g.Board.PieceAt(m.From)
+	victim, isDirectCapture := g.Board.CellPiece(m.To)
+	attacker, hasAttacker := g.Board.CellPiece(m.From)
 	isEP := !isDirectCapture && hasAttacker && attacker.Type == board.Pawn && m.From.File != m.To.File
 	if isEP {
 		if ep, has := g.Board.EPSquare(); has && ep == m.To {
@@ -1711,10 +1711,10 @@ func playedKeys(g *game.Game) map[uint64]int {
 // from a third square was quiet to the ordering, to futility pruning, to
 // reductions, and invisible to quiescence.
 func isCaptureMove(g *game.Game, m game.Move) bool {
-	if _, ok := g.Board.PieceAt(m.To); ok {
+	if _, ok := g.Board.CellPiece(m.To); ok {
 		return true
 	}
-	if p, ok := g.Board.PieceAt(m.From); ok && p.Type == board.Pawn && m.From.File != m.To.File {
+	if p, ok := g.Board.CellPiece(m.From); ok && p.Type == board.Pawn && m.From.File != m.To.File {
 		if ep, has := g.Board.EPSquare(); has && ep == m.To {
 			return true
 		}
@@ -1724,7 +1724,7 @@ func isCaptureMove(g *game.Game, m game.Move) bool {
 
 // pawnReachesLastRank reports whether m is a promotion.
 func pawnReachesLastRank(g *game.Game, m game.Move) bool {
-	p, ok := g.Board.PieceAt(m.From)
+	p, ok := g.Board.CellPiece(m.From)
 	return ok && p.Type == board.Pawn && (m.To.Rank == 7 || m.To.Rank == 0)
 }
 
@@ -1736,10 +1736,10 @@ func pawnReachesLastRank(g *game.Game, m game.Move) bool {
 // means under the fifty move rule, and is exactly the distinction the
 // search could not see. Must be called before the move is made.
 func childFiftyClock(g *game.Game, m game.Move, parent int) int {
-	if _, captured := g.Board.PieceAt(m.To); captured {
+	if _, captured := g.Board.CellPiece(m.To); captured {
 		return 0
 	}
-	if p, ok := g.Board.PieceAt(m.From); ok && p.Type == board.Pawn {
+	if p, ok := g.Board.CellPiece(m.From); ok && p.Type == board.Pawn {
 		return 0
 	}
 	return parent + 1
@@ -1759,7 +1759,7 @@ func firstLegal(g *game.Game, list []game.Move, legality game.Legality) int {
 
 func makeSearchMove(g *game.Game, m game.Move) (board.Undo, bool) {
 	undo := g.Board.MakeMove(m.From, m.To)
-	if p, ok := g.Board.PieceAt(m.To); ok && p.Type == board.Pawn &&
+	if p, ok := g.Board.CellPiece(m.To); ok && p.Type == board.Pawn &&
 		((p.Color == board.White && m.To.Rank == 7) || (p.Color == board.Black && m.To.Rank == 0)) {
 		g.Board.SetPiece(m.To, board.Piece{Color: p.Color, Type: board.Queen})
 		return undo, true
