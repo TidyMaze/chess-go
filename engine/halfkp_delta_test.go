@@ -54,3 +54,21 @@ func TestAQuietMoveKeepsBothPerspectivesIncremental(t *testing.T) {
 		t.Errorf("after e2e4: %d full rebuilds and %d incremental updates, want 0 and 2", stats.full, stats.incremental)
 	}
 }
+
+// Caching king slots in halfKPAcc avoids re-evaluating perspectiveKingSlot
+// during incremental refresh when the king has not moved.
+func TestHalfKPAccCachesKingSlot(t *testing.T) {
+	net, err := LoadHalfKPNet("../champion_net.json")
+	if err != nil {
+		t.Skip("no champion network here:", err)
+	}
+	g := game.New()
+	var stack [2]halfKPAcc
+	net.EvaluateWith(&g.Board, &stack[0], nil, nil)
+	for side, persp := range [2]board.Color{board.White, board.Black} {
+		want := int8(perspectiveKingSlot(stack[0].kings[side], persp, net.buckets()))
+		if stack[0].kingSlots[side] != want {
+			t.Errorf("side %d: kingSlot = %d, want %d", side, stack[0].kingSlots[side], want)
+		}
+	}
+}

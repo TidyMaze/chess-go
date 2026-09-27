@@ -485,9 +485,10 @@ type halfKPAcc struct {
 	// bitboards and the two king squares. A child derives its feature
 	// changes from the XOR against its parent's snapshot: the set bits are
 	// exactly the pieces that appeared or vanished, two to four per move.
-	pieces [2][6]uint64
-	kings  [2]board.Sq
-	acc    [2][maxHalfKPHidden]float32
+	pieces    [2][6]uint64
+	kings     [2]board.Sq
+	kingSlots [2]int8
+	acc       [2][maxHalfKPHidden]float32
 }
 
 // halfKPAccStats counts how each perspective's accumulator was obtained,
@@ -527,8 +528,18 @@ func (n *HalfKPNet) refresh(b *board.Board, self, parent *halfKPAcc, st *halfKPA
 	diffed, batched := false, false
 	for side, persp := range [2]board.Color{board.White, board.Black} {
 		a := self.acc[side][:h]
-		slot := perspectiveKingSlot(self.kings[side], persp, buckets)
-		if parent != nil && parent.valid && perspectiveKingSlot(parent.kings[side], persp, buckets) == slot {
+		canInc := false
+		var slot int
+		if parent != nil && parent.valid && parent.kings[side] == self.kings[side] {
+			slot = int(parent.kingSlots[side])
+			self.kingSlots[side] = parent.kingSlots[side]
+			canInc = true
+		} else {
+			slot = perspectiveKingSlot(self.kings[side], persp, buckets)
+			self.kingSlots[side] = int8(slot)
+			canInc = parent != nil && parent.valid && int(parent.kingSlots[side]) == slot
+		}
+		if canInc {
 			if !diffed {
 				batched, diffed = diffAcc(parent, self, &d), true
 			}
