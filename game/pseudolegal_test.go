@@ -107,8 +107,9 @@ func TestPseudoLegalMovesFilterToTheLegalList(t *testing.T) {
 
 // In check, a move by any man but the king has to take the checker or
 // stand between it and the king, which is known before it is played. In
-// double check nothing but the king can move at all. The en passant
-// capture of a checking pawn lands on neither square, so it is played.
+// double check nothing but the king can move at all. A pinned man is legal
+// only while it stays on the line through its king. The en passant capture
+// lands on neither square and removes a third man, so it is played.
 func TestScreenRejectsWhatLeavesTheCheck(t *testing.T) {
 	cases := []struct {
 		name, fen string
@@ -127,7 +128,13 @@ func TestScreenRejectsWhatLeavesTheCheck(t *testing.T) {
 			"e4d3": Unknown, "c5d4": Unknown, "e4e3": Illegal,
 		}},
 		{"not in check", "4r2k/8/8/8/8/8/4R3/4K1N1 w - - 0 1", map[string]Verdict{
-			"g1f3": Legal, "e2d2": Unknown, "e1d1": Unknown,
+			"g1f3": Legal, "e2d2": Illegal, "e2e5": Legal, "e2e8": Legal, "e1d1": Unknown,
+		}},
+		{"pinned rook in a knight check", "4r2k/8/8/8/8/5n2/4R3/4K3 w - - 0 1", map[string]Verdict{
+			"e2e5": Illegal, "e2d2": Illegal, "e1f2": Unknown,
+		}},
+		{"pinned pawn and en passant", "4k3/6b1/8/3pP3/8/8/1K6/8 w - d6 0 1", map[string]Verdict{
+			"e5d6": Unknown, "e5e6": Illegal, "b2b1": Unknown,
 		}},
 	}
 	for _, tc := range cases {

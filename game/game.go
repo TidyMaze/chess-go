@@ -152,9 +152,11 @@ func (g *Game) appendLegalMoves(dst []Move, color board.Color, inCheck bool) []M
 // The zero value tests nothing, for a list that is legal already.
 type Legality struct {
 	color board.Color
-	// suspects holds the origin squares whose moves need the test: the
-	// king and the pinned pieces.
+	// suspects holds the origin squares whose moves need more than the
+	// check screen: the king and the pinned pieces.
 	suspects uint64
+	// king is the mover's king square index. Only read for a suspect.
+	king uint8
 	// offTarget holds, in check, the squares where a man other than the
 	// king does not answer the check. Empty when not in check.
 	offTarget uint64
@@ -188,15 +190,7 @@ func (g *Game) AppendPseudoLegalMoves(dst []Move, color board.Color, inCheck boo
 // lists, so the two cannot disagree on order. With legalOnly each move is
 // tested as it is generated, in the same pass.
 func (g *Game) appendMoves(dst []Move, color board.Color, inCheck, legalOnly bool) ([]Move, Legality) {
-	king := g.Board.KingSquare(color)
-	legality := Legality{
-		color:    color,
-		suspects: uint64(moves.PinnedSquares(&g.Board, color)) | 1<<(king.Rank*8+king.File),
-	}
-	if inCheck {
-		legality.offTarget = ^evasionTargets(&g.Board, color)
-	}
-	legality.epSquare, legality.hasEP = g.Board.EPSquare()
+	legality := newLegality(&g.Board, color, inCheck)
 	var pieceBuf [16]board.PieceAtSquare
 	pieces := g.Board.AppendPiecesOf(pieceBuf[:0], color)
 	result := dst
@@ -204,15 +198,42 @@ func (g *Game) appendMoves(dst []Move, color board.Color, inCheck, legalOnly boo
 	// slice per piece.
 	var targetBuf [28]board.Sq
 	for _, ps := range pieces {
+		// Screen only has more to say than the check mask for the king, a
+		// pinned man and a pawn that may take en passant.
+		screen := legality.suspects&(uint64(1)<<(ps.Sq.Rank*8+ps.Sq.File)) != 0 ||
+			legality.hasEP && ps.Type == board.Pawn
 		for _, target := range moves.AppendLegalTargets(targetBuf[:0], &g.Board, ps.Sq, color, ps.Type) {
 			m := Move{From: ps.Sq, To: target}
-			if legalOnly && !legality.IsLegal(&g.Board, m) {
-				continue
+			if legalOnly {
+				if screen {
+					if !legality.IsLegal(&g.Board, m) {
+						continue
+					}
+				} else if legality.offTarget&(uint64(1)<<(target.Rank*8+target.File)) != 0 {
+					continue
+				}
 			}
 			result = append(result, m)
 		}
 	}
 	return result, legality
+}
+
+// newLegality is the Legality of color's moves on b. inCheck must say
+// whether color is in check.
+func newLegality(b *board.Board, color board.Color, inCheck bool) Legality {
+	king := b.KingSquare(color)
+	k := uint8(king.Rank*8 + king.File)
+	l := Legality{
+		color:    color,
+		suspects: uint64(moves.PinnedSquares(b, color)) | 1<<k,
+		king:     k,
+	}
+	if inCheck {
+		l.offTarget = ^evasionTargets(b, color)
+	}
+	l.epSquare, l.hasEP = b.EPSquare()
+	return l
 }
 
 // evasionTargets is where a man other than the king has to land to answer
@@ -250,8 +271,11 @@ func evasionTargets(b *board.Board, color board.Color) uint64 {
 // to be played to find out. m must come from the list this Legality came
 // with.
 func (l Legality) Screen(b *board.Board, m Move) Verdict {
-	from := uint64(1) << (m.From.Rank*8 + m.From.File)
-	if l.suspects&from != 0 {
+	fromIdx := uint8(m.From.Rank*8 + m.From.File)
+	from := uint64(1) << fromIdx
+	to := uint64(1) << (m.To.Rank*8 + m.To.File)
+	suspect := l.suspects&from != 0
+	if suspect && fromIdx == l.king {
 		return Unknown
 	}
 	// An en passant capture always needs the full test. It removes a pawn
@@ -264,7 +288,13 @@ func (l Legality) Screen(b *board.Board, m Move) Verdict {
 		b.PieceBitboard(l.color, board.Pawn)&from != 0 {
 		return Unknown
 	}
-	if l.offTarget&(1<<(m.To.Rank*8+m.To.File)) != 0 {
+	// A pinned man that leaves the line through its king and itself opens
+	// that line. One that stays on it keeps the pinner blocked or takes
+	// it, and then only a check can make it illegal.
+	if suspect && moves.Line(l.king, fromIdx)&to == 0 {
+		return Illegal
+	}
+	if l.offTarget&to != 0 {
 		return Illegal
 	}
 	return Legal
@@ -277,16 +307,21 @@ func (l Legality) NeedsTest(b *board.Board, m Move) bool {
 }
 
 // IsLegal reports whether m, from the list this Legality came with, is
-// legal. Make and unmake on the real board rather than cloning it: cloning
-// copied the whole Board for every candidate move of every piece that
-// could be pinned or in check, which the profile put at ~10% of all CPU at
-// depth 7.
+// legal. What Screen leaves open is a king move or an en passant capture.
+// A king step is legal when its destination is not attacked once the king
+// has left its square, which the bitboards answer without playing it.
+// Castling and en passant are played: make and unmake on the real board
+// rather than cloning it, since cloning copied the whole Board per move.
 func (l Legality) IsLegal(b *board.Board, m Move) bool {
 	switch l.Screen(b, m) {
 	case Legal:
 		return true
 	case Illegal:
 		return false
+	}
+	if uint8(m.From.Rank*8+m.From.File) == l.king && m.To.File-m.From.File != 2 && m.From.File-m.To.File != 2 {
+		occupied := b.ColorBitboard(board.White) | b.ColorBitboard(board.Black)
+		return !moves.AttackedWith(b, uint8(m.To.Rank*8+m.To.File), l.color.Other(), occupied&^(1<<l.king))
 	}
 	undo := b.MakeMove(m.From, m.To)
 	illegal := moves.IsInCheck(b, l.color)
@@ -311,25 +346,18 @@ func (g *Game) HasAnyLegalMove(color board.Color) bool {
 // HasAnyLegalMoveInCheck returns true as soon as a single legal move is found,
 // accepting precomputed inCheck flag.
 func (g *Game) HasAnyLegalMoveInCheck(color board.Color, inCheck bool) bool {
-	pinned := moves.PinnedSquares(&g.Board, color)
+	return g.hasAnyLegalMove(color, newLegality(&g.Board, color, inCheck))
+}
+
+func (g *Game) hasAnyLegalMove(color board.Color, legality Legality) bool {
 	var pieceBuf [16]board.PieceAtSquare
 	pieces := g.Board.AppendPiecesOf(pieceBuf[:0], color)
 	var targetBuf [28]board.Sq
-	epSquare, hasEP := g.Board.EPSquare()
 	for _, ps := range pieces {
-		needsCheckTest := inCheck || ps.Type == board.King || pinned.Has(ps.Sq)
 		for _, target := range moves.AppendLegalTargets(targetBuf[:0], &g.Board, ps.Sq, color, ps.Type) {
-			epCapture := hasEP && ps.Type == board.Pawn &&
-				target == epSquare && ps.Sq.File != target.File
-			if needsCheckTest || epCapture {
-				undo := g.Board.MakeMove(ps.Sq, target)
-				illegal := moves.IsInCheck(&g.Board, color)
-				g.Board.UnmakeMove(undo)
-				if illegal {
-					continue
-				}
+			if legality.IsLegal(&g.Board, Move{From: ps.Sq, To: target}) {
+				return true
 			}
-			return true
 		}
 	}
 	return false
@@ -513,40 +541,30 @@ func (g *Game) AppendQuiescenceMoves(dst []Move, color board.Color) ([]Move, boo
 		result := g.appendLegalMoves(dst, color, true)
 		return result, true, len(result) > 0
 	}
-	pinned := moves.PinnedSquares(&g.Board, color)
+	legality := newLegality(&g.Board, color, false)
 	var pieceBuf [16]board.PieceAtSquare
 	pieces := g.Board.AppendPiecesOf(pieceBuf[:0], color)
 	result := dst
 	anyLegal := false
 	var targetBuf [28]board.Sq
-	epSquare, hasEP := g.Board.EPSquare()
-	enemyOcc := g.Board.ColorBitboard(color.Other())
+	epSquare, hasEP := legality.epSquare, legality.hasEP
 	for _, ps := range pieces {
-		needsCheckTest := ps.Type == board.King || pinned.Has(ps.Sq)
+		// Only a suspect's moves and en passant captures can be illegal.
+		// AppendQuiescenceTargets yields nothing quiet, so there is
+		// nothing left to filter out.
+		suspect := legality.suspects&(uint64(1)<<(ps.Sq.Rank*8+ps.Sq.File)) != 0
+		pawnEP := hasEP && ps.Type == board.Pawn
 		for _, target := range moves.AppendQuiescenceTargets(targetBuf[:0], &g.Board, ps.Sq, color, ps.Type) {
-			epCapture := hasEP && ps.Type == board.Pawn &&
-				target == epSquare && ps.Sq.File != target.File
-			occupied := (enemyOcc & (uint64(1) << (target.Rank*8 + target.File))) != 0
-			// Pawns never move backwards, so either end of the board is
-			// the last rank for whichever colour is moving.
-			promotes := ps.Type == board.Pawn && (target.Rank == 0 || target.Rank == 7)
-			if !occupied && !epCapture && !promotes {
+			m := Move{From: ps.Sq, To: target}
+			if (suspect || pawnEP && target == epSquare) && !legality.IsLegal(&g.Board, m) {
 				continue
 			}
-			if needsCheckTest || epCapture {
-				undo := g.Board.MakeMove(ps.Sq, target)
-				illegal := moves.IsInCheck(&g.Board, color)
-				g.Board.UnmakeMove(undo)
-				if illegal {
-					continue
-				}
-			}
 			anyLegal = true
-			result = append(result, Move{From: ps.Sq, To: target})
+			result = append(result, m)
 		}
 	}
 	if !anyLegal {
-		anyLegal = g.HasAnyLegalMoveInCheck(color, false)
+		anyLegal = g.hasAnyLegalMove(color, legality)
 	}
 	return result, false, anyLegal
 }
