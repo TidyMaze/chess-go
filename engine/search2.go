@@ -519,60 +519,6 @@ func (c *searchCtx) ageHistory() {
 	}
 }
 
-// scoreMove ranks a move for ordering: transposition-table move first,
-// then captures by MVV-LVA, then killers, then history.
-func (c *searchCtx) scoreMove(g *game.Game, m game.Move, ttMove game.Move, ply int, color board.Color) (int, int16) {
-	if m == ttMove {
-		return 1 << 30, 0
-	}
-	victim, isDirectCapture := g.Board.CellPiece(m.To)
-	attacker, hasAttacker := g.Board.CellPiece(m.From)
-	isEP := !isDirectCapture && hasAttacker && attacker.Type == board.Pawn && m.From.File != m.To.File
-	if isEP {
-		if ep, has := g.Board.EPSquare(); has && ep == m.To {
-			victim = board.Piece{Type: board.Pawn}
-			isDirectCapture = true
-		}
-	}
-	if isDirectCapture {
-		if c.ev != nil && c.ev.MainSEE {
-			// Winning captures first by what they win, losing captures
-			// after every quiet move.
-			if mvvLvaPiece[victim.Type] >= mvvLvaPiece[attacker.Type] {
-				return 1<<20 + (mvvLvaPiece[victim.Type]-mvvLvaPiece[attacker.Type])*100 + mvvLvaPiece[victim.Type], 0
-			}
-			// An exchange never wins more than the victim, so this is the
-			// most exchangeScore can give; pickMove asks for the real one
-			// only if the capture ever comes up best.
-			return 1<<20 + mvvLvaPiece[victim.Type]*101, seeUnknown
-		}
-		return 1<<20 + mvvLvaPiece[victim.Type]*100 - mvvLvaPiece[attacker.Type], 0
-	}
-	if hasAttacker && attacker.Type == board.Pawn && (m.To.Rank == 7 || m.To.Rank == 0) {
-		return 1<<20 - 100, 0
-	}
-	if ply < maxSearchPly {
-		if c.killers[ply][0] == m {
-			return 1 << 19, 0
-		}
-		if c.killers[ply][1] == m {
-			return 1<<19 - 1, 0
-		}
-	}
-	if c.ev != nil && c.ev.Countermoves && m == c.counterFor(color, c.prevMove) {
-		return 1 << 18, 0
-	}
-	if hasAttacker && attacker.Type == board.Pawn && c.ev != nil && c.ev.PawnPush && advancedPawnPush(&g.Board, m, color) {
-		return 1<<18 - 50, 0
-	}
-	score := int(c.history[color][sqIndex(m.From)][sqIndex(m.To)])
-	// contSlot's entry, read on the piece already looked up.
-	if hasAttacker && c.ev != nil && c.ev.ContHist && c.prevMove != (game.Move{}) {
-		score += int(c.cont[color][sqIndex(c.prevMove.To)][attacker.Type][sqIndex(m.To)])
-	}
-	return score, 0
-}
-
 // orderKey packs a move's ordering score, its index in the generated list
 // and its exchange value into one integer. No two keys of a list are equal,
 // and the larger key is the higher score or, on equal scores, the earlier
@@ -595,14 +541,23 @@ func keyIndex(k int64) int { return 0xFFF - int(k>>8&0xFFF) }
 // pickMove evaluates it only once it is the best candidate left.
 const seeUnknown = math.MinInt8
 
-// pickMove brings the best of ms[j:] to position j, with its key.
+// pickMove brings the best of ms[j:] to position j, with its key. It
+// reports whether it also sorted ms[j+1:], in which case the caller has
+// every later move in place and stops picking.
 //
 // Picking on demand instead of sorting the whole list: a node that cuts
 // off on its first moves never pays to order the rest, and the swap is
 // safe because the keys carry the tie-break. A pending exchange that comes
 // out best is evaluated and the pick run again: every other key is a
 // score or a bound above one, so the best settled key is the true best.
-func pickMove(b *board.Board, ms []game.Move, keys []int64, j int) {
+//
+// Once the best key left is below sortBelow, the node has searched its
+// captures, killers and counter move without a cut-off, and such a node
+// nearly always goes on through every move it has: one sort then orders
+// them for less than a scan per move. Nothing left is pending, since
+// sortBelow is under every pending key, and keys are unique, so the sort
+// gives exactly the order the picks would.
+func pickMove(b *board.Board, ms []game.Move, keys []int64, j int) bool {
 	best := bestKey(keys, j)
 	for keySEE(keys[best]) == seeUnknown {
 		sc, sv := exchangeScore(b, ms[best])
@@ -611,18 +566,63 @@ func pickMove(b *board.Board, ms []game.Move, keys []int64, j int) {
 	}
 	ms[j], ms[best] = ms[best], ms[j]
 	keys[j], keys[best] = keys[best], keys[j]
+	if keys[j] >= sortBelow {
+		return false
+	}
+	sortByKey(ms[j+1:], keys[j+1:])
+	return true
 }
 
-// bestKey is the index of the largest of keys[j:].
-func bestKey(keys []int64, j int) int {
-	best := j
-	top := keys[j]
-	for i := j + 1; i < len(keys); i++ {
-		if v := keys[i]; v > top {
-			best, top = i, v
+// sortBelow is the smallest key of a move scored 1<<18 - 50, the lowest of
+// the killer, counter move and pawn push scores. A pending exchange's key
+// is far above it, its score being at least 1<<20 plus 101 times the
+// victim's value. Sorting any earlier, as soon as the captures are done,
+// paid for a sort at every node that then cut off on a killer.
+const sortBelow = int64(1<<18-50) << 20
+
+// sortByKey sorts ms by descending key, keys along with it. Insertion:
+// the lists are short, and it beat slices.Sort on the keys alone followed
+// by putting the moves back in step.
+func sortByKey(ms []game.Move, keys []int64) {
+	for i := 1; i < len(keys); i++ {
+		k, m := keys[i], ms[i]
+		p := i
+		for ; p > 0 && keys[p-1] < k; p-- {
+			keys[p], ms[p] = keys[p-1], ms[p-1]
 		}
+		keys[p], ms[p] = k, m
 	}
-	return best
+}
+
+// bestKey is the index of the largest of keys[j:], the first one if several
+// are equal.
+//
+// The largest value comes first, with no branch on the data: the scan that
+// kept the index along the way mispredicted on every new maximum, which in
+// a list in generation order is several times per pick. Four running
+// maxima break the dependency between one comparison and the next. The
+// index is then the first key equal to that value.
+func bestKey(keys []int64, j int) int {
+	rest := keys[j:]
+	m0 := rest[0]
+	m1, m2, m3 := m0, m0, m0
+	q := rest[1:]
+	for len(q) >= 4 {
+		m0 = max(m0, q[0])
+		m1 = max(m1, q[1])
+		m2 = max(m2, q[2])
+		m3 = max(m3, q[3])
+		q = q[4:]
+	}
+	for _, v := range q {
+		m0 = max(m0, v)
+	}
+	top := max(max(m0, m1), max(m2, m3))
+	i := 0
+	for rest[i] != top {
+		i++
+	}
+	return j + i
 }
 
 // exchangeScore places a capture of a cheaper piece by its exchange
@@ -637,13 +637,95 @@ func exchangeScore(b *board.Board, m game.Move) (int, int16) {
 	return 1<<20 + x*100 + mvvLvaPiece[victim.Type], int16(x)
 }
 
+// moveWord packs a move into one integer, equal for two moves exactly when
+// the moves are equal: the four square coordinates in the low 32 bits, the
+// promotion piece type (0 to 5) above them. The zero move packs to 0.
+// Comparing words keeps the table move, killers and counter move in four
+// registers, where the moves themselves took twenty and spilled.
+func moveWord(m game.Move) uint64 {
+	return uint64(uint8(m.From.File)) | uint64(uint8(m.From.Rank))<<8 |
+		uint64(uint8(m.To.File))<<16 | uint64(uint8(m.To.Rank))<<24 |
+		uint64(m.Promo)<<32
+}
+
 // scoreMoves keys every move of ms for pickMove, into keys. The scores
 // read the history tables, which the children's searches change, so they
 // are all taken before the first move is searched, as for a sort.
+//
+// The ranking: transposition-table move first, then captures by MVV-LVA
+// (with MainSEE, winning captures by what they win and the others pending
+// an exchange evaluation), promotions, killers, the counter move, advanced
+// pawn pushes, then history. Everything that does not depend on the move
+// (features, killers, counter move, history rows) is read once per list.
 func (c *searchCtx) scoreMoves(g *game.Game, ms []game.Move, keys []int64, ttMove game.Move, ply int, color board.Color) {
+	b := &g.Board
+	var mainSEE, pawnPush bool
+	// The zero move is never in a list, so an absent killer or counter
+	// move, word 0, matches nothing.
+	var counter, killer0, killer1 uint64
+	var contRow *[6][64]int32
+	if ev := c.ev; ev != nil {
+		mainSEE, pawnPush = ev.MainSEE, ev.PawnPush
+		if ev.Countermoves {
+			counter = moveWord(c.counterFor(color, c.prevMove))
+		}
+		if ev.ContHist && c.prevMove != (game.Move{}) {
+			contRow = &c.cont[color][sqIndex(c.prevMove.To)]
+		}
+	}
+	if ply < maxSearchPly {
+		killer0, killer1 = moveWord(c.killers[ply][0]), moveWord(c.killers[ply][1])
+	}
+	tt := moveWord(ttMove)
+	history := &c.history[color]
+	ep, hasEP := b.EPSquare()
+	keys = keys[:len(ms)]
 	for i, m := range ms {
-		sc, sv := c.scoreMove(g, m, ttMove, ply, color)
-		keys[i] = orderKey(sc, i, sv)
+		w := moveWord(m)
+		if w == tt {
+			keys[i] = orderKey(1<<30, i, 0)
+			continue
+		}
+		victim, capture := b.CellPiece(m.To)
+		attacker, hasAttacker := b.CellPiece(m.From)
+		pawn := hasAttacker && attacker.Type == board.Pawn
+		if !capture && pawn && m.From.File != m.To.File && hasEP && ep == m.To {
+			victim, capture = board.Piece{Type: board.Pawn}, true
+		}
+		var score int
+		var sv int16
+		switch {
+		case capture:
+			v, a := mvvLvaPiece[victim.Type], mvvLvaPiece[attacker.Type]
+			switch {
+			case !mainSEE:
+				score = 1<<20 + v*100 - a
+			case v >= a:
+				score = 1<<20 + (v-a)*100 + v
+			default:
+				// An exchange never wins more than the victim, so this is
+				// the most exchangeScore can give; pickMove asks for the
+				// real one only if the capture ever comes up best.
+				score, sv = 1<<20+v*101, seeUnknown
+			}
+		case pawn && (m.To.Rank == 7 || m.To.Rank == 0):
+			score = 1<<20 - 100
+		case w == killer0:
+			score = 1 << 19
+		case w == killer1:
+			score = 1<<19 - 1
+		case w == counter:
+			score = 1 << 18
+		case pawn && pawnPush && advancedPawnPush(b, m, color):
+			score = 1<<18 - 50
+		default:
+			score = int(history[sqIndex(m.From)][sqIndex(m.To)])
+			// contSlot's entry, read on the piece already looked up.
+			if hasAttacker && contRow != nil {
+				score += int(contRow[attacker.Type][sqIndex(m.To)])
+			}
+		}
+		keys[i] = orderKey(score, i, sv)
 	}
 }
 
@@ -657,7 +739,9 @@ func (c *searchCtx) orderMoves(g *game.Game, ms []game.Move, ttMove game.Move, p
 	}
 	c.scoreMoves(g, ms, keys, ttMove, ply, color)
 	for j := range ms {
-		pickMove(&g.Board, ms, keys, j)
+		if pickMove(&g.Board, ms, keys, j) {
+			break
+		}
 	}
 }
 
@@ -1114,10 +1198,12 @@ func (c *searchCtx) searchNull(g *game.Game, color, maximizingFor board.Color, d
 	// the i-th. i counts legal moves only: the reductions, pruning and
 	// history read it as "how late in the ordering is this move". It only
 	// writes at or below j, so the moves still to pick are untouched.
+	// Once pickMove has sorted the rest, the moves are already in place.
 	legal := list[:0]
+	sorted := false
 	for j := 0; j < len(list); j++ {
-		if picking {
-			pickMove(&g.Board, list, keys, j)
+		if picking && !sorted {
+			sorted = pickMove(&g.Board, list, keys, j)
 		}
 		m := list[j]
 		if m == c.excludedAt(ply) {
