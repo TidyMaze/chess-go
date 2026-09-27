@@ -20,6 +20,9 @@ func drawScale(b *board.Board, score float64, maximizingFor board.Color) float64
 	}
 	count := func(c board.Color, t board.PieceType) int { return bits.OnesCount64(b.PieceBitboard(c, t)) }
 	if count(strong, board.Pawn) == 0 {
+		if count(weak, board.Pawn) == 0 && pieceMaterial(b, strong) == pieceMaterial(b, weak) {
+			return 0 // equal material without pawns is a dead draw
+		}
 		minors := count(strong, board.Knight) + count(strong, board.Bishop)
 		majors := count(strong, board.Rook) + count(strong, board.Queen)
 		if majors == 0 && (minors <= 1 || count(strong, board.Bishop) == 0) {

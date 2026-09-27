@@ -697,6 +697,13 @@ func PlayerPickWith(p Player, g *game.Game, reuse *TranspositionTable) (game.Mov
 	return p.pickWith(g, reuse)
 }
 
+// PlayerPickScoredWith exposes a Player's move choice and evaluation score
+// with a caller-supplied transposition table.
+func PlayerPickScoredWith(p Player, g *game.Game, reuse *TranspositionTable) (game.Move, float64, bool) {
+	return p.pickScored(g, reuse)
+}
+
+
 // PlayMatchAgainstUCI plays a match against an external engine using one
 // process per worker, so the games run in parallel.
 //

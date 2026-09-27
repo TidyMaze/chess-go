@@ -35,6 +35,10 @@ func TestDrawScaleShrinksMaterialThatCannotWin(t *testing.T) {
 		{"same-coloured bishops", "5bk1/pp6/8/8/8/2P5/PP6/2B3K1 w - - 0 1", 1},
 		{"bishop and knight mate", "8/8/4k3/8/8/2BNK3/8/8 w - - 0 1", 1},
 		{"queen against rook wins", "8/8/4k3/4r3/8/3QK3/8/8 w - - 0 1", 1},
+		{"rook against rook is dead draw", "8/8/4k3/4r3/8/3RK3/8/8 w - - 0 1", 0},
+		{"queen against queen is dead draw", "8/8/4k3/4q3/8/3QK3/8/8 w - - 0 1", 0},
+		{"bishop against bishop is dead draw", "8/8/4k3/4b3/8/3BK3/8/8 w - - 0 1", 0},
+		{"knight against knight is dead draw", "8/8/4k3/4n3/8/3NK3/8/8 w - - 0 1", 0},
 		{"pawns keep the win alive", "8/8/4k3/8/8/3RK3/7P/7b w - - 0 1", 1},
 		{"opening", "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 1},
 	}

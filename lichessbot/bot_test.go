@@ -22,6 +22,7 @@ type fakeAPI struct {
 	streams       map[string]string // path -> NDJSON body
 	streamErr     map[string]error  // path -> error streamNDJSON returns instead
 	posts         []string          // path, in call order
+	forms         []string          // form body, in call order
 	postErr       map[string]error
 	postErrPrefix map[string]error
 }
@@ -48,6 +49,7 @@ func (f *fakeAPI) postForm(path string, form string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.posts = append(f.posts, path)
+	f.forms = append(f.forms, form)
 	if err, ok := f.postErr[path]; ok {
 		return err
 	}
@@ -63,6 +65,12 @@ func (f *fakeAPI) postedPaths() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]string(nil), f.posts...)
+}
+
+func (f *fakeAPI) postedForms() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.forms...)
 }
 
 // A full round trip: the account stream offers a challenge, the bot
@@ -687,3 +695,42 @@ func TestAClockedGameWithNoClockFieldKeepsTheChampionBudget(t *testing.T) {
 		t.Errorf("bullet with no clock field got %v; it must keep the champion's budget, not an unlimited one", got.TimeBudget)
 	}
 }
+
+func TestBotOffersDrawInDeadDrawnEndgame(t *testing.T) {
+	f := newFakeAPI()
+	f.streams["/api/stream/event"] = `{"type":"gameStart","game":{"id":"gdraw1"}}` + "\n"
+	f.streams["/api/bot/game/stream/gdraw1"] = `{"type":"gameFull","id":"gdraw1","white":{"id":"tidymazebot"},"black":{"id":"opponent"},"initialFen":"8/8/4k3/4r3/8/3RK3/8/8 w - - 60 31","state":{"type":"gameState","moves":"","status":"started"}}` + "\n"
+
+	p := engine.Strong(1)
+	p.ApplyFeatures("drawscale")
+	b := &Bot{API: f, Player: p, Username: "tidymazebot", Log: silentLogger()}
+	if err := b.runOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	waitForPosts(t, f, 1)
+
+	forms := f.postedForms()
+	if len(forms) != 1 || forms[0] != "offeringDraw=true" {
+		t.Fatalf("posted forms: %v, want [offeringDraw=true]", forms)
+	}
+}
+
+func TestBotAcceptsDrawInDeadDrawnEndgame(t *testing.T) {
+	f := newFakeAPI()
+	f.streams["/api/stream/event"] = `{"type":"gameStart","game":{"id":"gdraw2"}}` + "\n"
+	f.streams["/api/bot/game/stream/gdraw2"] = `{"type":"gameFull","id":"gdraw2","white":{"id":"tidymazebot"},"black":{"id":"opponent"},"initialFen":"8/8/4k3/4r3/8/3RK3/8/8 w - - 60 31","state":{"type":"gameState","moves":"","status":"started","bdraw":true}}` + "\n"
+
+	p := engine.Strong(1)
+	p.ApplyFeatures("drawscale")
+	b := &Bot{API: f, Player: p, Username: "tidymazebot", Log: silentLogger()}
+	if err := b.runOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	waitForPosts(t, f, 1)
+
+	posts := f.postedPaths()
+	if len(posts) != 1 || posts[0] != "/api/bot/game/gdraw2/draw/yes" {
+		t.Fatalf("posted paths: %v, want [/api/bot/game/gdraw2/draw/yes]", posts)
+	}
+}
+

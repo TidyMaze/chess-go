@@ -21,7 +21,7 @@ import (
 // kingsafety, which hand_blend 0 makes inert anyway. Search features are
 // not, because a search feature is strength.
 func TestChampionFilesAgreeOnSearchFeatures(t *testing.T) {
-	evaluationTerms := map[string]bool{"kingsafety": true, "structure": true, "mobility": true}
+	evaluationTerms := map[string]bool{"kingsafety": true, "structure": true, "mobility": true, "shelter": true}
 	searchFeatures := func(path string) []string {
 		c := ReadChampion("../" + path)
 		if c.Features == "" {

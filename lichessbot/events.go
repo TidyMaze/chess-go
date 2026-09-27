@@ -83,7 +83,19 @@ type gameState struct {
 	BlackTimeMS int64  `json:"btime"`
 	WhiteIncMS  int64  `json:"winc"`
 	BlackIncMS  int64  `json:"binc"`
+	WhiteDraw   bool   `json:"wdraw"`
+	BlackDraw   bool   `json:"bdraw"`
 }
+
+// isOpponentDrawOffered reports whether the opponent currently has a draw offer
+// open for us to accept.
+func isOpponentDrawOffered(color string, st gameState) bool {
+	if color == "white" {
+		return st.BlackDraw
+	}
+	return st.WhiteDraw
+}
+
 
 // ourColor decides which side we are in a game, by comparing our own
 // lichess username (lowercased, as lichess sends ids) against white and

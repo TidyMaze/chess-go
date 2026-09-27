@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"chess/board"
 	"chess/engine"
 	"chess/game"
 )
@@ -481,6 +482,21 @@ func effectivePlayer(base engine.Player, ourColor string, st gameState, speed st
 	return base
 }
 
+func isPawnless(b *board.Board) bool {
+	return b.PieceBitboard(board.White, board.Pawn)|b.PieceBitboard(board.Black, board.Pawn) == 0
+}
+
+// isDeadDrawn reports whether the position is a dead draw: zero score, no pawns
+// on the board, and in the late game (>= 30 full moves, or custom endgame FEN).
+func isDeadDrawn(g *game.Game, movesStr string, initialFen string, score float64) bool {
+	if initialFen == "" || initialFen == "startpos" {
+		if len(strings.Fields(movesStr)) < 60 {
+			return false
+		}
+	}
+	return score == 0 && isPawnless(&g.Board)
+}
+
 // maybeMove answers st when it is our turn. ctx is the game's: it bounds a
 // move post being retried after maybeMove has returned.
 func (b *Bot) maybeMove(ctx context.Context, gameID string, full gameFull, st gameState, received time.Time, sess *gameSession) {
@@ -513,21 +529,29 @@ func (b *Bot) maybeMove(ctx context.Context, gameID string, full gameFull, st ga
 	player := effectivePlayer(b.Player, color, st, full.Speed, sess.overhead)
 	searchStart := time.Now()
 	var m game.Move
+	var score float64
 	var ok bool
 	if sess.table != nil {
-		m, ok = engine.PlayerPickWith(player, g, sess.table)
+		m, score, ok = engine.PlayerPickScoredWith(player, g, sess.table)
 	} else {
-		m, ok = engine.PlayerPick(player, g)
+		m, score, ok = engine.PlayerPickScored(player, g)
 	}
 	searched := time.Since(searchStart)
 	if !ok {
 		b.logf("game %s: no legal move found on our turn", gameID)
 		return
 	}
+	deadDrawn := isDeadDrawn(g, st.Moves, full.InitialFen, score)
+	if deadDrawn && isOpponentDrawOffered(color, st) {
+		b.logf("game %s: accepting opponent draw offer in dead drawn endgame", gameID)
+		if err := b.API.postForm("/api/bot/game/"+gameID+"/draw/yes", ""); err == nil {
+			return
+		}
+	}
 	uci := g.MoveUCI(m)
 	path := "/api/bot/game/" + gameID + "/move/" + url.PathEscape(uci)
 	postStart := time.Now()
-	err = b.API.postForm(path, "")
+	err = b.API.postForm(path, moveForm(deadDrawn))
 	posted := time.Since(postStart)
 	// Feed it back, so the next move of this game budgets for what this one
 	// actually cost rather than for what a constant guessed.

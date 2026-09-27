@@ -364,3 +364,14 @@ func TestPlayGameFromReportsThreefoldRepetition(t *testing.T) {
 		t.Errorf("already-threefold position: %+v, want a non-decisive threefold repetition", res)
 	}
 }
+
+func TestPlayerPickScoredWithReusesTable(t *testing.T) {
+	p := Strong(1)
+	g := game.New()
+	tt := NewTranspositionTable(16)
+	m, _, ok := PlayerPickScoredWith(p, g, tt)
+	if !ok || m == (game.Move{}) {
+		t.Fatalf("PlayerPickScoredWith failed to pick a move: got %v, ok=%v", m, ok)
+	}
+}
+
