@@ -126,3 +126,36 @@ func TestMenFiltersByMaterial(t *testing.T) {
 	_ = binary.LittleEndian
 	_ = math.Abs
 }
+
+func TestQualityFilter(t *testing.T) {
+	cfg := FilterConfig{
+		MinMen:        4,
+		MaxMen:        30,
+		MaxDivergence: 2.0,
+		MaxAbsTarget:  10.0,
+	}
+
+	// Normal position: 10 men, target=0.5, static=0.6 -> kept
+	norm := record{target: 0.5, static: 0.6, own: make([]uint16, 8)}
+	if !isQualityPosition(norm, cfg) {
+		t.Errorf("normal position should be kept")
+	}
+
+	// Too few men: 3 men -> dropped
+	tooFew := record{target: 0.5, static: 0.5, own: make([]uint16, 1)}
+	if isQualityPosition(tooFew, cfg) {
+		t.Errorf("position with 3 men should be filtered out by MinMen 4")
+	}
+
+	// High divergence: target 3.0 vs static 0.5 (diff 2.5 > 2.0) -> dropped
+	highDiv := record{target: 3.0, static: 0.5, own: make([]uint16, 8)}
+	if isQualityPosition(highDiv, cfg) {
+		t.Errorf("position with high divergence should be filtered out")
+	}
+
+	// Blowout target: target 12.0 > 10.0 -> dropped
+	blowout := record{target: 12.0, static: 12.0, own: make([]uint16, 8)}
+	if isQualityPosition(blowout, cfg) {
+		t.Errorf("blowout position should be filtered out by MaxAbsTarget")
+	}
+}
