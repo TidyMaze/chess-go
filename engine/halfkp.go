@@ -516,51 +516,113 @@ func (n *HalfKPNet) refresh(b *board.Board, self, parent *halfKPAcc, st *halfKPA
 	}
 	h := n.H
 	buckets := n.buckets()
-	for c := 0; c < 2; c++ {
-		for t := board.Pawn; t <= board.King; t++ {
-			self.pieces[c][t] = b.PieceBitboard(board.Color(c), t)
-		}
-	}
+	snapshotPieces(&self.pieces, b)
 	self.kings = [2]board.Sq{b.KingSquare(board.White), b.KingSquare(board.Black)}
-	// The changed pieces are the same for both perspectives, only their
-	// feature indices differ, so the diff is taken at most once per node.
-	var d accDiff
-	diffed, batched := false, false
+	fromParent := parent != nil && parent.valid
+	var inc [2]bool
 	for side, persp := range [2]board.Color{board.White, board.Black} {
-		a := self.acc[side][:h]
-		canInc := false
-		var slot int
-		if parent != nil && parent.valid && parent.kings[side] == self.kings[side] {
-			slot = int(parent.kingSlots[side])
+		if fromParent && parent.kings[side] == self.kings[side] {
 			self.kingSlots[side] = parent.kingSlots[side]
-			canInc = true
-		} else {
-			slot = perspectiveKingSlot(self.kings[side], persp, buckets)
-			self.kingSlots[side] = int8(slot)
-			canInc = parent != nil && parent.valid && int(parent.kingSlots[side]) == slot
-		}
-		if canInc {
-			if !diffed {
-				batched, diffed = diffAcc(parent, self, &d), true
-			}
-			if batched {
-				n.applyDiff(a, parent.acc[side][:h], &d, persp, slot)
-			} else {
-				copy(a, parent.acc[side][:h])
-				n.applyDelta(a, parent, self, persp, buckets)
-			}
-			if st != nil {
-				st.incremental++
-			}
+			inc[side] = true
 			continue
 		}
-		var buf [32]int32
-		n.addRows(a, n.B1, AppendHalfKPFeaturesN(buf[:0], b, persp, buckets))
-		if st != nil {
-			st.full++
+		slot := perspectiveKingSlot(self.kings[side], persp, buckets)
+		self.kingSlots[side] = int8(slot)
+		inc[side] = fromParent && int(parent.kingSlots[side]) == slot
+	}
+	// The changed pieces are the same for both perspectives, only their
+	// feature indices differ, so the diff is taken at most once per node,
+	// and when both perspectives take it, one kernel call applies it to both.
+	var d accDiff
+	batched := (inc[0] || inc[1]) && diffAcc(parent, self, &d)
+	if batched && inc[0] && inc[1] {
+		w0, w1 := n.slotRows(int(self.kingSlots[0])), n.slotRows(int(self.kingSlots[1]))
+		if haveAccRowsNEON && h%16 == 0 {
+			// accPair's vector path, called directly on the hottest line:
+			// the accumulators are arrays of maxHalfKPHidden >= h floats and
+			// slotRows has bounded both blocks, which is all it checks.
+			accPairNEON(&self.acc[0][0], &parent.acc[0][0], &self.acc[1][0], &parent.acc[1][0],
+				&w0[0], &w1[0], &d.row, &d.sign, d.n, h)
+		} else {
+			accPair(self.acc[0][:h], parent.acc[0][:h], self.acc[1][:h], parent.acc[1][:h], w0, w1, &d.row, &d.sign, d.n)
+		}
+	} else {
+		for side, persp := range [2]board.Color{board.White, board.Black} {
+			a := self.acc[side][:h]
+			switch {
+			case inc[side] && batched:
+				rows := [2][maxAccRows]int32{d.row[side]}
+				accPair(a, parent.acc[side][:h], nil, nil, n.slotRows(int(self.kingSlots[side])), nil, &rows, &d.sign, d.n)
+			case inc[side]:
+				copy(a, parent.acc[side][:h])
+				n.applyDelta(a, parent, self, persp, buckets)
+			default:
+				n.rebuild(a, b, persp, int(self.kingSlots[side]))
+			}
+		}
+	}
+	if st != nil {
+		for _, i := range inc {
+			if i {
+				st.incremental++
+			} else {
+				st.full++
+			}
 		}
 	}
 	self.valid = true
+}
+
+// snapshotPieces copies the twelve piece bitboards, written out rather
+// than looped so it compiles to twelve loads and stores.
+func snapshotPieces(dst *[2][6]uint64, b *board.Board) {
+	w, k := board.White, board.Black
+	dst[0][board.Pawn] = b.PieceBitboard(w, board.Pawn)
+	dst[0][board.Knight] = b.PieceBitboard(w, board.Knight)
+	dst[0][board.Bishop] = b.PieceBitboard(w, board.Bishop)
+	dst[0][board.Rook] = b.PieceBitboard(w, board.Rook)
+	dst[0][board.Queen] = b.PieceBitboard(w, board.Queen)
+	dst[0][board.King] = b.PieceBitboard(w, board.King)
+	dst[1][board.Pawn] = b.PieceBitboard(k, board.Pawn)
+	dst[1][board.Knight] = b.PieceBitboard(k, board.Knight)
+	dst[1][board.Bishop] = b.PieceBitboard(k, board.Bishop)
+	dst[1][board.Rook] = b.PieceBitboard(k, board.Rook)
+	dst[1][board.Queen] = b.PieceBitboard(k, board.Queen)
+	dst[1][board.King] = b.PieceBitboard(k, board.King)
+}
+
+// slotRows is the block of W1 a king slot's features index: halfKPPerKing
+// rows of H floats. The slice bounds are the check that makes every row
+// index below halfKPPerKing safe for the vector kernels, which trust them.
+func (n *HalfKPNet) slotRows(slot int) []float32 {
+	size := halfKPPerKing * n.H
+	return n.W1[slot*size : slot*size+size]
+}
+
+// rebuild sets a to the bias plus every feature's row for perspective
+// persp, whose king sits in slot, in AppendHalfKPFeaturesN's order (the
+// board's occupied-list order): halfKPIndex unrolled the way diffAcc
+// unrolls it, then one pass of accFeats.
+func (n *HalfKPNet) rebuild(a []float32, b *board.Board, persp board.Color, slot int) {
+	flip := 0
+	if persp == board.Black {
+		flip = 56
+	}
+	var pieces [32]board.ColoredPiece
+	var buf [32]int32
+	rows := buf[:0]
+	for _, p := range b.AppendAllPieces(pieces[:0]) {
+		if p.Type > board.Queen {
+			continue // the king: the conditioning variable, not a feature
+		}
+		pi := int(p.Type)
+		if p.Color != persp {
+			pi += halfKPPieceKinds / 2
+		}
+		s := ((int(p.Sq.Rank)*8 + int(p.Sq.File)) ^ flip) & 63
+		rows = append(rows, int32(pi*64+s))
+	}
+	accFeats(a, n.B1[:n.H], n.slotRows(slot), rows)
 }
 
 // applyDelta adds the rows of the pieces present in self but not in
@@ -589,28 +651,6 @@ func (n *HalfKPNet) applyDelta(a []float32, parent, self *halfKPAcc, persp board
 	}
 }
 
-// addRows sets a to src plus every feature's row, added in feats' order,
-// up to maxAccRows rows a pass: the sums addRow would make one row at a
-// time, rounded the same way.
-func (n *HalfKPNet) addRows(a, src []float32, feats []int32) {
-	h := n.H
-	a, src = a[:h:h], src[:h:h]
-	plus := [maxAccRows]float32{1, 1, 1, 1}
-	var rows [maxAccRows][]float32
-	for {
-		k := min(len(feats), maxAccRows)
-		for j, f := range feats[:k] {
-			col := int(f) * h
-			rows[j] = n.W1[col : col+h : col+h]
-		}
-		accRows(a, src, &rows, &plus, k)
-		feats, src = feats[k:], a
-		if len(feats) == 0 {
-			return
-		}
-	}
-}
-
 // accDiff is the pieces that differ between a parent's snapshot and a
 // child's, in the order applyDelta visits them: owner, then type, then
 // square. It is perspective-free, so one diff serves both accumulators.
@@ -619,34 +659,88 @@ type accDiff struct {
 	piece [maxAccRows]uint8 // owner*5 + type, owner as the absolute colour
 	sq    [maxAccRows]uint8 // rank*8 + file, unmirrored
 	sign  [maxAccRows]float32
+	// row is each entry's feature index inside its king slot's block, for
+	// White's perspective then Black's: halfKPIndex without the slot term.
+	// Always below halfKPPerKing, which is what lets the kernels skip their
+	// bounds checks.
+	row [2][maxAccRows]int32
 }
+
+// halfKPBlackPiece maps a diff entry's absolute owner*5 + type to the
+// piece index Black's perspective uses, owners swapped. Sixteen entries,
+// all below ten, so an index masked to four bits stays inside the block.
+var halfKPBlackPiece = [16]int32{5, 6, 7, 8, 9, 0, 1, 2, 3, 4, 9, 9, 9, 9, 9, 9}
 
 // diffAcc fills d from the XOR of the two snapshots. It reports false when
 // more pieces changed than one update batches.
+//
+// A move changes two to four bits in one to three of the ten non-king
+// bitboards, so visiting all ten with a branch each was mostly loop and
+// mispredicted branches. The XORs are ORed first: a null move stops there,
+// and otherwise a ten-bit mask of the changed words, built without
+// branches, is walked lowest first, which is still owner, then type, then
+// square. Each entry also gets its row in both perspectives: halfKPIndex
+// unrolled, from Black's side the owners swap halves and the rank mirrors,
+// which on a 0-63 square is XOR 56.
 func diffAcc(parent, self *halfKPAcc, d *accDiff) bool {
+	p, s := &parent.pieces, &self.pieces
+	var x, now [16]uint64
+	x[0], x[1], x[2], x[3], x[4] = p[0][0]^s[0][0], p[0][1]^s[0][1], p[0][2]^s[0][2], p[0][3]^s[0][3], p[0][4]^s[0][4]
+	x[5], x[6], x[7], x[8], x[9] = p[1][0]^s[1][0], p[1][1]^s[1][1], p[1][2]^s[1][2], p[1][3]^s[1][3], p[1][4]^s[1][4]
+	if x[0]|x[1]|x[2]|x[3]|x[4]|x[5]|x[6]|x[7]|x[8]|x[9] == 0 {
+		d.n = 0
+		return true
+	}
+	now[0], now[1], now[2], now[3], now[4] = s[0][0], s[0][1], s[0][2], s[0][3], s[0][4]
+	now[5], now[6], now[7], now[8], now[9] = s[1][0], s[1][1], s[1][2], s[1][3], s[1][4]
+	words := nonZero(x[0]) | nonZero(x[1])<<1 | nonZero(x[2])<<2 | nonZero(x[3])<<3 | nonZero(x[4])<<4 |
+		nonZero(x[5])<<5 | nonZero(x[6])<<6 | nonZero(x[7])<<7 | nonZero(x[8])<<8 | nonZero(x[9])<<9
 	k := 0
-	for c := 0; c < 2; c++ {
-		for t := board.Pawn; t < board.King; t++ {
-			changed := parent.pieces[c][t] ^ self.pieces[c][t]
-			for changed != 0 {
+	for words != 0 {
+		w := bits.TrailingZeros64(words) & 15
+		words &= words - 1
+		v := x[w]
+		v1 := v & (v - 1)
+		if v1&(v1-1) != 0 || k > maxAccRows-2 {
+			// Three changes in one bitboard, or no room for two more
+			// entries: one bit at a time, stopping at a full batch.
+			for ; v != 0; v &= v - 1 {
 				if k == maxAccRows {
 					return false
 				}
-				i := bits.TrailingZeros64(changed)
-				changed &= changed - 1
-				d.piece[k] = uint8(c*halfKPPieceKinds/2 + int(t))
-				d.sq[k] = uint8(i)
-				d.sign[k] = -1
-				if self.pieces[c][t]&(1<<uint(i)) != 0 {
-					d.sign[k] = 1
-				}
+				d.put(k, w, bits.TrailingZeros64(v)&63, now[w])
 				k++
 			}
+			continue
 		}
+		// One move changes one or two bits of a bitboard. Both entries are
+		// written and k advances by the number of bits, so the loop over
+		// bits and its mispredicted exit are gone; with one bit, the second
+		// entry is overwritten by the next word or left past d.n.
+		d.put(k, w, bits.TrailingZeros64(v)&63, now[w])
+		d.put(k+1, w, bits.TrailingZeros64(v1)&63, now[w])
+		k += 1 + int(nonZero(v1))
 	}
 	d.n = k
 	return true
 }
+
+// put writes entry k: square i of non-king bitboard w (owner*5 + type)
+// changed, and now is that bitboard in the child, which says the sign.
+func (d *accDiff) put(k, w, i int, now uint64) {
+	d.piece[k] = uint8(w)
+	d.sq[k] = uint8(i)
+	d.sign[k] = diffSign[(now>>uint(i))&1]
+	d.row[0][k] = int32(min(w, 9)*64 + i)
+	d.row[1][k] = halfKPBlackPiece[w&15]*64 + int32(i^56)
+}
+
+// diffSign is a diff entry's row sign: -1 for a piece that left, +1 for one
+// that arrived.
+var diffSign = [2]float32{-1, 1}
+
+// nonZero is 1 when x is not zero, 0 when it is, without a branch.
+func nonZero(x uint64) uint64 { return (x | -x) >> 63 }
 
 // applyDiff writes src plus d's rows into dst in one pass, for the
 // perspective persp whose king sits in slot. The index is halfKPIndex's,

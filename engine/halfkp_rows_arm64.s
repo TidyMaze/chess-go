@@ -116,3 +116,246 @@ k4:
 	SUBS	$1, R5, R5
 	BNE	k4
 	RET
+
+// func accPairNEON(dst0, src0, dst1, src1, w0, w1 *float32, rows *[2][maxAccRows]int32, signs *[maxAccRows]float32, k, n int)
+//
+// accRowsNEON's loops, run once per perspective with the row pointers
+// worked out here: block + index * 4n bytes. R6-R9 point at perspective
+// 0's rows, R19-R22 at perspective 1's; after the first pass they move
+// into R6-R9 and the same k loop runs again. dst1 nil skips it.
+TEXT ·accPairNEON(SB), NOSPLIT, $0-80
+	MOVD	dst0+0(FP), R0
+	MOVD	src0+8(FP), R1
+	MOVD	dst1+16(FP), R10
+	MOVD	src1+24(FP), R11
+	MOVD	w0+32(FP), R2
+	MOVD	w1+40(FP), R14
+	MOVD	rows+48(FP), R3
+	MOVD	signs+56(FP), R12
+	MOVD	k+64(FP), R4
+	MOVD	n+72(FP), R5
+	LSL	$2, R5, R15
+	LSR	$4, R5, R5
+	VLD1R.P	4(R12), [V28.S4]
+	VLD1R.P	4(R12), [V29.S4]
+	VLD1R.P	4(R12), [V30.S4]
+	VLD1R	(R12), [V31.S4]
+	MOVWU	0(R3), R6
+	MOVWU	4(R3), R7
+	MOVWU	8(R3), R8
+	MOVWU	12(R3), R9
+	MOVWU	16(R3), R19
+	MOVWU	20(R3), R20
+	MOVWU	24(R3), R21
+	MOVWU	28(R3), R22
+	MADD	R15, R2, R6, R6
+	MADD	R15, R2, R7, R7
+	MADD	R15, R2, R8, R8
+	MADD	R15, R2, R9, R9
+	MADD	R15, R14, R19, R19
+	MADD	R15, R14, R20, R20
+	MADD	R15, R14, R21, R21
+	MADD	R15, R14, R22, R22
+
+pass:
+	MOVD	R5, R13
+	CMP	$1, R4
+	BEQ	p1
+	CMP	$2, R4
+	BEQ	p2
+	CMP	$3, R4
+	BEQ	p3
+	CMP	$0, R4
+	BNE	p4
+
+p0:
+	VLD1.P	64(R1), [V0.S4, V1.S4, V2.S4, V3.S4]
+	VST1.P	[V0.S4, V1.S4, V2.S4, V3.S4], 64(R0)
+	SUBS	$1, R13, R13
+	BNE	p0
+	B	next
+
+p1:
+	VLD1.P	64(R1), [V0.S4, V1.S4, V2.S4, V3.S4]
+	VLD1.P	64(R6), [V4.S4, V5.S4, V6.S4, V7.S4]
+	VFMLA	V28.S4, V4.S4, V0.S4
+	VFMLA	V28.S4, V5.S4, V1.S4
+	VFMLA	V28.S4, V6.S4, V2.S4
+	VFMLA	V28.S4, V7.S4, V3.S4
+	VST1.P	[V0.S4, V1.S4, V2.S4, V3.S4], 64(R0)
+	SUBS	$1, R13, R13
+	BNE	p1
+	B	next
+
+p2:
+	VLD1.P	64(R1), [V0.S4, V1.S4, V2.S4, V3.S4]
+	VLD1.P	64(R6), [V4.S4, V5.S4, V6.S4, V7.S4]
+	VLD1.P	64(R7), [V8.S4, V9.S4, V10.S4, V11.S4]
+	VFMLA	V28.S4, V4.S4, V0.S4
+	VFMLA	V28.S4, V5.S4, V1.S4
+	VFMLA	V28.S4, V6.S4, V2.S4
+	VFMLA	V28.S4, V7.S4, V3.S4
+	VFMLA	V29.S4, V8.S4, V0.S4
+	VFMLA	V29.S4, V9.S4, V1.S4
+	VFMLA	V29.S4, V10.S4, V2.S4
+	VFMLA	V29.S4, V11.S4, V3.S4
+	VST1.P	[V0.S4, V1.S4, V2.S4, V3.S4], 64(R0)
+	SUBS	$1, R13, R13
+	BNE	p2
+	B	next
+
+p3:
+	VLD1.P	64(R1), [V0.S4, V1.S4, V2.S4, V3.S4]
+	VLD1.P	64(R6), [V4.S4, V5.S4, V6.S4, V7.S4]
+	VLD1.P	64(R7), [V8.S4, V9.S4, V10.S4, V11.S4]
+	VLD1.P	64(R8), [V12.S4, V13.S4, V14.S4, V15.S4]
+	VFMLA	V28.S4, V4.S4, V0.S4
+	VFMLA	V28.S4, V5.S4, V1.S4
+	VFMLA	V28.S4, V6.S4, V2.S4
+	VFMLA	V28.S4, V7.S4, V3.S4
+	VFMLA	V29.S4, V8.S4, V0.S4
+	VFMLA	V29.S4, V9.S4, V1.S4
+	VFMLA	V29.S4, V10.S4, V2.S4
+	VFMLA	V29.S4, V11.S4, V3.S4
+	VFMLA	V30.S4, V12.S4, V0.S4
+	VFMLA	V30.S4, V13.S4, V1.S4
+	VFMLA	V30.S4, V14.S4, V2.S4
+	VFMLA	V30.S4, V15.S4, V3.S4
+	VST1.P	[V0.S4, V1.S4, V2.S4, V3.S4], 64(R0)
+	SUBS	$1, R13, R13
+	BNE	p3
+	B	next
+
+p4:
+	VLD1.P	64(R1), [V0.S4, V1.S4, V2.S4, V3.S4]
+	VLD1.P	64(R6), [V4.S4, V5.S4, V6.S4, V7.S4]
+	VLD1.P	64(R7), [V8.S4, V9.S4, V10.S4, V11.S4]
+	VLD1.P	64(R8), [V12.S4, V13.S4, V14.S4, V15.S4]
+	VLD1.P	64(R9), [V16.S4, V17.S4, V18.S4, V19.S4]
+	VFMLA	V28.S4, V4.S4, V0.S4
+	VFMLA	V28.S4, V5.S4, V1.S4
+	VFMLA	V28.S4, V6.S4, V2.S4
+	VFMLA	V28.S4, V7.S4, V3.S4
+	VFMLA	V29.S4, V8.S4, V0.S4
+	VFMLA	V29.S4, V9.S4, V1.S4
+	VFMLA	V29.S4, V10.S4, V2.S4
+	VFMLA	V29.S4, V11.S4, V3.S4
+	VFMLA	V30.S4, V12.S4, V0.S4
+	VFMLA	V30.S4, V13.S4, V1.S4
+	VFMLA	V30.S4, V14.S4, V2.S4
+	VFMLA	V30.S4, V15.S4, V3.S4
+	VFMLA	V31.S4, V16.S4, V0.S4
+	VFMLA	V31.S4, V17.S4, V1.S4
+	VFMLA	V31.S4, V18.S4, V2.S4
+	VFMLA	V31.S4, V19.S4, V3.S4
+	VST1.P	[V0.S4, V1.S4, V2.S4, V3.S4], 64(R0)
+	SUBS	$1, R13, R13
+	BNE	p4
+
+next:
+	CBZ	R10, done
+	MOVD	R10, R0
+	MOVD	R11, R1
+	MOVD	R19, R6
+	MOVD	R20, R7
+	MOVD	R21, R8
+	MOVD	R22, R9
+	MOVD	ZR, R10
+	B	pass
+
+done:
+	RET
+
+// func accFeatsNEON(dst, src, w *float32, rows *int32, nf, n int)
+//
+// dst = src + every row rows names, in order, row i at w + i*4n bytes.
+// Sixty-four units at a time stay in V0-V15 while the rows stream through
+// V16-V31, so sixteen vector add chains run side by side; a width that is
+// not a multiple of 64 finishes sixteen units at a time. R2 advances with
+// the units done, so a row's pointer is always R2 + i*4n. The adds are
+// FADD, which Go's assembler does not spell, so they are encoded by hand.
+TEXT ·accFeatsNEON(SB), NOSPLIT, $0-48
+	MOVD	dst+0(FP), R0
+	MOVD	src+8(FP), R1
+	MOVD	w+16(FP), R2
+	MOVD	rows+24(FP), R3
+	MOVD	nf+32(FP), R4
+	MOVD	n+40(FP), R5
+	LSL	$2, R5, R15
+	LSR	$6, R5, R6
+	AND	$63, R5, R5
+	LSR	$4, R5, R5
+	CBZ	R6, tail
+
+chunk:
+	VLD1.P	64(R1), [V0.S4, V1.S4, V2.S4, V3.S4]
+	VLD1.P	64(R1), [V4.S4, V5.S4, V6.S4, V7.S4]
+	VLD1.P	64(R1), [V8.S4, V9.S4, V10.S4, V11.S4]
+	VLD1.P	64(R1), [V12.S4, V13.S4, V14.S4, V15.S4]
+	MOVD	R3, R7
+	MOVD	R4, R8
+	CBZ	R8, chunkstore
+
+chunkrow:
+	MOVWU.P	4(R7), R9
+	MADD	R15, R2, R9, R9
+	VLD1.P	64(R9), [V16.S4, V17.S4, V18.S4, V19.S4]
+	VLD1.P	64(R9), [V20.S4, V21.S4, V22.S4, V23.S4]
+	VLD1.P	64(R9), [V24.S4, V25.S4, V26.S4, V27.S4]
+	VLD1	(R9), [V28.S4, V29.S4, V30.S4, V31.S4]
+	WORD	$0x4e30d400 // FADD V0.S4, V0.S4, V16.S4
+	WORD	$0x4e31d421 // FADD V1.S4, V1.S4, V17.S4
+	WORD	$0x4e32d442 // FADD V2.S4, V2.S4, V18.S4
+	WORD	$0x4e33d463 // FADD V3.S4, V3.S4, V19.S4
+	WORD	$0x4e34d484 // FADD V4.S4, V4.S4, V20.S4
+	WORD	$0x4e35d4a5 // FADD V5.S4, V5.S4, V21.S4
+	WORD	$0x4e36d4c6 // FADD V6.S4, V6.S4, V22.S4
+	WORD	$0x4e37d4e7 // FADD V7.S4, V7.S4, V23.S4
+	WORD	$0x4e38d508 // FADD V8.S4, V8.S4, V24.S4
+	WORD	$0x4e39d529 // FADD V9.S4, V9.S4, V25.S4
+	WORD	$0x4e3ad54a // FADD V10.S4, V10.S4, V26.S4
+	WORD	$0x4e3bd56b // FADD V11.S4, V11.S4, V27.S4
+	WORD	$0x4e3cd58c // FADD V12.S4, V12.S4, V28.S4
+	WORD	$0x4e3dd5ad // FADD V13.S4, V13.S4, V29.S4
+	WORD	$0x4e3ed5ce // FADD V14.S4, V14.S4, V30.S4
+	WORD	$0x4e3fd5ef // FADD V15.S4, V15.S4, V31.S4
+	SUBS	$1, R8, R8
+	BNE	chunkrow
+
+chunkstore:
+	VST1.P	[V0.S4, V1.S4, V2.S4, V3.S4], 64(R0)
+	VST1.P	[V4.S4, V5.S4, V6.S4, V7.S4], 64(R0)
+	VST1.P	[V8.S4, V9.S4, V10.S4, V11.S4], 64(R0)
+	VST1.P	[V12.S4, V13.S4, V14.S4, V15.S4], 64(R0)
+	ADD	$256, R2, R2
+	SUBS	$1, R6, R6
+	BNE	chunk
+
+tail:
+	CBZ	R5, featsdone
+
+block:
+	VLD1.P	64(R1), [V0.S4, V1.S4, V2.S4, V3.S4]
+	MOVD	R3, R7
+	MOVD	R4, R8
+	CBZ	R8, blockstore
+
+blockrow:
+	MOVWU.P	4(R7), R9
+	MADD	R15, R2, R9, R9
+	VLD1	(R9), [V16.S4, V17.S4, V18.S4, V19.S4]
+	WORD	$0x4e30d400 // FADD V0.S4, V0.S4, V16.S4
+	WORD	$0x4e31d421 // FADD V1.S4, V1.S4, V17.S4
+	WORD	$0x4e32d442 // FADD V2.S4, V2.S4, V18.S4
+	WORD	$0x4e33d463 // FADD V3.S4, V3.S4, V19.S4
+	SUBS	$1, R8, R8
+	BNE	blockrow
+
+blockstore:
+	VST1.P	[V0.S4, V1.S4, V2.S4, V3.S4], 64(R0)
+	ADD	$64, R2, R2
+	SUBS	$1, R5, R5
+	BNE	block
+
+featsdone:
+	RET
