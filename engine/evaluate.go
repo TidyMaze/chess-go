@@ -279,6 +279,9 @@ type Eval struct {
 	acc      *[accSlots]halfKPAcc
 	accCur   *halfKPAcc
 	accStats halfKPAccStats
+	// qMoves is the search's per-slot quiescence move storage, indexed like
+	// acc. Unset outside the search.
+	qMoves *[accSlots][96]game.Move
 	// Net replaces the hand-written evaluation with a trained network.
 	// When set, the material, table and structure terms are not used at
 	// all: the network was fitted to the same target they were and is a
@@ -346,6 +349,16 @@ func (e *Eval) setAccPly(b *board.Board, ply int) {
 	}
 	e.HalfKP.refresh(b, self, parent, &e.accStats)
 	e.accCur = self
+}
+
+// quiesceMoveBuf is slot's empty move list storage, or nil outside the
+// search's stack. A quiescence node declaring its own 96-move array paid
+// for zeroing 1.5 KB on every node.
+func (e *Eval) quiesceMoveBuf(slot int) []game.Move {
+	if e == nil || e.qMoves == nil || uint(slot) >= accSlots {
+		return nil
+	}
+	return e.qMoves[slot][:0]
 }
 
 func (e *Eval) table() *TranspositionTable {

@@ -250,7 +250,10 @@ type searchCtx struct {
 	orderKeys [maxSearchPly][128]int64
 	// moveBuf[ply] reuses move slice storage across recursive plies, avoiding
 	// zeroing a 1.5 KB moveBuf array on the stack for every node.
-	moveBuf  [maxSearchPly][128]game.Move
+	moveBuf [maxSearchPly][128]game.Move
+	// qMoves is the same storage for quiescence, one list per accumulator
+	// slot, since that is how deep quiescence recurses.
+	qMoves   [accSlots][96]game.Move
 	prevMove game.Move
 }
 
@@ -1564,6 +1567,7 @@ func searchIterative(g *game.Game, color board.Color, maxDepth int, ev *Eval, us
 	}
 	ctx.ev, ctx.quiescence, ctx.extensions = ev, useQuiescence, ev.Extensions
 	ctx.ev.acc = &ctx.acc
+	ctx.ev.qMoves = &ctx.qMoves
 	ctx.acc[0].valid = false
 	// Under stabletime the budget is a soft target and hard is the
 	// absolute limit, enforced by the same node-level abort.

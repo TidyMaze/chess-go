@@ -275,9 +275,15 @@ func quiesceWithKey(g *game.Game, key uint64, color, maximizingFor board.Color, 
 	inCheck := moves.IsInCheck(&g.Board, color)
 	maximizing := color == maximizingFor
 
-	if inCheck {
+	// The node's list lives in its accumulator slot's storage; only outside
+	// the search does it zero an array of its own.
+	buf := ev.quiesceMoveBuf(basePly + ply + 1)
+	if buf == nil {
 		var moveBuf [96]game.Move
-		legal, _, anyLegal := g.AppendQuiescenceMoves(moveBuf[:0], color)
+		buf = moveBuf[:0]
+	}
+	if inCheck {
+		legal, _, anyLegal := g.AppendQuiescenceMoves(buf, color)
 		if !anyLegal {
 			return terminalScore(g, color, maximizingFor, basePly+ply)
 		}
@@ -363,8 +369,7 @@ func quiesceWithKey(g *game.Game, key uint64, color, maximizingFor board.Color, 
 	}
 
 	// If not cut off, generate quiescence moves.
-	var moveBuf [96]game.Move
-	legal, _, anyLegal := g.AppendQuiescenceMoves(moveBuf[:0], color)
+	legal, _, anyLegal := g.AppendQuiescenceMoves(buf, color)
 	if !anyLegal {
 		return terminalScore(g, color, maximizingFor, basePly+ply)
 	}
