@@ -15,6 +15,9 @@ import (
 // thread decides, from the elapsed time and the history of best moves and
 // scores, whether to start another one. The hard limit, twice the target
 // unless the caller lowers it, is enforced by the node-level abort.
+//
+// The constants below are the defaults of the SearchTune Stable* fields: a
+// tune overrides the hard multiple, the early stop and the factor's bounds.
 const (
 	// stableHardMultiple is the hard limit as a multiple of the soft target.
 	stableHardMultiple = 2
@@ -57,10 +60,20 @@ type iterRecord struct {
 // the node-level abort reads the real clock regardless.
 var stableNow = time.Now
 
-// stableHardLimit is the absolute limit for a soft target: twice it, or
-// less when the caller asks for less.
-func stableHardLimit(soft, callerHard time.Duration) time.Duration {
-	hard := stableHardMultiple * soft
+// orDefault is the tune itself, or the defaults when there is none: the
+// constants above, which DefaultSearchTune holds.
+func (t *SearchTune) orDefault() *SearchTune {
+	if t != nil {
+		return t
+	}
+	d := DefaultSearchTune()
+	return &d
+}
+
+// stableHardLimit is the absolute limit for a soft target: StableHard times
+// it (twice by default), or less when the caller asks for less.
+func stableHardLimit(tune *SearchTune, soft, callerHard time.Duration) time.Duration {
+	hard := time.Duration(tune.orDefault().StableHard * float64(soft))
 	if callerHard > 0 && callerHard < hard {
 		return callerHard
 	}
@@ -69,25 +82,27 @@ func stableHardLimit(soft, callerHard time.Duration) time.Duration {
 
 // stableFactor folds the iteration history into the multiplier on the soft
 // target.
-func stableFactor(hist []iterRecord) float64 {
+func stableFactor(tune *SearchTune, hist []iterRecord) float64 {
+	tn := tune.orDefault()
 	f := 1.0
 	for i := 1; i < len(hist); i++ {
-		if hist[i].move != hist[i-1].move || hist[i].score < hist[i-1].score-stableFallMargin {
-			f = min(f*stableGrow, stableMaxFactor)
+		if hist[i].move != hist[i-1].move || hist[i].score < hist[i-1].score-tn.StableDrop {
+			f = min(f*tn.StableGrow, tn.StableMax)
 		} else {
-			f = max(f*stableShrink, stableMinFactor)
+			f = max(f*stableShrink, tn.StableMin)
 		}
 	}
 	return f
 }
 
-// settled reports whether the last stableEarlyIters iterations agree on the
-// best move without the score dropping.
-func settled(hist []iterRecord) bool {
-	if len(hist) < stableEarlyIters {
+// settled reports whether the last StableIters iterations agree on the best
+// move without the score dropping. A StableIters below 1 reads as 1.
+func settled(tune *SearchTune, hist []iterRecord) bool {
+	n := max(int(tune.orDefault().StableIters), 1)
+	if len(hist) < n {
 		return false
 	}
-	tail := hist[len(hist)-stableEarlyIters:]
+	tail := hist[len(hist)-n:]
 	for i := 1; i < len(tail); i++ {
 		if tail[i].move != tail[0].move || tail[i].score < tail[i-1].score-stableDropTolerance {
 			return false
@@ -112,13 +127,13 @@ func predictedNext(hist []iterRecord) time.Duration {
 
 // stableTimeStop decides, after a completed iteration, whether the search
 // stops rather than starting the next one.
-func stableTimeStop(elapsed, soft, hard time.Duration, hist []iterRecord) bool {
+func stableTimeStop(tune *SearchTune, elapsed, soft, hard time.Duration, hist []iterRecord) bool {
 	switch {
 	case elapsed >= hard:
 		return true
-	case float64(elapsed) > stableEarlyFraction*float64(soft) && settled(hist):
+	case float64(elapsed) > tune.orDefault().StableEarly*float64(soft) && settled(tune, hist):
 		return true
-	case float64(elapsed) > stableFactor(hist)*float64(soft):
+	case float64(elapsed) > stableFactor(tune, hist)*float64(soft):
 		return true
 	}
 	// An iteration that cannot finish before the hard limit would be cut

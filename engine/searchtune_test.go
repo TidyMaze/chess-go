@@ -2,6 +2,7 @@ package engine
 
 import (
 	"math"
+	"strings"
 	"testing"
 
 	"chess/game"
@@ -200,6 +201,25 @@ func TestSearchTuneMarginsStillGrowWithDepth(t *testing.T) {
 			} else {
 				prevRazor = m
 			}
+		}
+	}
+}
+
+// Each stabletime stop-rule constant is a tune name ParseSearchTune reads,
+// and the default tune holds the values the rule had before it was tunable.
+func TestParseSearchTuneReadsStableNames(t *testing.T) {
+	const defaults = "StableEarly=0.5,StableIters=4,StableGrow=1.5,StableMax=2,StableMin=0.6,StableDrop=0.3,StableHard=2"
+	if got := DefaultSearchTune().String(); !strings.HasSuffix(got, defaults) {
+		t.Errorf("default tune %q does not end with %q", got, defaults)
+	}
+	for _, name := range []string{"StableEarly", "StableIters", "StableGrow", "StableMax", "StableMin", "StableDrop", "StableHard"} {
+		got, err := ParseSearchTune(name + "=7.5")
+		if err != nil {
+			t.Errorf("%s: %v", name, err)
+			continue
+		}
+		if s := got.String(); !strings.Contains(s, name+"=7.5") {
+			t.Errorf("%s=7.5 did not reach the tune: %s", name, s)
 		}
 	}
 }
