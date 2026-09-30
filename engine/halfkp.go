@@ -347,7 +347,31 @@ func (n *HalfKPNet) toPawns(out float32) float64 {
 	return float64(out * n.Scale)
 }
 
-// head runs everything above the accumulator: the clipped ReLU on both
+// headSum is out plus w[i] * clip01(a[i]) for every unit, in unit order,
+// each a fused multiply-add rounded once in float32. Widths that are a
+// multiple of 16 take the NEON kernel: the loop spent more instructions
+// on the clip and its constants than on the sum.
+func headSum(out float32, w, a []float32) float32 {
+	h := len(w)
+	a = a[:h:h]
+	if haveAccRowsNEON && h > 0 && h%16 == 0 {
+		return headSumNEON(out, &w[0], &a[0], h)
+	}
+	i := 0
+	for ; i+4 <= h; i += 4 {
+		w4, a4 := w[i:i+4:i+4], a[i:i+4:i+4]
+		out += w4[0] * clip01(a4[0])
+		out += w4[1] * clip01(a4[1])
+		out += w4[2] * clip01(a4[2])
+		out += w4[3] * clip01(a4[3])
+	}
+	for ; i < h; i++ {
+		out += w[i] * clip01(a[i])
+	}
+	return out
+}
+
+// head runs everything above the accumulator:the clipped ReLU on both
 // perspectives, the optional second hidden layer, then the linear output.
 //
 // own and opp are the two raw accumulator halves, White's perspective
@@ -367,29 +391,8 @@ func (n *HalfKPNet) head(own, opp []float32) float64 {
 		own = own[:h:h]
 		opp = opp[:h:h]
 
-		i := 0
-		for ; i+4 <= h; i += 4 {
-			w4, a4 := wOwn[i:i+4:i+4], own[i:i+4:i+4]
-			out += w4[0] * clip01(a4[0])
-			out += w4[1] * clip01(a4[1])
-			out += w4[2] * clip01(a4[2])
-			out += w4[3] * clip01(a4[3])
-		}
-		for ; i < h; i++ {
-			out += wOwn[i] * clip01(own[i])
-		}
-
-		i = 0
-		for ; i+4 <= h; i += 4 {
-			w4, a4 := wOpp[i:i+4:i+4], opp[i:i+4:i+4]
-			out += w4[0] * clip01(a4[0])
-			out += w4[1] * clip01(a4[1])
-			out += w4[2] * clip01(a4[2])
-			out += w4[3] * clip01(a4[3])
-		}
-		for ; i < h; i++ {
-			out += wOpp[i] * clip01(opp[i])
-		}
+		out = headSum(out, wOwn, own)
+		out = headSum(out, wOpp, opp)
 		return n.toPawns(out)
 	}
 	var midArr [maxHalfKPHidden]float32

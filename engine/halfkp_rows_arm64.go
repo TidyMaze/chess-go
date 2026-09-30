@@ -39,3 +39,11 @@ func accPairNEON(dst0, src0, dst1, src1, w0, w1 *float32, rows *[2][maxAccRows]i
 //
 //go:noescape
 func accFeatsNEON(dst, src, w *float32, rows *int32, nf, n int)
+
+// headSumNEON is headSum over n units, n a positive multiple of 16, with
+// w and a covering n floats each. The clip runs four lanes at a time; the
+// sum stays one scalar fused multiply-add per unit, in unit order, so the
+// result is the loop's to the bit.
+//
+//go:noescape
+func headSumNEON(out float32, w, a *float32, n int) float32

@@ -359,3 +359,60 @@ blockstore:
 
 featsdone:
 	RET
+
+// func headSumNEON(out float32, w, a *float32, n int) float32
+//
+// Sixteen units per iteration: V16-V19 their activations, clipped to
+// [0, 1] four lanes at a time against V20 = 0 and V21 = 1 (FMAX then FMIN,
+// clip01's order), F0-F15 their weights as scalars. The sum stays in F24
+// and takes one scalar FMLA by element per unit, in unit order: the fused
+// multiply-add FMADDS is, rounding once per unit.
+TEXT ·headSumNEON(SB), NOSPLIT, $0-36
+	FMOVS	out+0(FP), F24
+	MOVD	w+8(FP), R0
+	MOVD	a+16(FP), R1
+	MOVD	n+24(FP), R2
+	LSR	$4, R2, R2
+	VEOR	V20.B16, V20.B16, V20.B16
+	FMOVS	$1.0, F21
+	VDUP	V21.S[0], V21.S4
+
+headloop:
+	VLD1.P	64(R1), [V16.S4, V17.S4, V18.S4, V19.S4]
+	FLDPS	0(R0), (F0, F1)
+	FLDPS	8(R0), (F2, F3)
+	FLDPS	16(R0), (F4, F5)
+	FLDPS	24(R0), (F6, F7)
+	FLDPS	32(R0), (F8, F9)
+	FLDPS	40(R0), (F10, F11)
+	FLDPS	48(R0), (F12, F13)
+	FLDPS	56(R0), (F14, F15)
+	ADD	$64, R0, R0
+	WORD	$0x4e34f610 // FMAX.4S V16, V16, V20
+	WORD	$0x4eb5f610 // FMIN.4S V16, V16, V21
+	WORD	$0x4e34f631 // FMAX.4S V17, V17, V20
+	WORD	$0x4eb5f631 // FMIN.4S V17, V17, V21
+	WORD	$0x4e34f652 // FMAX.4S V18, V18, V20
+	WORD	$0x4eb5f652 // FMIN.4S V18, V18, V21
+	WORD	$0x4e34f673 // FMAX.4S V19, V19, V20
+	WORD	$0x4eb5f673 // FMIN.4S V19, V19, V21
+	WORD	$0x5f901018 // FMLA.S S24, S0, V16[0]
+	WORD	$0x5fb01038 // FMLA.S S24, S1, V16[1]
+	WORD	$0x5f901858 // FMLA.S S24, S2, V16[2]
+	WORD	$0x5fb01878 // FMLA.S S24, S3, V16[3]
+	WORD	$0x5f911098 // FMLA.S S24, S4, V17[0]
+	WORD	$0x5fb110b8 // FMLA.S S24, S5, V17[1]
+	WORD	$0x5f9118d8 // FMLA.S S24, S6, V17[2]
+	WORD	$0x5fb118f8 // FMLA.S S24, S7, V17[3]
+	WORD	$0x5f921118 // FMLA.S S24, S8, V18[0]
+	WORD	$0x5fb21138 // FMLA.S S24, S9, V18[1]
+	WORD	$0x5f921958 // FMLA.S S24, S10, V18[2]
+	WORD	$0x5fb21978 // FMLA.S S24, S11, V18[3]
+	WORD	$0x5f931198 // FMLA.S S24, S12, V19[0]
+	WORD	$0x5fb311b8 // FMLA.S S24, S13, V19[1]
+	WORD	$0x5f9319d8 // FMLA.S S24, S14, V19[2]
+	WORD	$0x5fb319f8 // FMLA.S S24, S15, V19[3]
+	SUBS	$1, R2, R2
+	BNE	headloop
+	FMOVS	F24, ret+32(FP)
+	RET
