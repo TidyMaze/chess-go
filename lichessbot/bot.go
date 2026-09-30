@@ -52,6 +52,9 @@ type Bot struct {
 	// RateLimitWait is the pause before any request that follows a 429. Zero
 	// means the minute lichess asks for.
 	RateLimitWait time.Duration
+	// FirstMoveTimeout is how long a game may stay with a side that has not
+	// made its first move before the bot aborts it. Zero means a minute.
+	FirstMoveTimeout time.Duration
 
 	gamesInPlay atomic.Int32
 	// active holds the id of every game a playGame loop is running for.
@@ -77,6 +80,9 @@ type gameSession struct {
 	// goroutine touches them, so they sit outside the lock.
 	leftBook   bool
 	leftBookAt int
+	// plies is the length of the last move list the stream sent, read by
+	// the first-move watchdog on another goroutine.
+	plies atomic.Int32
 
 	// The rest is shared with a move post being retried, hence the lock.
 	mu sync.Mutex
@@ -358,6 +364,7 @@ func (b *Bot) playGame(ctx context.Context, gameID string) {
 	}
 	gameCtx, dropGame := context.WithCancel(ctx)
 	defer dropGame()
+	go b.abortIfNeverStarted(gameCtx, gameID, sess)
 
 	// The game outlives any one connection to it. A stream that drops is a
 	// dropped socket, not a finished game, and the only thing that ends a
@@ -421,6 +428,28 @@ func (b *Bot) playGame(ctx context.Context, gameID string) {
 	}
 }
 
+// abortIfNeverStarted aborts the game when, after FirstMoveTimeout, a side
+// has still not made its first move. Lichess allows an abort then, and does
+// not always do it itself: two games against a bot that never moved stayed
+// open for over a day and held both of the bot's game slots.
+func (b *Bot) abortIfNeverStarted(ctx context.Context, gameID string, sess *gameSession) {
+	wait := b.FirstMoveTimeout
+	if wait <= 0 {
+		wait = time.Minute
+	}
+	select {
+	case <-ctx.Done():
+		return
+	case <-time.After(wait):
+	}
+	if n := sess.plies.Load(); n < 2 {
+		b.logf("game %s: %d moves after %s, aborting", gameID, n, wait)
+		if err := b.API.postForm("/api/bot/game/"+gameID+"/abort", ""); err != nil {
+			b.logf("game %s: abort failed: %v", gameID, err)
+		}
+	}
+}
+
 // readGameStream reads one connection to a game's stream to its end. It
 // reports how many lines it managed to read and whether the connection opened
 // at all, so the caller can tell a dropped connection or an outage from a
@@ -450,6 +479,7 @@ func (b *Bot) readGameStream(ctx context.Context, gameID string, full *gameFull,
 				return nil
 			}
 			*haveFull = true
+			sess.plies.Store(int32(len(strings.Fields(full.State.Moves))))
 			over = over || gameOver(full.State.Status)
 			b.maybeMove(ctx, gameID, *full, full.State, received, sess)
 		case "gameState":
@@ -460,6 +490,7 @@ func (b *Bot) readGameStream(ctx context.Context, gameID string, full *gameFull,
 			if err := json.Unmarshal(line, &st); err != nil {
 				return nil
 			}
+			sess.plies.Store(int32(len(strings.Fields(st.Moves))))
 			over = over || gameOver(st.Status)
 			b.maybeMove(ctx, gameID, *full, st, received, sess)
 		}
