@@ -1574,7 +1574,7 @@ func searchIterative(g *game.Game, color board.Color, maxDepth int, ev *Eval, us
 	stable := budget > 0 && ev.StableTime
 	var hard time.Duration
 	if stable {
-		hard = stableHardLimit(budget, ev.HardBudget)
+		hard = stableHardLimit(ev.tune(), budget, ev.HardBudget)
 	}
 	if budget > 0 {
 		ctx.checkMask = clockCheckMask(budget)
@@ -1774,7 +1774,7 @@ func searchIterative(g *game.Game, color board.Color, maxDepth int, ev *Eval, us
 			now := stableNow()
 			hist = append(hist, iterRecord{move: best, score: prevScore, took: now.Sub(iterMark)})
 			iterMark = now
-			if stableTimeStop(now.Sub(stableStart), budget, hard, hist) {
+			if stableTimeStop(ev.tune(), now.Sub(stableStart), budget, hard, hist) {
 				break
 			}
 		}

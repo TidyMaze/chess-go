@@ -38,7 +38,7 @@ func TestStableTimeHardLimit(t *testing.T) {
 		{50 * time.Millisecond, 50 * time.Millisecond},
 		{500 * time.Millisecond, 2 * soft},
 	} {
-		if got := stableHardLimit(soft, c.hard); got != c.want {
+		if got := stableHardLimit(nil, soft, c.hard); got != c.want {
 			t.Errorf("soft %v, caller hard %v: limit %v, want %v", soft, c.hard, got, c.want)
 		}
 	}
@@ -70,19 +70,19 @@ func repeatMove(m game.Move, n int) []game.Move {
 func flatScores(n int) []float64 { return make([]float64, n) }
 
 func TestStableTimeFactor(t *testing.T) {
-	if f := stableFactor(nil); f != 1.0 {
+	if f := stableFactor(nil, nil); f != 1.0 {
 		t.Errorf("no history: factor %v, want 1.0", f)
 	}
-	if f := stableFactor(iters([]game.Move{stableA}, []float64{0})); f != 1.0 {
+	if f := stableFactor(nil, iters([]game.Move{stableA}, []float64{0})); f != 1.0 {
 		t.Errorf("one iteration: factor %v, want 1.0", f)
 	}
-	if f := stableFactor(iters([]game.Move{stableA, stableB}, []float64{0, 0})); f <= 1.0 {
+	if f := stableFactor(nil, iters([]game.Move{stableA, stableB}, []float64{0, 0})); f <= 1.0 {
 		t.Errorf("best move changed in the last iteration: factor %v, want above 1.0", f)
 	}
-	if f := stableFactor(iters([]game.Move{stableA, stableA}, []float64{0.5, 0.1})); f <= 1.0 {
+	if f := stableFactor(nil, iters([]game.Move{stableA, stableA}, []float64{0.5, 0.1})); f <= 1.0 {
 		t.Errorf("score fell 0.4 pawns: factor %v, want above 1.0", f)
 	}
-	if f := stableFactor(iters([]game.Move{stableA, stableA}, []float64{0.5, 0.3})); f >= 1.0 {
+	if f := stableFactor(nil, iters([]game.Move{stableA, stableA}, []float64{0.5, 0.3})); f >= 1.0 {
 		t.Errorf("same move, score fell only 0.2 pawns: factor %v, want below 1.0", f)
 	}
 	flip := make([]game.Move, 30)
@@ -92,22 +92,22 @@ func TestStableTimeFactor(t *testing.T) {
 			flip[i] = stableB
 		}
 	}
-	if f := stableFactor(iters(flip, flatScores(30))); f != 2.0 {
+	if f := stableFactor(nil, iters(flip, flatScores(30))); f != 2.0 {
 		t.Errorf("best move flipping every iteration: factor %v, want the 2.0 ceiling", f)
 	}
-	if f := stableFactor(iters(repeatMove(stableA, 30), flatScores(30))); f != 0.6 {
+	if f := stableFactor(nil, iters(repeatMove(stableA, 30), flatScores(30))); f != 0.6 {
 		t.Errorf("best move stable for 30 iterations: factor %v, want the 0.6 floor", f)
 	}
 	// The factor recovers from instability once the move settles.
 	settle := append(append([]game.Move{}, flip[:6]...), repeatMove(stableA, 20)...)
-	if f := stableFactor(iters(settle, flatScores(26))); f != 0.6 {
+	if f := stableFactor(nil, iters(settle, flatScores(26))); f != 0.6 {
 		t.Errorf("unstable then stable for 20 iterations: factor %v, want 0.6", f)
 	}
 }
 
 func TestStableTimeStopDecision(t *testing.T) {
 	const soft = 100 * time.Millisecond
-	hard := stableHardLimit(soft, 0)
+	hard := stableHardLimit(nil, soft, 0)
 	ms := func(f float64) time.Duration { return time.Duration(f * float64(time.Millisecond)) }
 	rising := []float64{0.1, 0.2, 0.3, 0.4}
 	withDrop := []float64{0.4, 0.2, 0.3, 0.3}
@@ -138,7 +138,7 @@ func TestStableTimeStopDecision(t *testing.T) {
 		{"flipping, at hard", hard, hard, iters(flip, flatScores(5)), true},
 		{"flipping, caller hard 120ms", ms(120), ms(120), iters(flip, flatScores(5)), true},
 	} {
-		if got := stableTimeStop(c.elapsed, soft, c.hard, c.hist); got != c.stop {
+		if got := stableTimeStop(nil, c.elapsed, soft, c.hard, c.hist); got != c.stop {
 			t.Errorf("%s: stop %v, want %v", c.name, got, c.stop)
 		}
 	}
@@ -148,7 +148,7 @@ func TestStableTimeStopDecision(t *testing.T) {
 // would be cut off and its time wasted.
 func TestStableTimeDoesNotStartAnIterationThatCannotFinish(t *testing.T) {
 	const soft = 100 * time.Millisecond
-	hard := stableHardLimit(soft, 0)
+	hard := stableHardLimit(nil, soft, 0)
 	ms := func(f float64) time.Duration { return time.Duration(f * float64(time.Millisecond)) }
 	hist := func(prev, last time.Duration) []iterRecord {
 		return []iterRecord{
@@ -159,11 +159,11 @@ func TestStableTimeDoesNotStartAnIterationThatCannotFinish(t *testing.T) {
 	}
 	// Iterations growing threefold: 20 then 60 ms, 85 ms spent, the next
 	// one is predicted at 180 ms and would end at 265, past 200.
-	if !stableTimeStop(ms(85), soft, hard, hist(ms(20), ms(60))) {
+	if !stableTimeStop(nil, ms(85), soft, hard, hist(ms(20), ms(60))) {
 		t.Error("started an iteration predicted to end at 265ms on a 200ms hard limit")
 	}
 	// 10 then 30 ms, 45 ms spent: the next one should end near 135 ms.
-	if stableTimeStop(ms(45), soft, hard, hist(ms(10), ms(30))) {
+	if stableTimeStop(nil, ms(45), soft, hard, hist(ms(10), ms(30))) {
 		t.Error("stopped although the next iteration is predicted to end at 135ms of 200")
 	}
 }
@@ -245,7 +245,7 @@ func TestStableTimeNeverOverrunsTheHardLimit(t *testing.T) {
 		callerHard time.Duration
 		threads    int
 	}{{0, 1}, {25 * time.Millisecond, 2}} {
-		hard := stableHardLimit(soft, c.callerHard)
+		hard := stableHardLimit(nil, soft, c.callerHard)
 		worst := time.Duration(0)
 		for _, fen := range fens {
 			g, _ := game.ParseFEN(fen)
@@ -268,6 +268,114 @@ func TestStableTimeNeverOverrunsTheHardLimit(t *testing.T) {
 				t.Skipf("machine is busy: worst %v, preemption gap %v", worst, gap)
 			}
 			t.Errorf("hard limit %v: a move took %v, %.0f%% of it", hard, worst, 100*float64(worst)/float64(hard))
+		}
+	}
+}
+
+func mustTune(t *testing.T, s string) *SearchTune {
+	t.Helper()
+	tune, err := ParseSearchTune(s)
+	if err != nil {
+		t.Fatalf("ParseSearchTune(%q): %v", s, err)
+	}
+	return tune
+}
+
+// Every stop-rule constant is read from the tune. Each case is a situation
+// where the default rule and the tuned one disagree, so the tuned value is
+// the only thing that can explain the difference.
+func TestStableTimeStopUsesTunedValues(t *testing.T) {
+	const soft = 100 * time.Millisecond
+	hard := stableHardLimit(nil, soft, 0)
+	ms := func(f float64) time.Duration { return time.Duration(f * float64(time.Millisecond)) }
+	rising := []float64{0.1, 0.2, 0.3, 0.4}
+	flip := []game.Move{stableA, stableB, stableA, stableB, stableA}
+	smallDrop := []float64{0, 0, 0, 0, 0, 0, 0.3, 0.1, 0.1, 0.1}
+	for _, c := range []struct {
+		name    string
+		tune    string
+		elapsed time.Duration
+		hist    []iterRecord
+		def     bool
+		tuned   bool
+	}{
+		{"StableEarly 0.4, 4 same, 45%", "StableEarly=0.4", ms(45), iters(repeatMove(stableA, 4), rising), false, true},
+		{"StableIters 3, 3 same, 55%", "StableIters=3", ms(55),
+			iters([]game.Move{stableB, stableA, stableA, stableA}, rising), false, true},
+		{"StableIters 6, 4 same, 55%", "StableIters=6", ms(55), iters(repeatMove(stableA, 4), rising), true, false},
+		{"StableGrow 1.2, one change, 130%", "StableGrow=1.2", ms(130),
+			iters([]game.Move{stableA, stableB}, flatScores(2)), false, true},
+		{"StableMax 1.5, flipping, 160%", "StableMax=1.5", ms(160), iters(flip, flatScores(5)), false, true},
+		{"StableMin 0.8, stable, small drop, 65%", "StableMin=0.8", ms(65),
+			iters(repeatMove(stableA, 10), smallDrop), true, false},
+		{"StableDrop 0.1, score fell 0.2, 90%", "StableDrop=0.1", ms(90),
+			iters([]game.Move{stableA, stableA}, []float64{0.5, 0.3}), true, false},
+	} {
+		if got := stableTimeStop(nil, c.elapsed, soft, hard, c.hist); got != c.def {
+			t.Errorf("%s: default rule stop %v, want %v", c.name, got, c.def)
+		}
+		if got := stableTimeStop(mustTune(t, c.tune), c.elapsed, soft, hard, c.hist); got != c.tuned {
+			t.Errorf("%s: tuned rule stop %v, want %v", c.name, got, c.tuned)
+		}
+	}
+}
+
+// StableHard scales the hard limit, and the caller can still lower it.
+func TestStableTimeHardLimitUsesTunedMultiple(t *testing.T) {
+	const soft = 100 * time.Millisecond
+	tune := mustTune(t, "StableHard=3")
+	for _, c := range []struct {
+		callerHard, want time.Duration
+	}{
+		{0, 3 * soft},
+		{250 * time.Millisecond, 250 * time.Millisecond},
+		{500 * time.Millisecond, 3 * soft},
+	} {
+		if got := stableHardLimit(tune, soft, c.callerHard); got != c.want {
+			t.Errorf("StableHard=3, caller hard %v: limit %v, want %v", c.callerHard, got, c.want)
+		}
+	}
+}
+
+// The tune on the Player reaches the stop rule inside the search: the same
+// back-rank mate as TestStableTimeStopsASettledSearchEarly, on the same
+// 10 ms per iteration clock, stops at the depth the tuned rule names.
+func TestStableTimeSearchReadsThePlayersTune(t *testing.T) {
+	g, err := game.ParseFEN("6k1/5ppp/8/8/8/8/5PPP/R5K1 w - - 0 1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		tune  string
+		depth int
+	}{
+		{"", 6},
+		{"StableEarly=0.25,StableIters=3", 3},
+		// A 50 ms hard limit leaves no room for a 15 ms iteration after 40.
+		{"StableHard=0.5", 4},
+	} {
+		fakeStableClock(t, 10*time.Millisecond)
+		p := Strong(4)
+		p.Book, p.Threads = nil, 1
+		p.TimeBudget = 100 * time.Millisecond
+		p.ApplyFeatures("stabletime")
+		p.Tune = mustTune(t, c.tune)
+		if m, ok := PlayerPick(p, g); !ok || m.UCI() != "a1a8" {
+			t.Fatalf("tune %q: played %s, want a1a8", c.tune, m.UCI())
+		}
+		if d := LastSearchDepth(); d != c.depth {
+			t.Errorf("tune %q: stopped after depth %d, want %d", c.tune, d, c.depth)
+		}
+	}
+}
+
+// A tuner can propose a StableIters below 1: the rule reads it as 1, where
+// slicing the history by a negative count would panic mid-game.
+func TestStableTimeSettledClampsTunedIters(t *testing.T) {
+	hist := iters([]game.Move{stableA}, []float64{0})
+	for _, n := range []string{"-3", "0", "1"} {
+		if !settled(mustTune(t, "StableIters="+n), hist) {
+			t.Errorf("StableIters=%s: one iteration is not settled", n)
 		}
 	}
 }

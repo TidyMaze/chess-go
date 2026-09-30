@@ -33,6 +33,15 @@ type SearchTune struct {
 	AspDelta float64
 	// DeltaMargin: quiescence delta pruning's safety margin, search.go.
 	DeltaMargin float64
+	// StableEarly, StableIters: the early stop of the stabletime feature,
+	// stabletime.go. StableIters is truncated to an int.
+	StableEarly, StableIters float64
+	// StableGrow, StableMax, StableMin, StableDrop: the factor on its soft
+	// target, and the score fall that grows it, stabletime.go.
+	StableGrow, StableMax, StableMin, StableDrop float64
+	// StableHard: the hard limit as a multiple of the soft target,
+	// stabletime.go.
+	StableHard float64
 }
 
 // DefaultSearchTune is today's hand-set literals, unchanged.
@@ -49,6 +58,13 @@ func DefaultSearchTune() SearchTune {
 		NullBonusPer:     1.5,
 		AspDelta:         0.5,
 		DeltaMargin:      2.0,
+		StableEarly:      stableEarlyFraction,
+		StableIters:      stableEarlyIters,
+		StableGrow:       stableGrow,
+		StableMax:        stableMaxFactor,
+		StableMin:        stableMinFactor,
+		StableDrop:       stableFallMargin,
+		StableHard:       stableHardMultiple,
 	}
 }
 
@@ -72,6 +88,13 @@ var searchTuneFields = []struct {
 	{"NullBonusPer", func(t *SearchTune) float64 { return t.NullBonusPer }, func(t *SearchTune, v float64) { t.NullBonusPer = v }},
 	{"AspDelta", func(t *SearchTune) float64 { return t.AspDelta }, func(t *SearchTune, v float64) { t.AspDelta = v }},
 	{"DeltaMargin", func(t *SearchTune) float64 { return t.DeltaMargin }, func(t *SearchTune, v float64) { t.DeltaMargin = v }},
+	{"StableEarly", func(t *SearchTune) float64 { return t.StableEarly }, func(t *SearchTune, v float64) { t.StableEarly = v }},
+	{"StableIters", func(t *SearchTune) float64 { return t.StableIters }, func(t *SearchTune, v float64) { t.StableIters = v }},
+	{"StableGrow", func(t *SearchTune) float64 { return t.StableGrow }, func(t *SearchTune, v float64) { t.StableGrow = v }},
+	{"StableMax", func(t *SearchTune) float64 { return t.StableMax }, func(t *SearchTune, v float64) { t.StableMax = v }},
+	{"StableMin", func(t *SearchTune) float64 { return t.StableMin }, func(t *SearchTune, v float64) { t.StableMin = v }},
+	{"StableDrop", func(t *SearchTune) float64 { return t.StableDrop }, func(t *SearchTune, v float64) { t.StableDrop = v }},
+	{"StableHard", func(t *SearchTune) float64 { return t.StableHard }, func(t *SearchTune, v float64) { t.StableHard = v }},
 }
 
 // ParseSearchTune parses "Name=value,Name=value" overrides on top of
