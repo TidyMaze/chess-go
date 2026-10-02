@@ -123,6 +123,10 @@ func (s referenceSwitches) applyTo(p engine.Player) (engine.Player, error) {
 			p.Drive2 = true
 		case "singular":
 			p.Singular = true
+		case "passedking":
+			p.PassedKing = true
+		case "passers":
+			p.Passers = true
 		default:
 			return p, fmt.Errorf("unknown feature %q", f)
 		}
@@ -284,6 +288,10 @@ func main() {
 			challenger.Drive2 = true
 		case "singular":
 			challenger.Singular = true
+		case "passedking":
+			challenger.PassedKing = true
+		case "passers":
+			challenger.Passers = true
 		default:
 			fmt.Printf("unknown feature %q\n", f)
 			return

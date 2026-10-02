@@ -25,7 +25,7 @@ func TestOutsidePassedPawnKingDoesNotStray(t *testing.T) {
 	p.TimeBudget = 0
 	p.Threads = 1
 	p.Book = nil
-	p.ApplyFeatures("shelter")
+	p.ApplyFeatures("passedking")
 
 	m, ok := p.pick(g)
 	if !ok {

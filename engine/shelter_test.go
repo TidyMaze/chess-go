@@ -120,3 +120,31 @@ func BenchmarkChampionSearchWithShelter(b *testing.B) {
 	b.ReportMetric(float64(nodes)/b.Elapsed().Seconds()/1000, "knps")
 	b.ReportMetric(float64(nodes)/float64(b.N), "nodes/op")
 }
+
+func BenchmarkChampionSearchWithPassedKing(b *testing.B) {
+	c := ReadChampion("../champion.json")
+	c.NetFile = "../champion_net.json"
+	c.Book = ""
+	p, err := c.PlayerOrError()
+	if err != nil {
+		b.Skipf("champion: %v", err)
+	}
+	p.ApplyFeatures("passedking")
+	p.TimeBudget, p.Threads, p.Depth = 0, 1, 8
+	nodes := 0
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		for _, fen := range championBenchFENs {
+			g, err := game.ParseFEN(fen)
+			if err != nil {
+				b.Fatal(err)
+			}
+			SeedRandom(1)
+			ResetNodes()
+			PlayerPick(p, g)
+			nodes += TotalNodes()
+		}
+	}
+	b.ReportMetric(float64(nodes)/b.Elapsed().Seconds()/1000, "knps")
+	b.ReportMetric(float64(nodes)/float64(b.N), "nodes/op")
+}

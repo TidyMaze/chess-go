@@ -476,29 +476,10 @@ func passedKingPenalty(b *board.Board, color board.Color) float64 {
 	penalty := 0.0
 	for bb := enemyPawns; bb != 0; bb &= bb - 1 {
 		sq := bits.TrailingZeros64(bb)
-		pf, pr := sq%8, sq/8
-		passed := true
-		for df := -1; df <= 1; df++ {
-			f := pf + df
-			if f < 0 || f > 7 {
-				continue
-			}
-			fmask := board.FileMask[f]
-			if enemy == board.White {
-				if ownPawns&fmask&^((uint64(1)<<((pr+1)*8))-1) != 0 {
-					passed = false
-					break
-				}
-			} else {
-				if ownPawns&fmask&((uint64(1)<<(pr*8))-1) != 0 {
-					passed = false
-					break
-				}
-			}
-		}
-		if !passed {
+		if ownPawns&board.PassedPawnMask[enemy][sq] != 0 {
 			continue
 		}
+		pf, pr := sq%8, sq/8
 		ranksToQueen := 7 - pr
 		promoRank := 7
 		if enemy == board.Black {
@@ -684,6 +665,32 @@ func shapeScore(pieces []board.ColoredPiece, color board.Color,
 			// through are the ones that block it.
 			score -= w.BadBishop * float64(pawnsOnColour[(p.Sq.File+p.Sq.Rank)%2])
 		}
+	}
+	return score
+}
+
+var passedRankBonusMG = [8]float64{0, 0, 0.05, 0.10, 0.20, 0.40, 0.80, 0}
+var passedRankBonusEG = [8]float64{0, 0, 0.10, 0.20, 0.40, 0.80, 1.60, 0}
+
+// passedPawnScore evaluates passed pawns using bitboards, scaling with rank and game phase.
+func passedPawnScore(b *board.Board, color board.Color, phase float64) float64 {
+	enemy := color.Other()
+	enemyPawns := b.PieceBitboard(enemy, board.Pawn)
+	ownPawns := b.PieceBitboard(color, board.Pawn)
+	if ownPawns == 0 {
+		return 0
+	}
+	score := 0.0
+	for bb := ownPawns; bb != 0; bb &= bb - 1 {
+		sq := bits.TrailingZeros64(bb)
+		if enemyPawns&board.PassedPawnMask[color][sq] != 0 {
+			continue
+		}
+		rank := sq / 8
+		if color == board.Black {
+			rank = 7 - rank
+		}
+		score += phase*passedRankBonusMG[rank] + (1.0-phase)*passedRankBonusEG[rank]
 	}
 	return score
 }

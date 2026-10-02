@@ -143,6 +143,10 @@ type Eval struct {
 	PawnPush bool
 	// Shelter penalizes pushing shield pawns away from a castled king while enemy majors are present.
 	Shelter bool
+	// PassedKing penalizes defending king outside the square of an enemy passed pawn in endgames.
+	PassedKing bool
+	// Passers adds a bonus for passed pawns based on rank and game phase.
+	Passers bool
 
 	// Mobility adds a bonus per square each piece can reach.
 	Mobility bool
@@ -553,6 +557,14 @@ func PositionScoreEval(b *board.Board, color board.Color, ev *Eval) float64 {
 			score -= passedKingPenalty(b, color)
 			score += passedKingPenalty(b, color.Other())
 		}
+		if ev.PassedKing {
+			score -= passedKingPenalty(b, color)
+			score += passedKingPenalty(b, color.Other())
+		}
+		if ev.Passers {
+			phase := gamePhase(b)
+			score += passedPawnScore(b, color, phase) - passedPawnScore(b, color.Other(), phase)
+		}
 		return score
 	}
 	if ev != nil && ev.Net != nil && !ev.Net.Residual {
@@ -706,6 +718,13 @@ func PositionScoreEval(b *board.Board, color board.Color, ev *Eval) float64 {
 		score += kingShelterPenalty(b, color.Other())
 		score -= passedKingPenalty(b, color)
 		score += passedKingPenalty(b, color.Other())
+	}
+	if ev != nil && ev.PassedKing {
+		score -= passedKingPenalty(b, color)
+		score += passedKingPenalty(b, color.Other())
+	}
+	if ev != nil && ev.Passers {
+		score += passedPawnScore(b, color, phase) - passedPawnScore(b, other, phase)
 	}
 	return score
 }
