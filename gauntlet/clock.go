@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"chess/engine"
@@ -9,11 +10,27 @@ import (
 )
 
 // budgetRule is the lichessbot rule a -budget-rule name stands for: "old"
-// is lichessbot.MoveTimeBudget, which reads only our own clock, and "new"
+// is lichessbot.MoveTimeBudget, which reads only our own clock, "new"
 // is lichessbot.MoveBudget, which also reads the opponent's clock and how
-// many moves we have played since the match opening. Both are the bot's
-// own functions, not copies of them.
+// many moves we have played since the match opening, and "dynamic" (optionally
+// with parameters like "dynamic:mid=1.45,share=6.0") uses the adaptive dynamic rule.
 func budgetRule(name string) (engine.BudgetRule, error) {
+	if strings.HasPrefix(name, "dynamic") {
+		params := lichessbot.ActiveDynamicParams
+		if strings.HasPrefix(name, "dynamic:") {
+			var err error
+			params, err = lichessbot.ParseDynamicParams(strings.TrimPrefix(name, "dynamic:"))
+			if err != nil {
+				return nil, fmt.Errorf("invalid dynamic params in %q: %w", name, err)
+			}
+		}
+		return func(v engine.ClockView) time.Duration {
+			return lichessbot.MoveBudgetDynamicWithParams(lichessbot.Clock{
+				OurMS: v.OurMS, OppMS: v.OppMS, IncMS: v.IncMS, OppIncMS: v.OppIncMS,
+				MovesOutOfBook: v.MovesOutOfBook,
+			}, params)
+		}, nil
+	}
 	switch name {
 	case "old":
 		return func(v engine.ClockView) time.Duration {
@@ -22,13 +39,6 @@ func budgetRule(name string) (engine.BudgetRule, error) {
 	case "new":
 		return func(v engine.ClockView) time.Duration {
 			return lichessbot.MoveBudget(lichessbot.Clock{
-				OurMS: v.OurMS, OppMS: v.OppMS, IncMS: v.IncMS, OppIncMS: v.OppIncMS,
-				MovesOutOfBook: v.MovesOutOfBook,
-			})
-		}, nil
-	case "dynamic":
-		return func(v engine.ClockView) time.Duration {
-			return lichessbot.MoveBudgetDynamic(lichessbot.Clock{
 				OurMS: v.OurMS, OppMS: v.OppMS, IncMS: v.IncMS, OppIncMS: v.OppIncMS,
 				MovesOutOfBook: v.MovesOutOfBook,
 			})

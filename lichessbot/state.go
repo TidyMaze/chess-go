@@ -6,7 +6,9 @@
 package lichessbot
 
 import (
+	"fmt"
 	"math"
+	"strconv"
 	"strings"
 	"time"
 
@@ -376,10 +378,67 @@ func moveBudget(c Clock, overhead *overheadEstimate) time.Duration {
 // default overhead estimate, as MoveTimeBudget has.
 func MoveBudget(c Clock) time.Duration { return moveBudget(c, nil) }
 
-// moveBudgetDynamic dynamically balances time usage across all time controls:
-// it budgets based on game phase, expected remaining moves, clock ratio vs opponent,
-// and proportional safety margins.
-func moveBudgetDynamic(c Clock, overhead *overheadEstimate) time.Duration {
+// DynamicBudgetParams configures the dynamic time allocation rule.
+type DynamicBudgetParams struct {
+	MidgameBoost   float64
+	OpeningFactor  float64
+	MidgameEndMove int
+	ClockCompExp   float64
+	ClockCompMax   float64
+	ClockShareDiv  float64
+}
+
+// DefaultDynamicParams is the baseline calibrated configuration.
+var DefaultDynamicParams = DynamicBudgetParams{
+	MidgameBoost:   1.10,
+	OpeningFactor:  0.85,
+	MidgameEndMove: 32,
+	ClockCompExp:   0.60,
+	ClockCompMax:   2.00,
+	ClockShareDiv:  7.0,
+}
+
+// ActiveDynamicParams is the active configuration used in games.
+var ActiveDynamicParams = DefaultDynamicParams
+
+// ParseDynamicParams parses comma-separated key=value pairs into a DynamicBudgetParams.
+func ParseDynamicParams(spec string) (DynamicBudgetParams, error) {
+	p := DefaultDynamicParams
+	if spec == "" {
+		return p, nil
+	}
+	parts := strings.Split(spec, ",")
+	for _, part := range parts {
+		kv := strings.SplitN(part, "=", 2)
+		if len(kv) != 2 {
+			return p, fmt.Errorf("invalid param %q: want key=value", part)
+		}
+		val, err := strconv.ParseFloat(kv[1], 64)
+		if err != nil {
+			return p, fmt.Errorf("param %q: invalid number %q", kv[0], kv[1])
+		}
+		switch kv[0] {
+		case "mid":
+			p.MidgameBoost = val
+		case "open":
+			p.OpeningFactor = val
+		case "end":
+			p.MidgameEndMove = int(val)
+		case "exp":
+			p.ClockCompExp = val
+		case "max":
+			p.ClockCompMax = val
+		case "share":
+			p.ClockShareDiv = val
+		default:
+			return p, fmt.Errorf("unknown param key %q", kv[0])
+		}
+	}
+	return p, nil
+}
+
+// moveBudgetDynamicWithParams dynamically balances time usage with custom parameters.
+func moveBudgetDynamicWithParams(c Clock, overhead *overheadEstimate, p DynamicBudgetParams) time.Duration {
 	if c.OurMS <= 0 {
 		return 0
 	}
@@ -407,9 +466,9 @@ func moveBudgetDynamic(c Clock, overhead *overheadEstimate) time.Duration {
 	// 3. Dynamic game phase factor
 	var phaseBoost float64
 	if move < 8 {
-		phaseBoost = 0.85
-	} else if move <= 32 {
-		phaseBoost = 1.30
+		phaseBoost = p.OpeningFactor
+	} else if move <= p.MidgameEndMove {
+		phaseBoost = p.MidgameBoost
 	} else {
 		phaseBoost = 1.0
 	}
@@ -418,7 +477,7 @@ func moveBudgetDynamic(c Clock, overhead *overheadEstimate) time.Duration {
 	r := float64(c.OurMS) / float64(max(c.OppMS, 1))
 	var kClock float64
 	if r > 1.25 {
-		kClock = math.Min(2.2, math.Pow(r/1.15, 0.7))
+		kClock = math.Min(p.ClockCompMax, math.Pow(r/1.15, p.ClockCompExp))
 	} else if r < 1.05 {
 		kClock = math.Max(0.45, math.Pow(r, 1.2))
 	} else {
@@ -431,7 +490,9 @@ func moveBudgetDynamic(c Clock, overhead *overheadEstimate) time.Duration {
 	estTotalClock := float64(max(c.OurMS, c.OppMS))
 	dynamicMax := math.Min(60000, math.Max(float64(minMaxBudgetMs), 0.05*estTotalClock+2*float64(c.IncMS)))
 	budgetMs = math.Min(budgetMs, dynamicMax)
-	budgetMs = math.Min(budgetMs, float64(c.OurMS)/7.0)
+	if p.ClockShareDiv > 0 {
+		budgetMs = math.Min(budgetMs, float64(c.OurMS)/p.ClockShareDiv)
+	}
 
 	minB := math.Max(float64(minBudgetMs), float64(c.OurMS)*0.002)
 	ceiling := float64(c.OurMS) - float64(safetyMarginMs)
@@ -444,8 +505,20 @@ func moveBudgetDynamic(c Clock, overhead *overheadEstimate) time.Duration {
 	return time.Duration(math.Round(budgetMs*1000)) * time.Microsecond
 }
 
+// moveBudgetDynamic dynamically balances time usage across all time controls:
+// it budgets based on game phase, expected remaining moves, clock ratio vs opponent,
+// and proportional safety margins.
+func moveBudgetDynamic(c Clock, overhead *overheadEstimate) time.Duration {
+	return moveBudgetDynamicWithParams(c, overhead, ActiveDynamicParams)
+}
+
 // MoveBudgetDynamic is moveBudgetDynamic with default overhead estimate.
 func MoveBudgetDynamic(c Clock) time.Duration { return moveBudgetDynamic(c, nil) }
+
+// MoveBudgetDynamicWithParams is moveBudgetDynamic with custom parameters.
+func MoveBudgetDynamicWithParams(c Clock, p DynamicBudgetParams) time.Duration {
+	return moveBudgetDynamicWithParams(c, nil, p)
+}
 
 
 // clockFor reads our clock and the opponent's out of a game state.

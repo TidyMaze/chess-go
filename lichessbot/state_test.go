@@ -615,3 +615,17 @@ func TestMoveBudgetDynamicBehaviors(t *testing.T) {
 	}
 }
 
+func TestParseDynamicParams(t *testing.T) {
+	p, err := ParseDynamicParams("mid=1.45,open=0.75,end=36,exp=0.65,max=2.5,share=6.5")
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if p.MidgameBoost != 1.45 || p.OpeningFactor != 0.75 || p.MidgameEndMove != 36 || p.ClockCompExp != 0.65 || p.ClockCompMax != 2.5 || p.ClockShareDiv != 6.5 {
+		t.Errorf("got %+v, expected parsed values", p)
+	}
+	if _, err := ParseDynamicParams("bad=1.0"); err == nil {
+		t.Error("expected error on unknown key")
+	}
+}
+
+
