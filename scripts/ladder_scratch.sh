@@ -92,10 +92,11 @@ for rung in $(seq "$FIRST" $((FIRST + RUNGS - 1))); do
   # Screen, then confirm on openings the screen never used. Only the
   # confirmation decides, because a rung adopted on the race that selected
   # it is selected on its own test set.
-  jq --arg net "$net" '.net_file=$net | .hand_blend=0.45' "$CHAMP" > "/tmp/chesslogs/cand_r${rung}.json"
+  mkdir -p /tmp/chesslogs
+  jq --arg net "$net" '.net_file=$net' "$CHAMP" > "/tmp/chesslogs/cand_r${rung}.json"
 
   ./scripts/chunked_match.sh "$GAMES" 250 -depth "$DEPTH" -max-moves 160 \
-    -champion /tmp/chesslogs/cand_r${rung}.json -ref-champion "$CHAMP" \
+    -champion "/tmp/chesslogs/cand_r${rung}.json" -ref-champion "$CHAMP" \
     -match-openings openings.txt > "/tmp/chesslogs/scratch_screen_r${rung}.log" 2>&1
   screen=$(grep pooled "/tmp/chesslogs/scratch_screen_r${rung}.log" | tail -1)
   say "rung $rung screen: $screen"
@@ -106,7 +107,7 @@ for rung in $(seq "$FIRST" $((FIRST + RUNGS - 1))); do
   fi
 
   START_OFFSET=$((700000 + rung * 10000)) ./scripts/chunked_match.sh $((GAMES * 2)) 500 -depth "$DEPTH" -max-moves 160 \
-    -champion /tmp/chesslogs/cand_r${rung}.json -ref-champion "$CHAMP" \
+    -champion "/tmp/chesslogs/cand_r${rung}.json" -ref-champion "$CHAMP" \
     -match-openings openings.txt > "/tmp/chesslogs/scratch_confirm_r${rung}.log" 2>&1
   result=$(grep pooled "/tmp/chesslogs/scratch_confirm_r${rung}.log" | tail -1)
   say "rung $rung confirm: $result"

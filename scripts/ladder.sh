@@ -181,8 +181,8 @@ for rung in $(seq "$START" $((START + RUNGS - 1))); do
   # The screen only decides whether confirming is worth the time. The
   # adoption decision belongs to the confirmation alone, which runs on
   # openings the screen never touched.
-  jq --arg net "$net" '.net_file=$net | .hand_blend=0.45' champion.json > /tmp/chesslogs/cand.json
-
+  mkdir -p /tmp/chesslogs
+  jq --arg net "$net" '.net_file=$net' champion.json > /tmp/chesslogs/cand.json
   ./scripts/chunked_match.sh 1000 250 -depth 4 -champion /tmp/chesslogs/cand.json \
     -ref-champion champion.json \
     -match-openings openings.txt > /tmp/chesslogs/ladder_screen_r${rung}.log 2>&1
