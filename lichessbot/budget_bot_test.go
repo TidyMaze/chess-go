@@ -100,7 +100,7 @@ func TestTheBotBudgetsEachMoveWithTheOpponentClockAndTheBookCount(t *testing.T) 
 	got := regexp.MustCompile(`\(budget [^)]*\)`).FindAllString(buf.String(), -1)
 	var want []string
 	for _, e := range events {
-		budget := moveTimeBudget("white", gameState{WhiteTimeMS: e.ourMS, BlackTimeMS: e.oppMS}, newOverheadEstimate())
+		budget := moveBudgetDynamic(Clock{OurMS: e.ourMS, OppMS: e.oppMS, MovesOutOfBook: e.k}, newOverheadEstimate())
 		want = append(want, fmt.Sprintf("(budget %s, opponent %s, %d out of book)",
 			budget.Round(time.Millisecond), time.Duration(e.oppMS)*time.Millisecond, e.k))
 	}

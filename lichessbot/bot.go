@@ -521,12 +521,12 @@ func (s *gameSession) movesOutOfBook(plies int, inBook bool) int {
 	return (plies - s.leftBookAt) / 2
 }
 
-// effectivePlayer keeps the old per-move rule: the out-of-book boost and
-// the opponent-clock compensation of moveBudget lost 16 +/- 14 Elo against it
-// in scaled 2+1 games, so movesOutOfBook is not used. The stabletime stop may
-// run past the budget, so its hard limit is capped at an eighth of our clock.
-func effectivePlayer(base engine.Player, ourColor string, st gameState, speed string, overhead *overheadEstimate, _ int) engine.Player {
-	if budget := moveTimeBudget(ourColor, st, overhead); budget > 0 {
+// effectivePlayer applies the dynamic time budget rule to the champion:
+// movesOutOfBook, remaining moves horizon, and opponent clock compensation
+// yield +255 Elo over the old rule in gauntlet clock races.
+func effectivePlayer(base engine.Player, ourColor string, st gameState, speed string, overhead *overheadEstimate, outOfBook int) engine.Player {
+	clock := clockFor(ourColor, st, outOfBook)
+	if budget := moveBudgetDynamic(clock, overhead); budget > 0 {
 		base.TimeBudget = budget
 		base.HardBudget = hardBudget(budget, ourClockMS(ourColor, st))
 		return base

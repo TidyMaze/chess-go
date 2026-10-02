@@ -12,7 +12,7 @@ import (
 // What won (+58 +/- 15 together with them) is the stabletime stop, which may
 // run past the budget up to a hard limit; the bot caps that limit at an
 // eighth of its clock so a long think cannot eat the reserve.
-func TestEffectivePlayerPlaysTheOldRuleWithAHardCap(t *testing.T) {
+func TestEffectivePlayerPlaysTheDynamicRuleWithAHardCap(t *testing.T) {
 	base := engine.Player{TimeBudget: time.Second}
 	overhead := newOverheadEstimate()
 	for _, st := range []gameState{
@@ -21,9 +21,9 @@ func TestEffectivePlayerPlaysTheOldRuleWithAHardCap(t *testing.T) {
 		{WhiteTimeMS: 3000, BlackTimeMS: 3000},
 	} {
 		got := effectivePlayer(base, "white", st, "bullet", overhead, 0)
-		want := moveTimeBudget("white", st, overhead)
+		want := moveBudgetDynamic(clockFor("white", st, 0), overhead)
 		if got.TimeBudget != want {
-			t.Errorf("clock %d ms: budget %v, want the old rule's %v", st.WhiteTimeMS, got.TimeBudget, want)
+			t.Errorf("clock %d ms: budget %v, want the dynamic rule's %v", st.WhiteTimeMS, got.TimeBudget, want)
 		}
 		wantHard := 2 * want
 		if eighth := time.Duration(st.WhiteTimeMS) * time.Millisecond / 8; wantHard > eighth {

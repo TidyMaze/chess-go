@@ -26,8 +26,15 @@ func budgetRule(name string) (engine.BudgetRule, error) {
 				MovesOutOfBook: v.MovesOutOfBook,
 			})
 		}, nil
+	case "dynamic":
+		return func(v engine.ClockView) time.Duration {
+			return lichessbot.MoveBudgetDynamic(lichessbot.Clock{
+				OurMS: v.OurMS, OppMS: v.OppMS, IncMS: v.IncMS, OppIncMS: v.OppIncMS,
+				MovesOutOfBook: v.MovesOutOfBook,
+			})
+		}, nil
 	}
-	return nil, fmt.Errorf("unknown budget rule %q: want old or new", name)
+	return nil, fmt.Errorf("unknown budget rule %q: want old, new, or dynamic", name)
 }
 
 // clockMatch builds the match clock from -clock-ms, -inc-ms and

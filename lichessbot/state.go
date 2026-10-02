@@ -376,6 +376,78 @@ func moveBudget(c Clock, overhead *overheadEstimate) time.Duration {
 // default overhead estimate, as MoveTimeBudget has.
 func MoveBudget(c Clock) time.Duration { return moveBudget(c, nil) }
 
+// moveBudgetDynamic dynamically balances time usage across all time controls:
+// it budgets based on game phase, expected remaining moves, clock ratio vs opponent,
+// and proportional safety margins.
+func moveBudgetDynamic(c Clock, overhead *overheadEstimate) time.Duration {
+	if c.OurMS <= 0 {
+		return 0
+	}
+	move := c.MovesOutOfBook
+
+	// 1. Dynamic remaining moves M
+	var m float64
+	if c.IncMS > 0 {
+		m = math.Max(18, 40.0-0.4*float64(move))
+	} else {
+		m = math.Max(20, 65.0-0.5*float64(move))
+	}
+
+	// 2. Base budget with reserve
+	reserveMs := float64(baseReserveMs + reserveIncrements*c.IncMS)
+	if maxReserve := float64(c.OurMS) * maxReserveShare; reserveMs > maxReserve {
+		reserveMs = maxReserve
+	}
+	spendable := math.Max(0, float64(c.OurMS)-reserveMs)
+	base := spendable/m + float64(c.IncMS)*incrementShare
+	if overhead != nil {
+		base -= overhead.reserve()
+	}
+
+	// 3. Dynamic game phase factor
+	var phaseBoost float64
+	if move < 8 {
+		phaseBoost = 0.85
+	} else if move <= 32 {
+		phaseBoost = 1.30
+	} else {
+		phaseBoost = 1.0
+	}
+
+	// 4. Clock compensation relative to opponent
+	r := float64(c.OurMS) / float64(max(c.OppMS, 1))
+	var kClock float64
+	if r > 1.25 {
+		kClock = math.Min(2.2, math.Pow(r/1.15, 0.7))
+	} else if r < 1.05 {
+		kClock = math.Max(0.45, math.Pow(r, 1.2))
+	} else {
+		kClock = 1.0
+	}
+
+	budgetMs := base * phaseBoost * kClock
+
+	// 5. Dynamic ceiling and safety caps
+	estTotalClock := float64(max(c.OurMS, c.OppMS))
+	dynamicMax := math.Min(60000, math.Max(float64(minMaxBudgetMs), 0.05*estTotalClock+2*float64(c.IncMS)))
+	budgetMs = math.Min(budgetMs, dynamicMax)
+	budgetMs = math.Min(budgetMs, float64(c.OurMS)/7.0)
+
+	minB := math.Max(float64(minBudgetMs), float64(c.OurMS)*0.002)
+	ceiling := float64(c.OurMS) - float64(safetyMarginMs)
+	if ceiling < minB {
+		ceiling = minB
+	}
+	budgetMs = math.Min(budgetMs, ceiling)
+	budgetMs = math.Max(budgetMs, minB)
+
+	return time.Duration(math.Round(budgetMs*1000)) * time.Microsecond
+}
+
+// MoveBudgetDynamic is moveBudgetDynamic with default overhead estimate.
+func MoveBudgetDynamic(c Clock) time.Duration { return moveBudgetDynamic(c, nil) }
+
+
 // clockFor reads our clock and the opponent's out of a game state.
 func clockFor(ourColor string, st gameState, movesOutOfBook int) Clock {
 	c := Clock{

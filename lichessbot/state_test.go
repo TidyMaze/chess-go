@@ -584,3 +584,34 @@ func TestMoveTimeBudgetCapsAt30Seconds(t *testing.T) {
 		t.Errorf("budget %v on a 1800s clock is suspiciously low, expected near 30s", got)
 	}
 }
+
+func TestMoveBudgetDynamicBehaviors(t *testing.T) {
+	// Zero clock returns 0.
+	if got := MoveBudgetDynamic(Clock{OurMS: 0, OppMS: 10000}); got != 0 {
+		t.Errorf("zero clock gave budget %v, want 0", got)
+	}
+
+	// 1. Spends more in midgame than opening
+	early := MoveBudgetDynamic(Clock{OurMS: 180000, OppMS: 180000, MovesOutOfBook: 2})
+	mid := MoveBudgetDynamic(Clock{OurMS: 180000, OppMS: 180000, MovesOutOfBook: 15})
+	if mid <= early {
+		t.Errorf("midgame budget %v should exceed opening budget %v", mid, early)
+	}
+
+	// 2. Adjusts according to clock ratio
+	ahead := MoveBudgetDynamic(Clock{OurMS: 180000, OppMS: 60000, MovesOutOfBook: 15})  // 3x opponent
+	behind := MoveBudgetDynamic(Clock{OurMS: 60000, OppMS: 180000, MovesOutOfBook: 15}) // 1/3 opponent
+	if ahead <= mid {
+		t.Errorf("ahead budget %v should exceed equal budget %v", ahead, mid)
+	}
+	if behind >= mid {
+		t.Errorf("behind budget %v should be less than equal budget %v", behind, mid)
+	}
+
+	// 3. Never exceeds 1/7th of remaining clock
+	huge := MoveBudgetDynamic(Clock{OurMS: 1000, OppMS: 50, MovesOutOfBook: 15})
+	if huge > time.Duration(1000/7)*time.Millisecond {
+		t.Errorf("budget %v exceeds 1/7th of remaining clock", huge)
+	}
+}
+

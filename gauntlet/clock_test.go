@@ -23,6 +23,12 @@ func newRule(v engine.ClockView) time.Duration {
 	})
 }
 
+func dynamicRule(v engine.ClockView) time.Duration {
+	return lichessbot.MoveBudgetDynamic(lichessbot.Clock{
+		OurMS: v.OurMS, OppMS: v.OppMS, IncMS: v.IncMS, OppIncMS: v.OppIncMS, MovesOutOfBook: v.MovesOutOfBook,
+	})
+}
+
 // "old" is the bot's previous rule, blind to the opponent; "new" is the
 // one it plays by now, and it reads every field of the clock.
 func TestBudgetRuleNamesPickTheirFunction(t *testing.T) {
@@ -34,7 +40,7 @@ func TestBudgetRuleNamesPickTheirFunction(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		want func(engine.ClockView) time.Duration
-	}{{"old", oldRule}, {"new", newRule}} {
+	}{{"old", oldRule}, {"new", newRule}, {"dynamic", dynamicRule}} {
 		rule, err := budgetRule(tc.name)
 		if err != nil {
 			t.Fatalf("budgetRule(%q): %v", tc.name, err)
