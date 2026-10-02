@@ -354,6 +354,9 @@ func quiesceWithKey(g *game.Game, key uint64, color, maximizingFor board.Color, 
 	// we can stand pat and decline all captures immediately, avoiding move generation.
 	if maximizing {
 		if standPat >= beta {
+			if !inCheck && !g.HasAnyLegalMoveInCheck(color, false) {
+				return 0
+			}
 			return standPat
 		}
 		if standPat > alpha {
@@ -361,6 +364,9 @@ func quiesceWithKey(g *game.Game, key uint64, color, maximizingFor board.Color, 
 		}
 	} else {
 		if standPat <= alpha {
+			if !inCheck && !g.HasAnyLegalMoveInCheck(color, false) {
+				return 0
+			}
 			return standPat
 		}
 		if standPat < beta {
