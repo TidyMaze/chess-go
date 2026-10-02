@@ -23,7 +23,7 @@ import (
 // management, not search: only the bot plays on a real clock, and on the
 // fixed time per move of races and screens it would break equal time.
 func TestChampionFilesAgreeOnSearchFeatures(t *testing.T) {
-	evaluationTerms := map[string]bool{"kingsafety": true, "structure": true, "mobility": true, "shelter": true, "stabletime": true}
+	evaluationTerms := map[string]bool{"kingsafety": true, "structure": true, "mobility": true, "shelter": true, "stabletime": true, "passers": true}
 	searchFeatures := func(path string) []string {
 		c := ReadChampion("../" + path)
 		if c.Features == "" {

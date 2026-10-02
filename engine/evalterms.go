@@ -346,61 +346,58 @@ var kingDangerScale = [8]float64{0, 0.10, 0.35, 0.70, 1.00, 1.15, 1.25, 1.30}
 
 // kingSafetyPenalty is how bad `color`'s king position is, as a positive
 // number to be subtracted from color's score.
-func kingSafetyPenalty(b *board.Board, pieces []board.ColoredPiece, color board.Color, phase float64, weight float64) float64 {
+func kingSafetyPenalty(b *board.Board, color board.Color, phase float64, weight float64) float64 {
 	if weight == 0 || phase < 0.25 {
 		// In an endgame the king is a fighting piece and being near the
 		// action is correct, so the whole idea inverts. Left to the
 		// endgame king tables and kingDrivingBonus.
 		return 0
 	}
-	king := b.KingSquare(color)
 	enemy := color.Other()
+	enemyMajors := b.PieceBitboard(enemy, board.Rook) | b.PieceBitboard(enemy, board.Queen)
+	enemyMinors := b.PieceBitboard(enemy, board.Knight) | b.PieceBitboard(enemy, board.Bishop)
+	if enemyMajors|enemyMinors == 0 {
+		return 0
+	}
+	king := b.KingSquare(color)
 	// The king's square and its eight neighbours, which is what the walk
 	// below counts as a hit: a target within one step of the king.
 	zone := board.KingAttacks[sqIndex(king)] | 1<<sqIndex(king)
 
 	attackers, weightSum := 0, 0.0
-	for _, p := range pieces {
-		if p.Color != enemy {
-			continue
-		}
-		w := kingAttackerWeight[p.Type]
+	for pt, w := range kingAttackerWeight {
 		if w == 0 {
 			continue
 		}
-		// Every weighted attacker is a knight, bishop, rook or queen, and
-		// those always have a target bitboard; a test pins that so a pawn
-		// weight cannot be added without this line being revisited.
-		bb, _ := b.TargetBitboard(p.Sq, enemy, p.Type)
-		hits := bits.OnesCount64(bb & zone)
-		if hits > 0 {
-			attackers++
-			weightSum += w * float64(hits)
+		for bb := b.PieceBitboard(enemy, board.PieceType(pt)); bb != 0; bb &= bb - 1 {
+			sqIdx := bits.TrailingZeros64(bb)
+			sq := board.Sq{File: int8(sqIdx % 8), Rank: int8(sqIdx / 8)}
+			bbTargets, _ := b.TargetBitboard(sq, enemy, board.PieceType(pt))
+			hits := bits.OnesCount64(bbTargets & zone)
+			if hits > 0 {
+				attackers++
+				weightSum += w * float64(hits)
+			}
 		}
 	}
 
-	enemyMajors := b.PieceBitboard(enemy, board.Rook) | b.PieceBitboard(enemy, board.Queen)
-	if enemyMajors != 0 {
+	kingFileMask := board.FileMask[king.File]
+	if enemyMajors&kingFileMask != 0 {
 		ownPawns := b.PieceBitboard(color, board.Pawn)
-		enemyPawns := b.PieceBitboard(enemy, board.Pawn)
-		kingFileMask := board.FileMask[king.File]
-		if ownPawns&kingFileMask == 0 && (enemyMajors&kingFileMask != 0 || attackers > 0) {
+		if ownPawns&kingFileMask == 0 {
+			enemyPawns := b.PieceBitboard(enemy, board.Pawn)
 			if enemyPawns&kingFileMask == 0 {
-				openDanger := 15.0
-				if king.File == 3 || king.File == 4 {
-					openDanger = 25.0
-				}
-				weightSum += openDanger
+				weightSum += 15.0
 				attackers++
-			} else if enemyMajors&kingFileMask != 0 {
-				semiDanger := 8.0
-				if king.File == 3 || king.File == 4 {
-					semiDanger = 15.0
-				}
-				weightSum += semiDanger
+			} else {
+				weightSum += 8.0
 				attackers++
 			}
 		}
+	}
+
+	if b.PieceBitboard(enemy, board.Queen) == 0 {
+		weightSum *= 0.5
 	}
 
 	if attackers == 0 {

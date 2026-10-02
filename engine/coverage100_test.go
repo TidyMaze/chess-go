@@ -116,8 +116,7 @@ func TestKingSafetyPenaltyClampsAttackersAtTableSize(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pieces := g.Board.AppendAllPieces(nil)
-	got := kingSafetyPenalty(&g.Board, pieces, board.White, 1.0, 1.0)
+	got := kingSafetyPenalty(&g.Board, board.White, 1.0, 1.0)
 	if got <= 0 {
 		t.Fatalf("8 attacking queens next to the king must produce a positive penalty, got %v", got)
 	}

@@ -12,8 +12,7 @@ func TestKingSafetyOpenFilePenalty(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	piecesOpen := gOpen.Board.AppendAllPieces(nil)
-	penOpen := kingSafetyPenalty(&gOpen.Board, piecesOpen, board.White, 1.0, 1.0)
+	penOpen := kingSafetyPenalty(&gOpen.Board, board.White, 1.0, 1.0)
 	if penOpen <= 0 {
 		t.Errorf("king on open e-file with enemy rook on board must have positive safety penalty, got %v", penOpen)
 	}
@@ -24,8 +23,7 @@ func TestKingSafetyOpenFilePenalty(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	piecesNoMajors := gNoMajors.Board.AppendAllPieces(nil)
-	penNoMajors := kingSafetyPenalty(&gNoMajors.Board, piecesNoMajors, board.White, 1.0, 1.0)
+	penNoMajors := kingSafetyPenalty(&gNoMajors.Board, board.White, 1.0, 1.0)
 	if penNoMajors != 0 {
 		t.Errorf("king on open e-file with NO enemy major pieces should have 0 safety penalty, got %v", penNoMajors)
 	}
@@ -35,8 +33,7 @@ func TestKingSafetyOpenFilePenalty(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	piecesShielded := gShielded.Board.AppendAllPieces(nil)
-	penShielded := kingSafetyPenalty(&gShielded.Board, piecesShielded, board.White, 1.0, 1.0)
+	penShielded := kingSafetyPenalty(&gShielded.Board, board.White, 1.0, 1.0)
 	if penShielded >= penOpen {
 		t.Errorf("shielded king penalty (%v) must be strictly less than open-file penalty (%v)", penShielded, penOpen)
 	}

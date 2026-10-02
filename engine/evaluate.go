@@ -565,6 +565,11 @@ func PositionScoreEval(b *board.Board, color board.Color, ev *Eval) float64 {
 			phase := gamePhase(b)
 			score += passedPawnScore(b, color, phase) - passedPawnScore(b, color.Other(), phase)
 		}
+		if ev.KingSafety != 0 {
+			phase := gamePhase(b)
+			score -= kingSafetyPenalty(b, color, phase, ev.KingSafety)
+			score += kingSafetyPenalty(b, color.Other(), phase, ev.KingSafety)
+		}
 		return score
 	}
 	if ev != nil && ev.Net != nil && !ev.Net.Residual {
@@ -682,8 +687,8 @@ func PositionScoreEval(b *board.Board, color board.Color, ev *Eval) float64 {
 	}
 
 	if ev != nil && ev.KingSafety != 0 {
-		score -= kingSafetyPenalty(b, pieces, color, phase, ev.KingSafety)
-		score += kingSafetyPenalty(b, pieces, other, phase, ev.KingSafety)
+		score -= kingSafetyPenalty(b, color, phase, ev.KingSafety)
+		score += kingSafetyPenalty(b, other, phase, ev.KingSafety)
 	}
 
 	if ev != nil && ev.Mobility {
