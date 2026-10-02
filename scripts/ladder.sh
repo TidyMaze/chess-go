@@ -181,7 +181,9 @@ for rung in $(seq "$START" $((START + RUNGS - 1))); do
   # The screen only decides whether confirming is worth the time. The
   # adoption decision belongs to the confirmation alone, which runs on
   # openings the screen never touched.
-  ./scripts/chunked_match.sh 1000 250 -depth 4 -halfkp "$net" -blend 0.45 \
+  mkdir -p /tmp/chesslogs
+  jq --arg net "$net" '.net_file=$net' champion.json > /tmp/chesslogs/cand.json
+  ./scripts/chunked_match.sh 1000 250 -depth 4 -champion /tmp/chesslogs/cand.json \
     -ref-champion champion.json \
     -match-openings openings.txt > /tmp/chesslogs/ladder_screen_r${rung}.log 2>&1
   screen=$(grep pooled /tmp/chesslogs/ladder_screen_r${rung}.log | tail -1)
@@ -191,7 +193,7 @@ for rung in $(seq "$START" $((START + RUNGS - 1))); do
     say "rung $rung: not adopted (the screen did not favour it, so confirming would only buy a lucky second draw)."
     exit 0
   fi
-  START_OFFSET=50000 ./scripts/chunked_match.sh "$GAMES" 250 -depth 4 -halfkp "$net" -blend 0.45 \
+  START_OFFSET=50000 ./scripts/chunked_match.sh "$GAMES" 250 -depth 4 -champion /tmp/chesslogs/cand.json \
     -ref-champion champion.json \
     -match-openings openings.txt > /tmp/chesslogs/ladder_race_r${rung}.log 2>&1
   result=$(grep pooled /tmp/chesslogs/ladder_race_r${rung}.log | tail -1)

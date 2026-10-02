@@ -352,8 +352,12 @@ func quiesceWithKey(g *game.Game, key uint64, color, maximizingFor board.Color, 
 
 	// Stand-pat cutoff: if the static evaluation already beats beta (or <= alpha for minimizer),
 	// we can stand pat and decline all captures immediately, avoiding move generation.
+	// A stalemated side cannot stand pat: it has no legal moves and draws immediately.
 	if maximizing {
 		if standPat >= beta {
+			if !g.HasAnyLegalMoveInCheck(color, false) {
+				return terminalScore(g, color, maximizingFor, basePly+ply)
+			}
 			return standPat
 		}
 		if standPat > alpha {
@@ -361,6 +365,9 @@ func quiesceWithKey(g *game.Game, key uint64, color, maximizingFor board.Color, 
 		}
 	} else {
 		if standPat <= alpha {
+			if !g.HasAnyLegalMoveInCheck(color, false) {
+				return terminalScore(g, color, maximizingFor, basePly+ply)
+			}
 			return standPat
 		}
 		if standPat < beta {

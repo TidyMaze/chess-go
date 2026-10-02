@@ -55,6 +55,36 @@ func TestQuiescenceRecognisesMateAndStalemate(t *testing.T) {
 	}
 }
 
+func TestQuiescenceStandPatStalemateWhenAhead(t *testing.T) {
+	// White to move, stalemated but ahead by a pawn (h7 pawn, King h8, Black King f7).
+	// With beta below the static evaluation, stand-pat must not cut off and claim
+	// a winning score when the position has no legal moves.
+	g := mustFEN(t, "7K/5k1P/8/8/8/8/8/8 w - - 0 1")
+	ev := plainEval(false)
+	static := evalPosition(g, board.White, ev)
+	if static <= 0.5 {
+		t.Fatalf("expected positive static eval for White ahead a pawn, got %.3f", static)
+	}
+	// Beta is 0.5, below static score.
+	q := quiesce(g, board.White, board.White, -1.0, 0.5, ev, 0, 0)
+	if math.Abs(q) > 1e-9 {
+		t.Errorf("white stalemate scored %.3f from quiescence with beta=0.5, want 0", q)
+	}
+
+	// Black to move, stalemated but ahead by a pawn (h2 pawn, King h1, White King f2).
+	// Minimizing for White: static score is negative (favoring Black).
+	// With alpha above the static evaluation, stand-pat must not cut off.
+	gb := mustFEN(t, "8/8/8/8/8/8/5K1p/7k b - - 0 1")
+	staticB := evalPosition(gb, board.White, ev)
+	if staticB >= -0.5 {
+		t.Fatalf("expected negative static eval for White against Black pawn, got %.3f", staticB)
+	}
+	qb := quiesce(gb, board.Black, board.White, -0.5, 1.0, ev, 0, 0)
+	if math.Abs(qb) > 1e-9 {
+		t.Errorf("black stalemate scored %.3f from quiescence with alpha=-0.5, want 0", qb)
+	}
+}
+
 // 3. A capture that promotes must promote inside quiescence too. The
 // board layer does not know the rule and quiescence never applied it, so
 // exd8 left a pawn standing on d8.
