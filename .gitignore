@@ -122,3 +122,4 @@ run_playwright_mcp.sh
 !*.meta.json
 moveaudit-bin
 backup_pools/
+openings_*.txt

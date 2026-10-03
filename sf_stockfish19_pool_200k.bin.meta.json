@@ -1,0 +1,9 @@
+{
+  "positions": "openings",
+  "source": "openings_mid.txt",
+  "labeller": "Stockfish 19 (depth 6)",
+  "label_depth": 6,
+  "lambda": 1,
+  "buckets": 8,
+  "note": "Rescored 199406 positions with Stockfish 19"
+}
