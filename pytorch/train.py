@@ -274,13 +274,45 @@ def load_net(model: HalfKP, path: Path) -> None:
     new labels disagree.
     """
     net = json.loads(Path(path).read_text())
-    if (net["h"] != model.hidden or net.get("buckets", 8) != model.buckets
-            or net.get("h2", 0) != model.hidden2):
+    net_h = net["h"]
+    net_h2 = net.get("h2", 0)
+    net_b = net.get("buckets", 8)
+    if (model.hidden == 2 * net_h and net_b == model.buckets
+            and model.hidden2 == 0 and net_h2 == 0):
+        with torch.no_grad():
+            w1 = torch.tensor(net["w1"], dtype=torch.float32).view(model.inputs, net_h)
+            model.embed.weight[: model.inputs, :net_h].copy_(w1)
+            model.embed.weight[: model.inputs, net_h:].copy_(w1)
+            model.embed.weight[model.inputs].zero_()
+            b1 = torch.tensor(net["b1"], dtype=torch.float32)
+            model.b1[:net_h].copy_(b1)
+            model.b1[net_h:].copy_(b1)
+            w2 = torch.tensor(net["w2"], dtype=torch.float32)
+            own_w = w2[:net_h]
+            opp_w = w2[net_h:]
+            wide_w2 = torch.cat([own_w / 2.0, own_w / 2.0, opp_w / 2.0, opp_w / 2.0])
+            model.out.weight.copy_(wide_w2.view(1, -1))
+            model.out.bias.fill_(float(net["b2"]))
+        return
+
+    if (model.hidden == net_h and net_b == model.buckets
+            and model.hidden2 > 0 and net_h2 == 0):
+        with torch.no_grad():
+            w1 = torch.tensor(net["w1"], dtype=torch.float32).view(model.inputs, net_h)
+            model.embed.weight[: model.inputs].copy_(w1)
+            model.embed.weight[model.inputs].zero_()
+            model.b1.copy_(torch.tensor(net["b1"], dtype=torch.float32))
+        return
+
+    if (net_h != model.hidden or net_b != model.buckets
+            or net_h2 != model.hidden2):
+
         raise ValueError(
             "network is %d hidden, %d buckets and a second layer of %d, "
             "the model is %d, %d and %d"
             % (net["h"], net.get("buckets", 8), net.get("h2", 0),
                model.hidden, model.buckets, model.hidden2))
+
     with torch.no_grad():
         w1 = torch.tensor(net["w1"], dtype=torch.float32).view(model.inputs, model.hidden)
         model.embed.weight[: model.inputs].copy_(w1)

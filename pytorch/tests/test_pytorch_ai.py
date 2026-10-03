@@ -576,3 +576,41 @@ def test_the_trainer_trains_and_exports_a_second_layer(tmp_path):
     # rather than loaded over weights that mean something else.
     run_main(train, common)
     assert "h2" not in json.loads(out.read_text())
+
+
+def test_load_net_widens_when_hidden_doubled(tmp_path):
+    src = train.HalfKP(hidden=4, buckets=8)
+    with torch.no_grad():
+        src.embed.weight.normal_()
+        src.embed.weight[src.inputs].zero_()
+        src.b1.normal_()
+        src.out.weight.normal_()
+        src.out.bias.normal_()
+    path = tmp_path / "net4.json"
+    train.export(src, path)
+
+    dst = train.HalfKP(hidden=8, buckets=8)
+    train.load_net(dst, path)
+
+    own = torch.randint(0, src.inputs, (5, 10))
+    opp = torch.randint(0, src.inputs, (5, 10))
+    src_out = src(own, opp)
+    dst_out = dst(own, opp)
+    assert torch.allclose(src_out, dst_out, atol=1e-5)
+
+
+def test_load_net_warmstarts_first_layer_for_second_layer(tmp_path):
+    src = train.HalfKP(hidden=4, buckets=8)
+    with torch.no_grad():
+        src.embed.weight.normal_()
+        src.embed.weight[src.inputs].zero_()
+        src.b1.normal_()
+    path = tmp_path / "net4.json"
+    train.export(src, path)
+
+    dst = train.HalfKP(hidden=4, buckets=8, hidden2=3)
+    train.load_net(dst, path)
+    assert torch.allclose(dst.embed.weight[:dst.inputs], src.embed.weight[:src.inputs])
+    assert torch.allclose(dst.b1, src.b1)
+
+
