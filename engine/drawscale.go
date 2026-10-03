@@ -25,8 +25,13 @@ func drawScale(b *board.Board, score float64, maximizingFor board.Color) float64
 		}
 		minors := count(strong, board.Knight) + count(strong, board.Bishop)
 		majors := count(strong, board.Rook) + count(strong, board.Queen)
+		weakMinors := count(weak, board.Knight) + count(weak, board.Bishop)
+		weakMajors := count(weak, board.Rook) + count(weak, board.Queen)
 		if majors == 0 && (minors <= 1 || count(strong, board.Bishop) == 0) {
 			return 0 // one minor, or knights alone, cannot force mate
+		}
+		if count(weak, board.Pawn) == 0 && majors == 0 && weakMajors == 0 && minors <= 2 && weakMinors >= 1 {
+			return 0 // two minors cannot force mate against a minor piece
 		}
 		// A queen against at most two minor pieces is short of the margin
 		// and still mostly won: the tablebase wins 78, 71 and 59 of 80

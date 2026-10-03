@@ -554,8 +554,6 @@ func PositionScoreEval(b *board.Board, color board.Color, ev *Eval) float64 {
 		if ev.Shelter {
 			score -= kingShelterPenalty(b, color)
 			score += kingShelterPenalty(b, color.Other())
-			score -= passedKingPenalty(b, color)
-			score += passedKingPenalty(b, color.Other())
 		}
 		if ev.PassedKing {
 			score -= passedKingPenalty(b, color)
@@ -721,8 +719,6 @@ func PositionScoreEval(b *board.Board, color board.Color, ev *Eval) float64 {
 	if ev != nil && ev.Shelter {
 		score -= kingShelterPenalty(b, color)
 		score += kingShelterPenalty(b, color.Other())
-		score -= passedKingPenalty(b, color)
-		score += passedKingPenalty(b, color.Other())
 	}
 	if ev != nil && ev.PassedKing {
 		score -= passedKingPenalty(b, color)
