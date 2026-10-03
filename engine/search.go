@@ -107,17 +107,29 @@ func moveOrderScore(g *game.Game, m game.Move) int {
 // orderInPlace sorts the caller's slice in place, best-looking moves
 // first.
 func orderInPlace(g *game.Game, out []game.Move) []game.Move {
-	captureFirst := func(m game.Move) int {
-		return -moveOrderScore(g, m)
+	if len(out) <= 1 {
+		return out
 	}
-	// simple insertion sort by key: stable, and the slices here are small
-	// (at most a few dozen moves), so O(n^2) is not a concern.
+	var scoresBuf [64]int
+	var scores []int
+	if len(out) <= len(scoresBuf) {
+		scores = scoresBuf[:len(out)]
+	} else {
+		scores = make([]int, len(out))
+	}
+	for i, m := range out {
+		scores[i] = moveOrderScore(g, m)
+	}
 	for i := 1; i < len(out); i++ {
+		m, sc := out[i], scores[i]
 		j := i
-		for j > 0 && captureFirst(out[j-1]) > captureFirst(out[j]) {
-			out[j-1], out[j] = out[j], out[j-1]
+		for j > 0 && scores[j-1] < sc {
+			out[j] = out[j-1]
+			scores[j] = scores[j-1]
 			j--
 		}
+		out[j] = m
+		scores[j] = sc
 	}
 	return out
 }

@@ -427,3 +427,137 @@ func (b *Board) AlignedSliders(king Sq, enemy Color) (rooks, bishops bool) {
 	bishops = BishopAttacks(i, 0)&(b.pieces[enemy][Bishop]|queens) != 0
 	return rooks, bishops
 }
+
+// KingZoneHits returns the number of squares in zoneTarget attacked by a piece
+// of type pt on square sqIdx. zoneTarget is the king zone with the attacker's
+// own pieces already removed.
+func (b *Board) KingZoneHits(sqIdx uint8, pt PieceType, occ, zoneTarget uint64) int {
+	switch pt {
+	case Knight:
+		return bits.OnesCount64(KnightAttacks[sqIdx&63] & zoneTarget)
+	case Bishop:
+		l := &lineMasks[sqIdx&63]
+		hits := 0
+		if l.diag&zoneTarget != 0 {
+			hits += bits.OnesCount64(lineAttacks(sqIdx, occ, l.diag) & zoneTarget)
+		}
+		if l.anti&zoneTarget != 0 {
+			hits += bits.OnesCount64(lineAttacks(sqIdx, occ, l.anti) & zoneTarget)
+		}
+		return hits
+	case Rook:
+		l := &lineMasks[sqIdx&63]
+		hits := 0
+		if l.file&zoneTarget != 0 {
+			hits += bits.OnesCount64(lineAttacks(sqIdx, occ, l.file) & zoneTarget)
+		}
+		if l.rank&zoneTarget != 0 {
+			hits += bits.OnesCount64(lineAttacks(sqIdx, occ, l.rank) & zoneTarget)
+		}
+		return hits
+	case Queen:
+		l := &lineMasks[sqIdx&63]
+		hits := 0
+		if l.diag&zoneTarget != 0 {
+			hits += bits.OnesCount64(lineAttacks(sqIdx, occ, l.diag) & zoneTarget)
+		}
+		if l.anti&zoneTarget != 0 {
+			hits += bits.OnesCount64(lineAttacks(sqIdx, occ, l.anti) & zoneTarget)
+		}
+		if l.file&zoneTarget != 0 {
+			hits += bits.OnesCount64(lineAttacks(sqIdx, occ, l.file) & zoneTarget)
+		}
+		if l.rank&zoneTarget != 0 {
+			hits += bits.OnesCount64(lineAttacks(sqIdx, occ, l.rank) & zoneTarget)
+		}
+		return hits
+	}
+	return 0
+}
+
+// KingZoneAttacks counts enemy attackers and weighted hits into zone around king.
+func (b *Board) KingZoneAttacks(enemy Color, zone uint64) (int, float64) {
+	zoneTarget := zone &^ b.colorBB[enemy]
+	if zoneTarget == 0 {
+		return 0, 0
+	}
+	occ := b.occupiedBB()
+	attackers := 0
+	weightSum := 0.0
+
+	// Knights (weight 2)
+	for bb := b.pieces[enemy][Knight]; bb != 0; bb &= bb - 1 {
+		hits := bits.OnesCount64(KnightAttacks[bits.TrailingZeros64(bb)&63] & zoneTarget)
+		if hits > 0 {
+			attackers++
+			weightSum += 2.0 * float64(hits)
+		}
+	}
+	// Bishops (weight 2)
+	for bb := b.pieces[enemy][Bishop]; bb != 0; bb &= bb - 1 {
+		sqIdx := bits.TrailingZeros64(bb) & 63
+		l := &lineMasks[sqIdx]
+		if (l.diag|l.anti)&zoneTarget == 0 {
+			continue
+		}
+		hits := 0
+		if l.diag&zoneTarget != 0 {
+			hits += bits.OnesCount64(lineAttacks(uint8(sqIdx), occ, l.diag) & zoneTarget)
+		}
+		if l.anti&zoneTarget != 0 {
+			hits += bits.OnesCount64(lineAttacks(uint8(sqIdx), occ, l.anti) & zoneTarget)
+		}
+		if hits > 0 {
+			attackers++
+			weightSum += 2.0 * float64(hits)
+		}
+	}
+	// Rooks (weight 3)
+	for bb := b.pieces[enemy][Rook]; bb != 0; bb &= bb - 1 {
+		sqIdx := bits.TrailingZeros64(bb) & 63
+		l := &lineMasks[sqIdx]
+		if (l.file|l.rank)&zoneTarget == 0 {
+			continue
+		}
+		hits := 0
+		if l.file&zoneTarget != 0 {
+			hits += bits.OnesCount64(lineAttacks(uint8(sqIdx), occ, l.file) & zoneTarget)
+		}
+		if l.rank&zoneTarget != 0 {
+			hits += bits.OnesCount64(lineAttacks(uint8(sqIdx), occ, l.rank) & zoneTarget)
+		}
+		if hits > 0 {
+			attackers++
+			weightSum += 3.0 * float64(hits)
+		}
+	}
+	// Queens (weight 5)
+	for bb := b.pieces[enemy][Queen]; bb != 0; bb &= bb - 1 {
+		sqIdx := bits.TrailingZeros64(bb) & 63
+		l := &lineMasks[sqIdx]
+		if (l.diag|l.anti|l.file|l.rank)&zoneTarget == 0 {
+			continue
+		}
+		hits := 0
+		if l.diag&zoneTarget != 0 {
+			hits += bits.OnesCount64(lineAttacks(uint8(sqIdx), occ, l.diag) & zoneTarget)
+		}
+		if l.anti&zoneTarget != 0 {
+			hits += bits.OnesCount64(lineAttacks(uint8(sqIdx), occ, l.anti) & zoneTarget)
+		}
+		if l.file&zoneTarget != 0 {
+			hits += bits.OnesCount64(lineAttacks(uint8(sqIdx), occ, l.file) & zoneTarget)
+		}
+		if l.rank&zoneTarget != 0 {
+			hits += bits.OnesCount64(lineAttacks(uint8(sqIdx), occ, l.rank) & zoneTarget)
+		}
+		if hits > 0 {
+			attackers++
+			weightSum += 5.0 * float64(hits)
+		}
+	}
+
+	return attackers, weightSum
+}
+
+

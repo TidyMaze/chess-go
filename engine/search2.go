@@ -607,6 +607,15 @@ func sortByKey(ms []game.Move, keys []int64) {
 // index is then the first key equal to that value.
 func bestKey(keys []int64, j int) int {
 	rest := keys[j:]
+	if len(rest) <= 1 {
+		return j
+	}
+	if len(rest) == 2 {
+		if rest[1] > rest[0] {
+			return j + 1
+		}
+		return j
+	}
 	m0 := rest[0]
 	m1, m2, m3 := m0, m0, m0
 	q := rest[1:]
@@ -682,6 +691,8 @@ func (c *searchCtx) scoreMoves(g *game.Game, ms []game.Move, keys []int64, ttMov
 	tt := moveWord(ttMove)
 	history := &c.history[color]
 	ep, hasEP := b.EPSquare()
+	enemy := b.ColorBitboard(color.Other())
+	pawns := b.PieceBitboard(color, board.Pawn)
 	keys = keys[:len(ms)]
 	for i, m := range ms {
 		w := moveWord(m)
@@ -689,9 +700,11 @@ func (c *searchCtx) scoreMoves(g *game.Game, ms []game.Move, keys []int64, ttMov
 			keys[i] = orderKey(1<<30, i, 0)
 			continue
 		}
-		victim, capture := b.CellPiece(m.To)
-		attacker, hasAttacker := b.CellPiece(m.From)
-		pawn := hasAttacker && attacker.Type == board.Pawn
+		fromIdx := sqIndex(m.From)
+		toIdx := sqIndex(m.To)
+		capture := enemy&(uint64(1)<<toIdx) != 0
+		pawn := pawns&(uint64(1)<<fromIdx) != 0
+		var victim, attacker board.Piece
 		if !capture && pawn && m.From.File != m.To.File && hasEP && ep == m.To {
 			victim, capture = board.Piece{Type: board.Pawn}, true
 		}
@@ -699,6 +712,10 @@ func (c *searchCtx) scoreMoves(g *game.Game, ms []game.Move, keys []int64, ttMov
 		var sv int16
 		switch {
 		case capture:
+			if victim.Type == 0 {
+				victim, _ = b.CellPiece(m.To)
+			}
+			attacker, _ = b.CellPiece(m.From)
 			v, a := mvvLvaPiece[victim.Type], mvvLvaPiece[attacker.Type]
 			switch {
 			case !mainSEE:
@@ -706,9 +723,6 @@ func (c *searchCtx) scoreMoves(g *game.Game, ms []game.Move, keys []int64, ttMov
 			case v >= a:
 				score = 1<<20 + (v-a)*100 + v
 			default:
-				// An exchange never wins more than the victim, so this is
-				// the most exchangeScore can give; pickMove asks for the
-				// real one only if the capture ever comes up best.
 				score, sv = 1<<20+v*101, seeUnknown
 			}
 		case pawn && (m.To.Rank == 7 || m.To.Rank == 0):
@@ -722,10 +736,12 @@ func (c *searchCtx) scoreMoves(g *game.Game, ms []game.Move, keys []int64, ttMov
 		case pawn && pawnPush && advancedPawnPush(b, m, color):
 			score = 1<<18 - 50
 		default:
-			score = int(history[sqIndex(m.From)][sqIndex(m.To)])
-			// contSlot's entry, read on the piece already looked up.
-			if hasAttacker && contRow != nil {
-				score += int(contRow[attacker.Type][sqIndex(m.To)])
+			score = int(history[fromIdx][toIdx])
+			if contRow != nil {
+				attacker, hasAttacker := b.CellPiece(m.From)
+				if hasAttacker {
+					score += int(contRow[attacker.Type][toIdx])
+				}
 			}
 		}
 		keys[i] = orderKey(score, i, sv)

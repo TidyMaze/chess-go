@@ -354,32 +354,17 @@ func kingSafetyPenalty(b *board.Board, color board.Color, phase float64, weight 
 		return 0
 	}
 	enemy := color.Other()
-	enemyMajors := b.PieceBitboard(enemy, board.Rook) | b.PieceBitboard(enemy, board.Queen)
+	enemyQueens := b.PieceBitboard(enemy, board.Queen)
+	enemyRooks := b.PieceBitboard(enemy, board.Rook)
+	enemyMajors := enemyRooks | enemyQueens
 	enemyMinors := b.PieceBitboard(enemy, board.Knight) | b.PieceBitboard(enemy, board.Bishop)
 	if enemyMajors|enemyMinors == 0 {
 		return 0
 	}
 	king := b.KingSquare(color)
-	// The king's square and its eight neighbours, which is what the walk
-	// below counts as a hit: a target within one step of the king.
 	zone := board.KingAttacks[sqIndex(king)] | 1<<sqIndex(king)
 
-	attackers, weightSum := 0, 0.0
-	for pt, w := range kingAttackerWeight {
-		if w == 0 {
-			continue
-		}
-		for bb := b.PieceBitboard(enemy, board.PieceType(pt)); bb != 0; bb &= bb - 1 {
-			sqIdx := bits.TrailingZeros64(bb)
-			sq := board.Sq{File: int8(sqIdx % 8), Rank: int8(sqIdx / 8)}
-			bbTargets, _ := b.TargetBitboard(sq, enemy, board.PieceType(pt))
-			hits := bits.OnesCount64(bbTargets & zone)
-			if hits > 0 {
-				attackers++
-				weightSum += w * float64(hits)
-			}
-		}
-	}
+	attackers, weightSum := b.KingZoneAttacks(enemy, zone)
 
 	kingFileMask := board.FileMask[king.File]
 	if enemyMajors&kingFileMask != 0 {
@@ -396,7 +381,7 @@ func kingSafetyPenalty(b *board.Board, color board.Color, phase float64, weight 
 		}
 	}
 
-	if b.PieceBitboard(enemy, board.Queen) == 0 {
+	if enemyQueens == 0 {
 		weightSum *= 0.5
 	}
 

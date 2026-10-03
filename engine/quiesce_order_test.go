@@ -29,3 +29,32 @@ func TestFixedDepthNodeCount(t *testing.T) {
 	}
 	t.Logf("depth 5 over %d positions: %d nodes", len(correctnessPositions[3:8]), total)
 }
+
+func TestOrderInPlaceExact(t *testing.T) {
+	for _, fen := range correctnessPositions {
+		g, err := game.ParseFEN(fen)
+		if err != nil {
+			continue
+		}
+		var buf [96]game.Move
+		moves, _, _ := g.AppendQuiescenceMoves(buf[:0], g.Turn)
+		if len(moves) <= 1 {
+			continue
+		}
+		ordered := make([]game.Move, len(moves))
+		copy(ordered, moves)
+		orderInPlace(g, ordered)
+
+		if len(ordered) != len(moves) {
+			t.Fatalf("length mismatch: got %d, want %d", len(ordered), len(moves))
+		}
+		for i := 1; i < len(ordered); i++ {
+			sPrev := moveOrderScore(g, ordered[i-1])
+			sCurr := moveOrderScore(g, ordered[i])
+			if sPrev < sCurr {
+				t.Fatalf("not sorted: score(%v)=%d < score(%v)=%d", ordered[i-1], sPrev, ordered[i], sCurr)
+			}
+		}
+	}
+}
+

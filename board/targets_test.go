@@ -1,6 +1,7 @@
 package board
 
 import (
+	"math/bits"
 	"math/rand"
 	"testing"
 )
@@ -82,3 +83,66 @@ func TestAlignedSlidersMatchesABruteForceScan(t *testing.T) {
 		}
 	}
 }
+
+func TestKingZoneHitsMatchesTargetBitboard(t *testing.T) {
+	rng := rand.New(rand.NewSource(13))
+	for trial := 0; trial < 100; trial++ {
+		b := crowdedBoard(rng)
+		occ := b.occupiedBB()
+		for _, c := range []Color{White, Black} {
+			king := b.KingSquare(c)
+			zone := KingAttacks[squareIndex(king)] | (uint64(1) << squareIndex(king))
+			enemy := c.Other()
+			zoneTarget := zone &^ b.colorBB[enemy]
+			for _, pt := range []PieceType{Knight, Bishop, Rook, Queen} {
+				for bb := b.PieceBitboard(enemy, pt); bb != 0; bb &= bb - 1 {
+					sqIdx := uint8(bits.TrailingZeros64(bb))
+					sq := squareFromIndex(sqIdx)
+					bbTargets, _ := b.TargetBitboard(sq, enemy, pt)
+					wantHits := bits.OnesCount64(bbTargets & zone)
+					gotHits := b.KingZoneHits(sqIdx, pt, occ, zoneTarget)
+					if gotHits != wantHits {
+						t.Fatalf("trial %d %v %v on %v: got %d hits, want %d", trial, enemy, pt, sq, gotHits, wantHits)
+					}
+				}
+			}
+		}
+	}
+}
+
+func TestKingZoneAttacks(t *testing.T) {
+	rng := rand.New(rand.NewSource(14))
+	for trial := 0; trial < 100; trial++ {
+		b := crowdedBoard(rng)
+		for _, c := range []Color{White, Black} {
+			king := b.KingSquare(c)
+			zone := KingAttacks[squareIndex(king)] | (uint64(1) << squareIndex(king))
+			enemy := c.Other()
+
+			wantAttackers := 0
+			wantWeightSum := 0.0
+			weights := map[PieceType]float64{
+				Knight: 2.0, Bishop: 2.0, Rook: 3.0, Queen: 5.0,
+			}
+			for pt, w := range weights {
+				for bb := b.PieceBitboard(enemy, pt); bb != 0; bb &= bb - 1 {
+					sqIdx := uint8(bits.TrailingZeros64(bb))
+					sq := squareFromIndex(sqIdx)
+					bbTargets, _ := b.TargetBitboard(sq, enemy, pt)
+					hits := bits.OnesCount64(bbTargets & zone)
+					if hits > 0 {
+						wantAttackers++
+						wantWeightSum += w * float64(hits)
+					}
+				}
+			}
+
+			gotAttackers, gotWeightSum := b.KingZoneAttacks(enemy, zone)
+			if gotAttackers != wantAttackers || gotWeightSum != wantWeightSum {
+				t.Fatalf("trial %d %v: got (%d, %v), want (%d, %v)", trial, c, gotAttackers, gotWeightSum, wantAttackers, wantWeightSum)
+			}
+		}
+	}
+}
+
+

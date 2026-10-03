@@ -73,6 +73,7 @@ func AppendLegalTargets(dst []board.Sq, b *board.Board, sq board.Sq, color board
 func AppendQuiescenceTargets(dst []board.Sq, b *board.Board, sq board.Sq, color board.Color, pt board.PieceType) []board.Sq {
 	i := uint8(sq.Rank*8+sq.File) & 63
 	enemy := b.ColorBitboard(color.Other())
+	occupied := enemy | b.ColorBitboard(color)
 	switch pt {
 	case board.Pawn:
 		capturable := enemy
@@ -80,7 +81,6 @@ func AppendQuiescenceTargets(dst []board.Sq, b *board.Board, sq board.Sq, color 
 			capturable |= 1 << (ep.Rank*8 + ep.File)
 		}
 		targets := board.PawnAttacks[color][i] & capturable
-		occupied := enemy | b.ColorBitboard(color)
 		if color == board.White && i >= 48 && i < 56 {
 			targets |= 1 << (i + 8) &^ occupied
 		} else if color == board.Black && i >= 8 && i < 16 {
@@ -95,17 +95,17 @@ func AppendQuiescenceTargets(dst []board.Sq, b *board.Board, sq board.Sq, color 
 		if bishopLines[i]&enemy == 0 {
 			return dst
 		}
-		return appendSlideCaptures(dst, b, i, enemy, 0, 4)
+		return appendSlideCaptures(dst, b, i, enemy, occupied, 0, 4)
 	case board.Rook:
 		if rookLines[i]&enemy == 0 {
 			return dst
 		}
-		return appendSlideCaptures(dst, b, i, enemy, 4, 8)
+		return appendSlideCaptures(dst, b, i, enemy, occupied, 4, 8)
 	case board.Queen:
 		if (rookLines[i]|bishopLines[i])&enemy == 0 {
 			return dst
 		}
-		return appendSlideCaptures(dst, b, i, enemy, 0, 8)
+		return appendSlideCaptures(dst, b, i, enemy, occupied, 0, 8)
 	}
 	panic("unknown piece type")
 }
@@ -121,8 +121,7 @@ var positiveRay = func() (t [8]bool) {
 
 // appendSlideCaptures appends, for each direction queenDirs[first:last] in
 // turn, the first man on the ray from i when it is an enemy.
-func appendSlideCaptures(dst []board.Sq, b *board.Board, i uint8, enemy uint64, first, last int) []board.Sq {
-	occupied := enemy | b.ColorBitboard(board.White) | b.ColorBitboard(board.Black)
+func appendSlideCaptures(dst []board.Sq, b *board.Board, i uint8, enemy, occupied uint64, first, last int) []board.Sq {
 	for k := first; k < last; k++ {
 		blockers := sliderRays[k][i] & occupied
 		if blockers == 0 {
