@@ -127,8 +127,10 @@ func main() {
 	jobs := make(chan string, *workers*2)
 	results := make(chan sampleRecord, *workers*4)
 	var wg sync.WaitGroup
+	var savedCount int64
 
 	for w := 0; w < *workers; w++ {
+
 		wg.Add(1)
 		go func(workerID int) {
 			defer wg.Done()
@@ -174,8 +176,9 @@ func main() {
 				own := engine.AppendHalfKPFeatures(nil, &g.Board, board.White)
 				opp := engine.AppendHalfKPFeatures(nil, &g.Board, board.Black)
 
+				idx := atomic.AddInt64(&savedCount, 1)
 				results <- sampleRecord{
-					game:   int32(workerID + 1),
+					game:   int32((idx / 20) + 1),
 					target: float32(score),
 					static: float32(score),
 					own:    own,
@@ -183,6 +186,7 @@ func main() {
 				}
 			}
 		}(w)
+
 	}
 
 	go func() {
