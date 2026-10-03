@@ -4,7 +4,6 @@ import (
 	"math"
 	"math/bits"
 	"math/rand"
-	"runtime"
 	"sync"
 	"time"
 
@@ -68,19 +67,12 @@ func MCTS(g *game.Game, cfg MCTSConfig) (game.Move, bool) {
 		cfg.Exploration = 1.41421356
 	}
 	if cfg.MaxRollout <= 0 {
-		cfg.MaxRollout = 10
+		cfg.MaxRollout = 30
 	}
 
 	threads := cfg.Threads
 	if threads <= 0 {
-		if cfg.RNG != nil || (cfg.Simulations > 0 && cfg.Simulations < 2000) {
-			threads = 1
-		} else {
-			threads = runtime.GOMAXPROCS(0)
-			if threads > 8 {
-				threads = 8
-			}
-		}
+		threads = 1
 	}
 
 	var baseSeed uint64
@@ -326,4 +318,116 @@ func materialPayoff(b *board.Board) float64 {
 		diff -= w * float64(bits.OnesCount64(b.PieceBitboard(board.Black, pt)))
 	}
 	return 1.0 / (1.0 + math.Exp(-diff/4.0))
+}
+
+// MCTSOld runs the original unoptimized baseline pure MCTS implementation (single-threaded, fresh slices, 30-ply rollout).
+func MCTSOld(g *game.Game, cfg MCTSConfig) (game.Move, bool) {
+	legalMoves := g.AllLegalMoves(g.Turn)
+	if len(legalMoves) == 0 {
+		return game.Move{}, false
+	}
+	if len(legalMoves) == 1 {
+		return legalMoves[0], true
+	}
+	if cfg.Exploration <= 0 {
+		cfg.Exploration = 1.41421356
+	}
+	maxRollout := cfg.MaxRollout
+	if maxRollout <= 0 {
+		maxRollout = 30
+	}
+	rng := cfg.RNG
+	if rng == nil {
+		rng = rand.New(rand.NewSource(time.Now().UnixNano()))
+	}
+	root := &mctsNode{
+		turn:         g.Turn,
+		untriedMoves: legalMoves,
+	}
+	var deadline time.Time
+	hasDeadline := cfg.TimeBudget > 0
+	if hasDeadline {
+		deadline = time.Now().Add(cfg.TimeBudget)
+	}
+	maxSims := cfg.Simulations
+	if maxSims <= 0 && !hasDeadline {
+		maxSims = 1000
+	}
+	for sim := 0; ; sim++ {
+		if hasDeadline {
+			if (sim&63) == 0 && time.Now().After(deadline) {
+				break
+			}
+		} else if sim >= maxSims {
+			break
+		}
+		curr := root
+		simGame := *g
+		simGame.Board = g.Board.Clone()
+		simGame.TrackRepetition = false
+
+		for !curr.isTerminal && len(curr.untriedMoves) == 0 && len(curr.children) > 0 {
+			curr = curr.selectChild(cfg.Exploration)
+			simGame.Apply(curr.move)
+		}
+		if !curr.isTerminal && len(curr.untriedMoves) > 0 {
+			lastIdx := len(curr.untriedMoves) - 1
+			pickIdx := rng.Intn(len(curr.untriedMoves))
+			m := curr.untriedMoves[pickIdx]
+			curr.untriedMoves[pickIdx] = curr.untriedMoves[lastIdx]
+			curr.untriedMoves = curr.untriedMoves[:lastIdx]
+
+			simGame.Apply(m)
+			childMoves := simGame.AllLegalMoves(simGame.Turn)
+			child := newMCTSNode(curr, m, &simGame, childMoves)
+			curr.children = append(curr.children, child)
+			curr = child
+		}
+		whiteScore := curr.whiteOutcome
+		if !curr.isTerminal {
+			for ply := 0; ply < maxRollout; ply++ {
+				if simGame.KingCaptured {
+					if simGame.Turn == board.White {
+						whiteScore = 0.0
+					} else {
+						whiteScore = 1.0
+					}
+					break
+				}
+				if simGame.HalfmoveClock >= 100 {
+					whiteScore = 0.5
+					break
+				}
+				moves := simGame.AllLegalMoves(simGame.Turn)
+				if len(moves) == 0 {
+					if chessmoves.IsInCheck(&simGame.Board, simGame.Turn) {
+						if simGame.Turn == board.White {
+							whiteScore = 0.0
+						} else {
+							whiteScore = 1.0
+						}
+					} else {
+						whiteScore = 0.5
+					}
+					break
+				}
+				m := moves[rng.Intn(len(moves))]
+				simGame.Apply(m)
+				if ply == maxRollout-1 {
+					whiteScore = materialPayoff(&simGame.Board)
+				}
+			}
+		}
+		for node := curr; node != nil; node = node.parent {
+			node.visits++
+			if node.parent != nil {
+				if node.parent.turn == board.White {
+					node.wins += whiteScore
+				} else {
+					node.wins += (1.0 - whiteScore)
+				}
+			}
+		}
+	}
+	return pickBestRootMove(root, legalMoves)
 }

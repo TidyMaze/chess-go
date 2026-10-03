@@ -169,11 +169,11 @@ func TestMCTSDoesNotMutateGameRepetition(t *testing.T) {
 	}
 }
 
-func BenchmarkMCTS(b *testing.B) {
+func BenchmarkMCTSNew(b *testing.B) {
 	g := game.New()
 	cfg := MCTSConfig{
 		Simulations: 500,
-		MaxRollout:  20,
+		MaxRollout:  30,
 		RNG:         rand.New(rand.NewSource(1)),
 	}
 	b.ResetTimer()
@@ -182,16 +182,40 @@ func BenchmarkMCTS(b *testing.B) {
 	}
 }
 
-func BenchmarkMCTSParallel(b *testing.B) {
+func BenchmarkMCTSOld(b *testing.B) {
 	g := game.New()
 	cfg := MCTSConfig{
-		Simulations: 4000,
-		MaxRollout:  10,
+		Simulations: 500,
+		MaxRollout:  30,
+		RNG:         rand.New(rand.NewSource(1)),
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		MCTSOld(g, cfg)
+	}
+}
+
+func BenchmarkMCTSNew4Threads(b *testing.B) {
+	g := game.New()
+	cfg := MCTSConfig{
+		Simulations: 500,
+		MaxRollout:  30,
+		Threads:     4,
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		MCTS(g, cfg)
 	}
+}
+
+func TestCompareMCTS(t *testing.T) {
+	g := game.New()
+	cfg := MCTSConfig{
+		TimeBudget: 50 * time.Millisecond,
+	}
+	mNew, _ := MCTS(g, cfg)
+	mOld, _ := MCTSOld(g, cfg)
+	t.Logf("MCTS New: %s, MCTS Old: %s", g.MoveUCI(mNew), g.MoveUCI(mOld))
 }
 
 

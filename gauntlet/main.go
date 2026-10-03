@@ -131,6 +131,8 @@ func (s referenceSwitches) applyTo(p engine.Player) (engine.Player, error) {
 			p.KingSafety = 0.01
 		case "mcts":
 			p.MCTS = true
+		case "mctsold":
+			p.MCTSOld = true
 		default:
 			return p, fmt.Errorf("unknown feature %q", f)
 		}
@@ -300,6 +302,8 @@ func main() {
 			challenger.KingSafety = 0.01
 		case "mcts":
 			challenger.MCTS = true
+		case "mctsold":
+			challenger.MCTSOld = true
 		default:
 			fmt.Printf("unknown feature %q\n", f)
 			return

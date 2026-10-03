@@ -197,6 +197,7 @@ type Player struct {
 	// MCTS enables Pure Monte Carlo Tree Search.
 	MCTS     bool
 	MCTSSims int
+	MCTSOld  bool
 }
 
 // ApplyFeatures enables search features from a comma-separated string.
@@ -261,6 +262,8 @@ func (p *Player) ApplyFeatures(features string) {
 			p.StableTime = true
 		case "mcts":
 			p.MCTS = true
+		case "mctsold":
+			p.MCTSOld = true
 		}
 	}
 }
@@ -327,10 +330,21 @@ func (p Player) pickScored(g *game.Game, reuse *TranspositionTable) (game.Move, 
 		}
 		return moves[randIntn(len(moves))], math.NaN(), true
 	}
+	if p.MCTSOld {
+		cfg := MCTSConfig{
+			Simulations: p.MCTSSims,
+			TimeBudget:  p.TimeBudget,
+			Threads:     1,
+			MaxRollout:  30,
+		}
+		m, ok := MCTSOld(g, cfg)
+		return m, math.NaN(), ok
+	}
 	if p.MCTS {
 		cfg := MCTSConfig{
 			Simulations: p.MCTSSims,
 			TimeBudget:  p.TimeBudget,
+			Threads:     p.Threads,
 		}
 		m, ok := MCTS(g, cfg)
 		return m, math.NaN(), ok
