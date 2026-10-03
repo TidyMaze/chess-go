@@ -283,6 +283,25 @@ func TestMCTSv3TakesFreeQueen(t *testing.T) {
 	}
 }
 
+func TestMCTSDoesNotBlunderQueenToPawn(t *testing.T) {
+	// White queen on d1, Black pawn on e5. White has choice of Qd4/Qf3 (safe) vs Qf4 (attacked by e5 pawn).
+	// White must NOT blunder Qf4.
+	g, err := game.ParseFEN("rnb1kbnr/pppp1ppp/8/4p3/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := MCTSConfig{Simulations: 500}
+	m, ok := MCTSv3(g, cfg)
+	if !ok {
+		t.Fatal("MCTSv3 failed to return a move")
+	}
+	blunderFrom := board.Sq{File: 3, Rank: 0} // d1
+	blunderTo := board.Sq{File: 5, Rank: 3}   // f4
+	if m.From == blunderFrom && m.To == blunderTo {
+		t.Fatalf("MCTSv3 blundered queen to pawn: %v", m)
+	}
+}
+
 func TestCompareMCTS(t *testing.T) {
 	g := game.New()
 	cfg := MCTSConfig{

@@ -400,6 +400,52 @@ func materialPayoff(b *board.Board) float64 {
 	return sigmoidPayoffTable[idx]
 }
 
+func tacticalMaterialPayoff(b *board.Board, m game.Move, mover board.Color) float64 {
+	diff := 0
+	for pt := board.Pawn; pt <= board.Queen; pt++ {
+		w := materialWeights[pt]
+		diff += w * bits.OnesCount64(b.PieceBitboard(board.White, pt))
+		diff -= w * bits.OnesCount64(b.PieceBitboard(board.Black, pt))
+	}
+
+	if m.From != m.To {
+		opponent := mover.Other()
+		sqIdx := m.To.Rank*8 + m.To.File
+		piece, _ := b.PieceAt(m.To)
+		pt := piece.Type
+
+		if pt > board.Pawn {
+			w := materialWeights[pt]
+			enemyPawns := b.PieceBitboard(opponent, board.Pawn)
+			if (enemyPawns & board.PawnAttacksTo[opponent][sqIdx]) != 0 {
+				if mover == board.White {
+					diff -= w
+				} else {
+					diff += w
+				}
+			} else if pt > board.Knight {
+				enemyKnights := b.PieceBitboard(opponent, board.Knight)
+				if (enemyKnights & board.KnightAttacks[sqIdx]) != 0 {
+					if mover == board.White {
+						diff -= (w - 3)
+					} else {
+						diff += (w - 3)
+					}
+				}
+			}
+		}
+	}
+
+	idx := diff + 128
+	if idx < 0 {
+		return 0.0
+	}
+	if idx >= 256 {
+		return 1.0
+	}
+	return sigmoidPayoffTable[idx]
+}
+
 const mctsTableSize = 2048
 
 var (
@@ -422,16 +468,39 @@ type mctsNodeV3 struct {
 	firstChild   *mctsNodeV3
 	nextSibling  *mctsNodeV3
 	move         game.Move
-	board        board.Board
-	visits       int32
-	movesStart   int32
-	movesUntried int16
-	movesCount   int16
-	turn         board.Color
-	isTerminal   bool
-	expanded     bool
-	whiteOutcome float64
-	wins         float64
+	board         board.Board
+	visits        int32
+	movesStart    int32
+	movesUntried  int16
+	movesCount    int16
+	movesCaptures int16
+	turn          board.Color
+	isTerminal    bool
+	expanded      bool
+	whiteOutcome  float64
+	wins          float64
+}
+
+func partitionCaptures(moves []game.Move, b *board.Board) int16 {
+	var numCaps int16
+	l, r := 0, len(moves)-1
+	for l <= r {
+		_, isCap := b.PieceAt(moves[r].To)
+		if isCap {
+			numCaps++
+			r--
+		} else {
+			_, lCap := b.PieceAt(moves[l].To)
+			if lCap {
+				moves[l], moves[r] = moves[r], moves[l]
+				numCaps++
+				r--
+			} else {
+				l++
+			}
+		}
+	}
+	return numCaps
 }
 
 func (n *mctsNodeV3) selectChild(c float64) *mctsNodeV3 {
@@ -525,6 +594,7 @@ func runMCTSv3Worker(g *game.Game, cfg MCTSConfig, legalMoves []game.Move, seed 
 	root.movesStart = int32(startIdx)
 	root.movesCount = int16(len(legalMoves))
 	root.movesUntried = int16(len(legalMoves))
+	root.movesCaptures = partitionCaptures(arena.moves[startIdx:], &root.board)
 
 	var deadline time.Time
 	hasDeadline := cfg.TimeBudget > 0
@@ -564,6 +634,7 @@ func runMCTSv3Worker(g *game.Game, cfg MCTSConfig, legalMoves []game.Move, seed 
 				curr.movesStart = int32(mStart)
 				curr.movesCount = count
 				curr.movesUntried = count
+				curr.movesCaptures = partitionCaptures(arena.moves[mStart:], &curr.board)
 				curr.expanded = true
 
 				if count == 0 {
@@ -582,7 +653,13 @@ func runMCTSv3Worker(g *game.Game, cfg MCTSConfig, legalMoves []game.Move, seed 
 
 			if !curr.isTerminal && curr.movesUntried > 0 {
 				lastIdx := int(curr.movesUntried - 1)
-				pickIdx := prng.intn(int(curr.movesUntried))
+				var pickIdx int
+				if curr.movesCaptures > 0 {
+					pickIdx = lastIdx
+					curr.movesCaptures--
+				} else {
+					pickIdx = prng.intn(int(curr.movesUntried))
+				}
 				m := arena.moves[int(curr.movesStart)+pickIdx]
 				arena.moves[int(curr.movesStart)+pickIdx] = arena.moves[int(curr.movesStart)+lastIdx]
 				curr.movesUntried--
@@ -637,13 +714,7 @@ func runMCTSv3Worker(g *game.Game, cfg MCTSConfig, legalMoves []game.Move, seed 
 		// 3. Evaluation
 		whiteScore := curr.whiteOutcome
 		if !curr.isTerminal {
-			if cfg.MaxRollout > 0 {
-				simGame.Board = curr.board
-				simGame.Turn = curr.turn
-				whiteScore = rolloutV3(&simGame, cfg.MaxRollout, &prng)
-			} else {
-				whiteScore = materialPayoff(&curr.board)
-			}
+			whiteScore = tacticalMaterialPayoff(&curr.board, curr.move, curr.turn.Other())
 		}
 
 		// 4. Backpropagation
