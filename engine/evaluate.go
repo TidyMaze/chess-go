@@ -787,8 +787,12 @@ func fadeForFiftyMove(score float64, halfmoveClock int) float64 {
 	if halfmoveClock <= fiftyFadeAfter {
 		return score
 	}
+	floorEff := floor
+	if halfmoveClock > 80 {
+		floorEff = floor * float64(fiftyLimit-halfmoveClock) / float64(fiftyLimit-80)
+	}
 	spent := float64(halfmoveClock-fiftyFadeAfter) / float64(fiftyLimit-fiftyFadeAfter)
-	return score * (1 - (1-floor)*spent)
+	return score * (1 - (1-floorEff)*spent)
 }
 
 // fadeWithMaterialFloor is the fade the evaluation applies: in a won

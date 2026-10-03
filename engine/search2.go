@@ -1764,6 +1764,19 @@ func searchIterative(g *game.Game, color board.Color, maxDepth int, ev *Eval, us
 					tied = fresh
 				}
 			}
+			// If still tied, prefer a pawn advance over a piece shuffle: it
+			// makes irreversible progress and resets the fifty-move clock.
+			if len(tied) > 1 {
+				pushes := tied[:0:0]
+				for _, m := range tied {
+					if p, ok := g.Board.CellPiece(m.From); ok && p.Type == board.Pawn {
+						pushes = append(pushes, m)
+					}
+				}
+				if len(pushes) > 0 {
+					tied = pushes
+				}
+			}
 			iterBest = tied[randIntn(len(tied))]
 		}
 		best = iterBest
