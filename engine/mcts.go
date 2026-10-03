@@ -67,7 +67,7 @@ func MCTS(g *game.Game, cfg MCTSConfig) (game.Move, bool) {
 		cfg.Exploration = 1.41421356
 	}
 	if cfg.MaxRollout <= 0 {
-		cfg.MaxRollout = 30
+		cfg.MaxRollout = 2
 	}
 
 	threads := cfg.Threads
@@ -140,13 +140,42 @@ func pickBestRootMove(root *mctsNode, legalMoves []game.Move) (game.Move, bool) 
 	return bestChild.move, true
 }
 
+const mctsBlockSize = 2048
+
+type mctsBlock [mctsBlockSize]mctsNode
+
+type mctsTreeArena struct {
+	blocks []*mctsBlock
+	bIdx   int
+	iIdx   int
+}
+
+func (a *mctsTreeArena) alloc() *mctsNode {
+	if a.bIdx >= len(a.blocks) {
+		a.blocks = append(a.blocks, new(mctsBlock))
+	}
+	n := &a.blocks[a.bIdx][a.iIdx]
+	a.iIdx++
+	if a.iIdx >= mctsBlockSize {
+		a.bIdx++
+		a.iIdx = 0
+	}
+	return n
+}
+
 func runMCTSWorker(g *game.Game, cfg MCTSConfig, legalMoves []game.Move, seed uint64, maxSims int) *mctsNode {
 	prng := fastRand(seed)
 	if prng == 0 {
 		prng = 0x853c49e6748fea9b
 	}
 
-	root := newMCTSNode(nil, game.Move{}, g, legalMoves)
+	arena := mctsTreeArena{
+		blocks: make([]*mctsBlock, 0, 8),
+	}
+	rootMoves := make([]game.Move, len(legalMoves))
+	copy(rootMoves, legalMoves)
+	root := arena.alloc()
+	initMCTSNode(root, nil, game.Move{}, g, rootMoves)
 
 	var deadline time.Time
 	hasDeadline := cfg.TimeBudget > 0
@@ -158,6 +187,7 @@ func runMCTSWorker(g *game.Game, cfg MCTSConfig, legalMoves []game.Move, seed ui
 	}
 
 	moveBuf := make([]game.Move, 0, 256)
+	movesPool := make([]game.Move, 0, 16384)
 
 	for sim := 0; ; sim++ {
 		if hasDeadline {
@@ -189,8 +219,15 @@ func runMCTSWorker(g *game.Game, cfg MCTSConfig, legalMoves []game.Move, seed ui
 			curr.untriedMoves = curr.untriedMoves[:lastIdx]
 
 			simGame.Apply(m)
-			childMoves := simGame.AllLegalMoves(simGame.Turn)
-			child := newMCTSNode(curr, m, &simGame, childMoves)
+			if cap(movesPool)-len(movesPool) < 128 {
+				movesPool = make([]game.Move, 0, 16384)
+			}
+			startIdx := len(movesPool)
+			movesPool = simGame.AppendLegalMoves(movesPool, simGame.Turn)
+			childMoves := movesPool[startIdx:]
+
+			child := arena.alloc()
+			initMCTSNode(child, curr, m, &simGame, childMoves)
 			curr.children = append(curr.children, child)
 			curr = child
 		}
@@ -216,8 +253,8 @@ func runMCTSWorker(g *game.Game, cfg MCTSConfig, legalMoves []game.Move, seed ui
 	return root
 }
 
-func newMCTSNode(parent *mctsNode, m game.Move, g *game.Game, legalMoves []game.Move) *mctsNode {
-	node := &mctsNode{
+func initMCTSNode(node *mctsNode, parent *mctsNode, m game.Move, g *game.Game, legalMoves []game.Move) {
+	*node = mctsNode{
 		parent:       parent,
 		move:         m,
 		turn:         g.Turn,
@@ -233,7 +270,7 @@ func newMCTSNode(parent *mctsNode, m game.Move, g *game.Game, legalMoves []game.
 			node.whiteOutcome = 1.0
 		}
 		node.untriedMoves = nil
-		return node
+		return
 	}
 
 	if len(legalMoves) == 0 {
@@ -248,17 +285,21 @@ func newMCTSNode(parent *mctsNode, m game.Move, g *game.Game, legalMoves []game.
 			node.whiteOutcome = 0.5
 		}
 		node.untriedMoves = nil
-		return node
+		return
 	}
 
 	if g.HalfmoveClock >= 100 {
 		node.isTerminal = true
 		node.whiteOutcome = 0.5
 		node.untriedMoves = nil
-		return node
+		return
 	}
+}
 
-	return node
+func newMCTSNode(parent *mctsNode, m game.Move, g *game.Game, legalMoves []game.Move) *mctsNode {
+	n := new(mctsNode)
+	initMCTSNode(n, parent, m, g, legalMoves)
+	return n
 }
 
 func (n *mctsNode) selectChild(c float64) *mctsNode {

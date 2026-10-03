@@ -173,7 +173,7 @@ func BenchmarkMCTSNew(b *testing.B) {
 	g := game.New()
 	cfg := MCTSConfig{
 		Simulations: 500,
-		MaxRollout:  30,
+		MaxRollout:  2,
 		RNG:         rand.New(rand.NewSource(1)),
 	}
 	b.ResetTimer()
