@@ -169,5 +169,32 @@ func TestMCTSDoesNotMutateGameRepetition(t *testing.T) {
 	}
 }
 
+func BenchmarkMCTS(b *testing.B) {
+	g := game.New()
+	cfg := MCTSConfig{
+		Simulations: 500,
+		MaxRollout:  20,
+		RNG:         rand.New(rand.NewSource(1)),
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		MCTS(g, cfg)
+	}
+}
+
+func BenchmarkMCTSParallel(b *testing.B) {
+	g := game.New()
+	cfg := MCTSConfig{
+		Simulations: 4000,
+		MaxRollout:  10,
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		MCTS(g, cfg)
+	}
+}
+
+
+
 
 
