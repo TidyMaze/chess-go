@@ -45,6 +45,32 @@ func TestPassedPawnEvaluatesOutsidePassedPawn8NmPGEfJ(t *testing.T) {
 	}
 }
 
+func TestDUWU1rpQEndgamePassedPawnDefense(t *testing.T) {
+	// Game dUWU1rpQ:85. White must play 85.Bd6 (e7d6) defending f4, never 85.Kf6?? (g5f6) dropping f4.
+	g, err := game.ParseFEN("8/4B3/2p5/2P2pK1/4kP2/8/8/2b5 w - - 11 85")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := ReadChampion("../champion.json")
+	c.NetFile = "../champion_net.json"
+	c.Book = ""
+	p, err := c.PlayerOrError()
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.Depth = 16
+	p.Threads = 1
+	p.TimeBudget = 0
+
+	m, ok := PlayerPick(p, g)
+	if !ok {
+		t.Fatal("no move chosen")
+	}
+	if m.UCI() != "e7d6" {
+		t.Errorf("blundered %s, want e7d6 to defend f4 passed pawn", m.UCI())
+	}
+}
+
 func BenchmarkChampionSearchWithPassers(b *testing.B) {
 	c := ReadChampion("../champion.json")
 	c.NetFile = "../champion_net.json"

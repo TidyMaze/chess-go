@@ -61,12 +61,25 @@ def step(
     return {k: theta[k] + lr * params[k].c * result * delta[k] for k in theta}
 
 
+def load_champion_tune() -> dict[str, float]:
+    champ = json.loads((REPO / "champion.json").read_text())
+    tune_str = champ.get("tune", "")
+    theta = {k: p.start for k, p in PARAMS.items()}
+    for part in tune_str.split(","):
+        if "=" in part:
+            k, v = part.split("=", 1)
+            k = k.strip()
+            if k in theta:
+                theta[k] = float(v.strip())
+    return theta
+
+
 def resume(journal: Path, params: dict[str, Param]) -> tuple[int, dict[str, float]]:
     if not journal.exists():
-        return 0, {k: p.start for k, p in params.items()}
+        return 0, load_champion_tune()
     lines = [ln for ln in journal.read_text().splitlines() if ln.strip()]
     if not lines:
-        return 0, {k: p.start for k, p in params.items()}
+        return 0, load_champion_tune()
     last = json.loads(lines[-1])
     return int(last["iter"]) + 1, {k: float(v) for k, v in last["theta"].items()}
 
@@ -82,8 +95,8 @@ def tune_string(theta: dict[str, float]) -> str:
 
 def race(plus: dict[str, float], minus: dict[str, float], games: int, offset: int) -> tuple[int, int, int]:
     cmd = [
-        str(REPO / "gauntlet-bin"), "-games", str(games), "-time-ms", "100", "-threads", "1",
-        "-match-openings", "openings.txt", "-opening-offset", str(offset),
+        str(REPO / "gauntlet-bin"), "-games", str(games), "-time-ms", "25", "-threads", "8",
+        "-match-openings", "games_book_v5.txt", "-opening-offset", str(offset),
         "-champion", "champion.json", "-ref-champion", "champion.json",
         "-tune", tune_string(plus), "-ref-tune", tune_string(minus),
     ]

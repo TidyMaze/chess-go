@@ -13,7 +13,7 @@ import (
 // that is what hid the win.
 func TestNullPiecesFindsTheQueenTrap(t *testing.T) {
 	c := ReadChampion("../champion.json")
-	c.NetFile, c.Book = "../champion_net.json", ""
+	c.NetFile, c.Book = "../nets_torch/rung25_champ.json", ""
 	c.Features += ",nullpieces"
 	p, err := c.PlayerOrError()
 	if err != nil {
