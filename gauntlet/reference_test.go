@@ -107,18 +107,28 @@ func TestMCTSFeatureIsAccepted(t *testing.T) {
 	if err != nil {
 		t.Fatalf("mcts feature rejected: %v", err)
 	}
-	if !p.MCTS {
-		t.Errorf("expected p.MCTS to be true")
+	if !p.MCTS || !p.MCTSv2 {
+		t.Errorf("expected p.MCTS and p.MCTSv2 to be true")
 	}
 }
 
-func TestMCTSOldFeatureIsAccepted(t *testing.T) {
-	p, err := (referenceSwitches{features: "mctsold"}).applyTo(engine.Strong(4))
+func TestMCTSv1FeatureIsAccepted(t *testing.T) {
+	p, err := (referenceSwitches{features: "mctsv1"}).applyTo(engine.Strong(4))
 	if err != nil {
-		t.Fatalf("mctsold feature rejected: %v", err)
+		t.Fatalf("mctsv1 feature rejected: %v", err)
 	}
-	if !p.MCTSOld {
-		t.Errorf("expected p.MCTSOld to be true")
+	if !p.MCTSv1 {
+		t.Errorf("expected p.MCTSv1 to be true")
+	}
+}
+
+func TestMCTSv2FeatureIsAccepted(t *testing.T) {
+	p, err := (referenceSwitches{features: "mctsv2"}).applyTo(engine.Strong(4))
+	if err != nil {
+		t.Fatalf("mctsv2 feature rejected: %v", err)
+	}
+	if !p.MCTSv2 {
+		t.Errorf("expected p.MCTSv2 to be true")
 	}
 }
 

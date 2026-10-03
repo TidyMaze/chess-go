@@ -169,7 +169,7 @@ func TestMCTSDoesNotMutateGameRepetition(t *testing.T) {
 	}
 }
 
-func BenchmarkMCTSNew(b *testing.B) {
+func BenchmarkMCTSv2(b *testing.B) {
 	g := game.New()
 	cfg := MCTSConfig{
 		Simulations: 500,
@@ -178,11 +178,11 @@ func BenchmarkMCTSNew(b *testing.B) {
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		MCTS(g, cfg)
+		MCTSv2(g, cfg)
 	}
 }
 
-func BenchmarkMCTSOld(b *testing.B) {
+func BenchmarkMCTSv1(b *testing.B) {
 	g := game.New()
 	cfg := MCTSConfig{
 		Simulations: 500,
@@ -191,11 +191,11 @@ func BenchmarkMCTSOld(b *testing.B) {
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		MCTSOld(g, cfg)
+		MCTSv1(g, cfg)
 	}
 }
 
-func BenchmarkMCTSNew4Threads(b *testing.B) {
+func BenchmarkMCTSv2_4Threads(b *testing.B) {
 	g := game.New()
 	cfg := MCTSConfig{
 		Simulations: 500,
@@ -204,7 +204,7 @@ func BenchmarkMCTSNew4Threads(b *testing.B) {
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		MCTS(g, cfg)
+		MCTSv2(g, cfg)
 	}
 }
 
@@ -213,9 +213,9 @@ func TestCompareMCTS(t *testing.T) {
 	cfg := MCTSConfig{
 		TimeBudget: 50 * time.Millisecond,
 	}
-	mNew, _ := MCTS(g, cfg)
-	mOld, _ := MCTSOld(g, cfg)
-	t.Logf("MCTS New: %s, MCTS Old: %s", g.MoveUCI(mNew), g.MoveUCI(mOld))
+	mv2, _ := MCTSv2(g, cfg)
+	mv1, _ := MCTSv1(g, cfg)
+	t.Logf("MCTSv2: %s, MCTSv1: %s", g.MoveUCI(mv2), g.MoveUCI(mv1))
 }
 
 

@@ -361,8 +361,13 @@ func materialPayoff(b *board.Board) float64 {
 	return 1.0 / (1.0 + math.Exp(-diff/4.0))
 }
 
-// MCTSOld runs the original unoptimized baseline pure MCTS implementation (single-threaded, fresh slices, 30-ply rollout).
-func MCTSOld(g *game.Game, cfg MCTSConfig) (game.Move, bool) {
+// MCTSv2 selects the best move using Pure Monte Carlo Tree Search v2.
+func MCTSv2(g *game.Game, cfg MCTSConfig) (game.Move, bool) {
+	return MCTS(g, cfg)
+}
+
+// MCTSv1 runs the original unoptimized baseline pure MCTS implementation (single-threaded, fresh slices, 30-ply rollout).
+func MCTSv1(g *game.Game, cfg MCTSConfig) (game.Move, bool) {
 	legalMoves := g.AllLegalMoves(g.Turn)
 	if len(legalMoves) == 0 {
 		return game.Move{}, false
