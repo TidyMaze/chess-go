@@ -102,9 +102,9 @@ func TestLateMovePruningCutsNodes(t *testing.T) {
 
 func TestDeepLateMovePruningCutsNodes(t *testing.T) {
 	var with, without int
-	for _, fen := range correctnessPositions[:4] {
+	for _, fen := range correctnessPositions[:6] {
 		g, _ := game.ParseFEN(fen)
-		off, on := Strong(7), Strong(7)
+		off, on := Strong(8), Strong(8)
 		off.LMP = true
 		off.DeepLMP = false
 		on.LMP = true
@@ -116,7 +116,7 @@ func TestDeepLateMovePruningCutsNodes(t *testing.T) {
 		PlayerScoreWith(on, g, nil)
 		with += TotalNodes()
 	}
-	t.Logf("nodes at depth 7: %d standard LMP, %d deep LMP (%.2fx)", without, with, float64(without)/float64(with))
+	t.Logf("nodes at depth 8: %d standard LMP, %d deep LMP (%.2fx)", without, with, float64(without)/float64(with))
 	if with >= without {
 		t.Errorf("deep late move pruning removed no nodes: %d with, %d without", with, without)
 	}

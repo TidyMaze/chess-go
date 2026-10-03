@@ -19,8 +19,8 @@ func TestVIv1K6hGKingSafetyMoveChoice(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p.Depth = 16
-	p.TimeBudget = 500 * 1000 * 1000 // 500ms
+	p.Depth = 12
+	p.TimeBudget = 0
 	p.Threads = 1
 	p.Book = nil
 
@@ -28,7 +28,7 @@ func TestVIv1K6hGKingSafetyMoveChoice(t *testing.T) {
 	if !ok {
 		t.Fatal("no move chosen")
 	}
-	t.Logf("VIv1K6hG move chosen by champion: %s", m.UCI())
+	t.Logf("VIv1K6hG move chosen by champion: %s at depth %d", m.UCI(), LastSearchDepth())
 	if m.UCI() == "g4e3" {
 		t.Errorf("champion blundered greedy fork 15... Ne3 (%s); should prefer defense like e7g5", m.UCI())
 	}

@@ -496,7 +496,7 @@ func passedKingPenalty(b *board.Board, color board.Color) float64 {
 			kingDist = dr
 		}
 		if kingDist > ranksToQueen {
-			penalty += 0.50 * float64(kingDist-ranksToQueen)
+			penalty += 1.20 * float64(kingDist-ranksToQueen)
 		}
 	}
 	return penalty
