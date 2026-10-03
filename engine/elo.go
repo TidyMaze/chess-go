@@ -194,6 +194,9 @@ type Player struct {
 	// constants, so an SPSA tuner can race two players with different
 	// values in one process. Nil means the historical defaults.
 	Tune *SearchTune
+	// MCTS enables Pure Monte Carlo Tree Search.
+	MCTS     bool
+	MCTSSims int
 }
 
 // ApplyFeatures enables search features from a comma-separated string.
@@ -256,6 +259,8 @@ func (p *Player) ApplyFeatures(features string) {
 			p.KingSafety = 0.01
 		case "stabletime":
 			p.StableTime = true
+		case "mcts":
+			p.MCTS = true
 		}
 	}
 }
@@ -321,6 +326,14 @@ func (p Player) pickScored(g *game.Game, reuse *TranspositionTable) (game.Move, 
 			}
 		}
 		return moves[randIntn(len(moves))], math.NaN(), true
+	}
+	if p.MCTS {
+		cfg := MCTSConfig{
+			Simulations: p.MCTSSims,
+			TimeBudget:  p.TimeBudget,
+		}
+		m, ok := MCTS(g, cfg)
+		return m, math.NaN(), ok
 	}
 	ev := evalForPlayer(p)
 	switch {

@@ -102,6 +102,16 @@ func TestUnknownReferenceFeatureIsRejected(t *testing.T) {
 	}
 }
 
+func TestMCTSFeatureIsAccepted(t *testing.T) {
+	p, err := (referenceSwitches{features: "mcts"}).applyTo(engine.Strong(4))
+	if err != nil {
+		t.Fatalf("mcts feature rejected: %v", err)
+	}
+	if !p.MCTS {
+		t.Errorf("expected p.MCTS to be true")
+	}
+}
+
 // The harness owns the time control on both sides.
 //
 // champion.json carries time_ms now that the champion is deployed on a

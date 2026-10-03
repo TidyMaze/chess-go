@@ -31,6 +31,7 @@ func run(args []string) int {
 	champion := fs.String("champion", "champion.json", "champion file to play")
 	username := fs.String("username", "", "the bot account's own lichess username, lowercase")
 	maxGames := fs.Int("max-games", 2, "how many games to play at once (0 for no limit); each game runs its own multi-threaded search, so too many starve each other of cores")
+	mctsMode := fs.Bool("mcts", false, "play using Pure MCTS search instead of alpha-beta")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -51,6 +52,9 @@ func run(args []string) int {
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "lichessbot: champion:", err)
 		return 1
+	}
+	if *mctsMode {
+		p.MCTS = true
 	}
 
 	b := &lichessbot.Bot{
