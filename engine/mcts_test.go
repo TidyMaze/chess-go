@@ -206,6 +206,30 @@ func BenchmarkMCTSv3_4Threads(b *testing.B) {
 	}
 }
 
+func BenchmarkMCTSv4(b *testing.B) {
+	g := game.New()
+	cfg := MCTSConfig{
+		Simulations: 500,
+		RNG:         rand.New(rand.NewSource(1)),
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		MCTSv4(g, cfg)
+	}
+}
+
+func BenchmarkMCTSv4_4Threads(b *testing.B) {
+	g := game.New()
+	cfg := MCTSConfig{
+		Simulations: 500,
+		Threads:     4,
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		MCTSv4(g, cfg)
+	}
+}
+
 func BenchmarkMCTSv1(b *testing.B) {
 	g := game.New()
 	cfg := MCTSConfig{
@@ -302,15 +326,84 @@ func TestMCTSDoesNotBlunderQueenToPawn(t *testing.T) {
 	}
 }
 
+func TestMCTSv4MateInOneWhite(t *testing.T) {
+	g, err := game.ParseFEN("r1bqkb1r/pppp1ppp/2n5/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR w KQkq - 0 1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := MCTSConfig{Simulations: 400}
+	m, ok := MCTSv4(g, cfg)
+	if !ok {
+		t.Fatal("MCTSv4 failed to return a move")
+	}
+	wantFrom := board.Sq{File: 7, Rank: 4} // h5
+	wantTo := board.Sq{File: 5, Rank: 6}   // f7
+	if m.From != wantFrom || m.To != wantTo {
+		t.Fatalf("MCTSv4 picked %v, want Qxf7# (%v->%v)", m, wantFrom, wantTo)
+	}
+}
+
+func TestMCTSv4MateInOneBlack(t *testing.T) {
+	g, err := game.ParseFEN("rnbqkbnr/pppp1ppp/8/4p3/6P1/5P2/PPPPP2P/RNBQKBNR b KQkq - 0 1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := MCTSConfig{Simulations: 400}
+	m, ok := MCTSv4(g, cfg)
+	if !ok {
+		t.Fatal("MCTSv4 failed to return a move")
+	}
+	wantFrom := board.Sq{File: 3, Rank: 7} // d8
+	wantTo := board.Sq{File: 7, Rank: 3}   // h4
+	if m.From != wantFrom || m.To != wantTo {
+		t.Fatalf("MCTSv4 picked %v, want Qh4# (%v->%v)", m, wantFrom, wantTo)
+	}
+}
+
+func TestMCTSv4TakesFreeQueen(t *testing.T) {
+	g, err := game.ParseFEN("4k3/8/8/4q3/8/8/8/4R1K1 w - - 0 1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := MCTSConfig{Simulations: 600}
+	m, ok := MCTSv4(g, cfg)
+	if !ok {
+		t.Fatal("MCTSv4 failed to return a move")
+	}
+	wantFrom := board.Sq{File: 4, Rank: 0} // e1
+	wantTo := board.Sq{File: 4, Rank: 4}   // e5
+	if m.From != wantFrom || m.To != wantTo {
+		t.Fatalf("MCTSv4 picked %v, want Rxe5 (%v->%v)", m, wantFrom, wantTo)
+	}
+}
+
+func TestMCTSv4DoesNotBlunderQueenToPawn(t *testing.T) {
+	g, err := game.ParseFEN("rnb1kbnr/pppp1ppp/8/4p3/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := MCTSConfig{Simulations: 500}
+	m, ok := MCTSv4(g, cfg)
+	if !ok {
+		t.Fatal("MCTSv4 failed to return a move")
+	}
+	blunderFrom := board.Sq{File: 3, Rank: 0} // d1
+	blunderTo := board.Sq{File: 5, Rank: 3}   // f4
+	if m.From == blunderFrom && m.To == blunderTo {
+		t.Fatalf("MCTSv4 blundered queen to pawn: %v", m)
+	}
+}
+
 func TestCompareMCTS(t *testing.T) {
 	g := game.New()
 	cfg := MCTSConfig{
 		TimeBudget: 50 * time.Millisecond,
 	}
+	mv4, _ := MCTSv4(g, cfg)
 	mv3, _ := MCTSv3(g, cfg)
 	mv2, _ := MCTSv2(g, cfg)
 	mv1, _ := MCTSv1(g, cfg)
-	t.Logf("MCTSv3: %s, MCTSv2: %s, MCTSv1: %s", g.MoveUCI(mv3), g.MoveUCI(mv2), g.MoveUCI(mv1))
+	t.Logf("MCTSv4: %s, MCTSv3: %s, MCTSv2: %s, MCTSv1: %s", g.MoveUCI(mv4), g.MoveUCI(mv3), g.MoveUCI(mv2), g.MoveUCI(mv1))
 }
 
 

@@ -107,8 +107,18 @@ func TestMCTSFeatureIsAccepted(t *testing.T) {
 	if err != nil {
 		t.Fatalf("mcts feature rejected: %v", err)
 	}
-	if !p.MCTS || !p.MCTSv3 {
-		t.Errorf("expected p.MCTS and p.MCTSv3 to be true")
+	if !p.MCTS || !p.MCTSv4 {
+		t.Errorf("expected p.MCTS and p.MCTSv4 to be true")
+	}
+}
+
+func TestMCTSv4FeatureIsAccepted(t *testing.T) {
+	p, err := (referenceSwitches{features: "mctsv4"}).applyTo(engine.Strong(4))
+	if err != nil {
+		t.Fatalf("mctsv4 feature rejected: %v", err)
+	}
+	if !p.MCTSv4 {
+		t.Errorf("expected p.MCTSv4 to be true")
 	}
 }
 

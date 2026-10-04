@@ -200,6 +200,7 @@ type Player struct {
 	MCTSv1   bool
 	MCTSv2   bool
 	MCTSv3   bool
+	MCTSv4   bool
 }
 
 // ApplyFeatures enables search features from a comma-separated string.
@@ -262,8 +263,10 @@ func (p *Player) ApplyFeatures(features string) {
 			p.KingSafety = 0.01
 		case "stabletime":
 			p.StableTime = true
-		case "mcts", "mctsv3":
+		case "mcts", "mctsv4":
 			p.MCTS = true
+			p.MCTSv4 = true
+		case "mctsv3":
 			p.MCTSv3 = true
 		case "mctsv1":
 			p.MCTSv1 = true
@@ -354,7 +357,16 @@ func (p Player) pickScored(g *game.Game, reuse *TranspositionTable) (game.Move, 
 		m, ok := MCTSv2(g, cfg)
 		return m, math.NaN(), ok
 	}
-	if p.MCTSv3 || p.MCTS {
+	if p.MCTSv4 || p.MCTS {
+		cfg := MCTSConfig{
+			Simulations: p.MCTSSims,
+			TimeBudget:  p.TimeBudget,
+			Threads:     p.Threads,
+		}
+		m, ok := MCTSv4(g, cfg)
+		return m, math.NaN(), ok
+	}
+	if p.MCTSv3 {
 		cfg := MCTSConfig{
 			Simulations: p.MCTSSims,
 			TimeBudget:  p.TimeBudget,

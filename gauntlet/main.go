@@ -129,8 +129,10 @@ func (s referenceSwitches) applyTo(p engine.Player) (engine.Player, error) {
 			p.Passers = true
 		case "kingsafety":
 			p.KingSafety = 0.01
-		case "mcts", "mctsv3":
+		case "mcts", "mctsv4":
 			p.MCTS = true
+			p.MCTSv4 = true
+		case "mctsv3":
 			p.MCTSv3 = true
 		case "mctsv2":
 			p.MCTSv2 = true
@@ -303,8 +305,10 @@ func main() {
 			challenger.Passers = true
 		case "kingsafety":
 			challenger.KingSafety = 0.01
-		case "mcts", "mctsv3":
+		case "mcts", "mctsv4":
 			challenger.MCTS = true
+			challenger.MCTSv4 = true
+		case "mctsv3":
 			challenger.MCTSv3 = true
 		case "mctsv2":
 			challenger.MCTSv2 = true
