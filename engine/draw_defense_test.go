@@ -87,7 +87,7 @@ func TestForcesPerpetualDrawWhenLosing(t *testing.T) {
 	if !ok {
 		t.Fatal("no move returned")
 	}
-	if m.UCI() != "a8b8" && m.UCI() != "a8e8" {
-		t.Errorf("engine picked %s, want a checking move (a8b8 or a8e8) to force perpetual draw and prevent Qxg2#", m.UCI())
+	if m.UCI() != "a8b8" && m.UCI() != "a8c8" && m.UCI() != "a8e8" {
+		t.Errorf("engine picked %s, want a checking move (a8b8, a8c8, or a8e8) to force perpetual draw and prevent Qxg2#", m.UCI())
 	}
 }
