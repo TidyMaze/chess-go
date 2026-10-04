@@ -32,7 +32,7 @@ go build -o lichessbot-bin ./cmd/lichessbot
 go build -o play-bin ./play
 
 echo "=== Starting Lichess Bot Engine Server ($LICHESS_BOT_USER) ==="
-nohup caffeinate -i -s ./lichessbot-bin -username "$LICHESS_BOT_USER" -champion champion_bot.json -max-games 2 >> /tmp/chesslogs/bot_engine.log 2>&1 &
+nohup caffeinate -i -s ./lichessbot-bin -username "$LICHESS_BOT_USER" -champion champion_bot.json -max-games 2 ${BOT_EXTRA_FLAGS:--mcts} >> /tmp/chesslogs/bot_engine.log 2>&1 &
 BOT_PID=$!
 echo "Bot server started (PID: $BOT_PID, log: /tmp/chesslogs/bot_engine.log)"
 

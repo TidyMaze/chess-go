@@ -20,6 +20,7 @@ type MCTSConfig struct {
 	Exploration float64       // UCB1 exploration constant C
 	RNG         *rand.Rand    // random source (forces single-thread determinism if set)
 	Threads     int           // search worker threads (0 = auto)
+	Eval        *Eval         // leaf evaluation config (nil = default PST+quiescence)
 }
 
 type mctsNode struct {
@@ -378,7 +379,7 @@ var materialWeights = [6]int{
 var sigmoidPayoffTable = func() [256]float64 {
 	var tbl [256]float64
 	for i := -128; i < 128; i++ {
-		tbl[i+128] = 1.0 / (1.0 + math.Exp(-float64(i)/4.0))
+		tbl[i+128] = 1.0 / (1.0 + math.Exp(-float64(i)/8.0))
 	}
 	return tbl
 }()
@@ -386,7 +387,7 @@ var sigmoidPayoffTable = func() [256]float64 {
 func materialPayoff(b *board.Board) float64 {
 	diff := 0
 	for pt := board.Pawn; pt <= board.Queen; pt++ {
-		w := materialWeights[pt]
+		w := materialWeights[pt] * 2
 		diff += w * bits.OnesCount64(b.PieceBitboard(board.White, pt))
 		diff -= w * bits.OnesCount64(b.PieceBitboard(board.Black, pt))
 	}
@@ -400,51 +401,156 @@ func materialPayoff(b *board.Board) float64 {
 	return sigmoidPayoffTable[idx]
 }
 
+var mctsPSTEval = &Eval{
+	Weights:    defaultWeights,
+	UsePST:     true,
+	Tapered:    true,
+	KingSafety: 0.01,
+	Passers:    true,
+	Mobility:   true,
+}
+
 func tacticalMaterialPayoff(b *board.Board, m game.Move, mover board.Color) float64 {
-	diff := 0
-	for pt := board.Pawn; pt <= board.Queen; pt++ {
-		w := materialWeights[pt]
-		diff += w * bits.OnesCount64(b.PieceBitboard(board.White, pt))
-		diff -= w * bits.OnesCount64(b.PieceBitboard(board.Black, pt))
+	wMat, wPST := materialAndPositional(b, board.White, defaultWeights, true, false, 1.0, &defaultPSTScale)
+	bMat, bPST := materialAndPositional(b, board.Black, defaultWeights, true, false, 1.0, &defaultPSTScale)
+	diff := (wMat + wPST) - (bMat + bPST)
+
+	opponent := mover.Other()
+	if b.IsInCheck(opponent) {
+		if mover == board.White {
+			diff += 0.3
+		} else {
+			diff -= 0.3
+		}
 	}
 
 	if m.From != m.To {
-		opponent := mover.Other()
-		sqIdx := m.To.Rank*8 + m.To.File
 		piece, _ := b.PieceAt(m.To)
 		pt := piece.Type
 
 		if pt > board.Pawn {
-			w := materialWeights[pt]
-			enemyPawns := b.PieceBitboard(opponent, board.Pawn)
-			if (enemyPawns & board.PawnAttacksTo[opponent][sqIdx]) != 0 {
+			if isAttackedAfterMove(b, m.To, m.From, mover) {
+				w := defaultWeights[pt]
 				if mover == board.White {
 					diff -= w
 				} else {
 					diff += w
 				}
-			} else if pt > board.Knight {
-				enemyKnights := b.PieceBitboard(opponent, board.Knight)
-				if (enemyKnights & board.KnightAttacks[sqIdx]) != 0 {
-					if mover == board.White {
-						diff -= (w - 3)
-					} else {
-						diff += (w - 3)
-					}
-				}
 			}
 		}
 	}
 
-	idx := diff + 128
-	if idx < 0 {
-		return 0.0
+	// Penalize hanging major/minor pieces of mover
+	qBB := b.PieceBitboard(mover, board.Queen)
+	for qBB != 0 {
+		sqIdx := bits.TrailingZeros64(qBB)
+		qBB &= qBB - 1
+		sq := board.Sq{File: int8(sqIdx % 8), Rank: int8(sqIdx / 8)}
+		if b.IsAttackedBy(sq, opponent) && !b.IsAttackedBy(sq, mover) {
+			if mover == board.White {
+				diff -= 8.0
+			} else {
+				diff += 8.0
+			}
+			break
+		}
 	}
-	if idx >= 256 {
-		return 1.0
-	}
-	return sigmoidPayoffTable[idx]
+
+	return 1.0 / (1.0 + math.Exp(-diff/2.5))
 }
+
+func isAttackedAfterMove(b *board.Board, to board.Sq, from board.Sq, color board.Color) bool {
+	piece, ok := b.PieceAt(from)
+	if !ok {
+		piece, _ = b.PieceAt(to)
+	}
+	opp := color.Other()
+	if b.IsAttackedByExcluding(to, color, from) {
+		return b.IsAttackedByLesserThan(to, opp, piece.Type)
+	}
+	return b.IsAttackedBy(to, opp)
+}
+
+func orderMovesForMCTS(moves []game.Move, b *board.Board) {
+	if len(moves) <= 1 {
+		return
+	}
+	var scoresBuf [128]int16
+	var scores []int16
+	if len(moves) <= len(scoresBuf) {
+		scores = scoresBuf[:len(moves)]
+	} else {
+		scores = make([]int16, len(moves))
+	}
+	for i, m := range moves {
+		sc := int16(0)
+		moving, _ := b.PieceAt(m.From)
+		captured, isCap := b.PieceAt(m.To)
+		opponent := moving.Color.Other()
+		if moving.Type == board.Pawn && ((m.Promo == board.Queen) || (m.From.Rank == 6 && m.To.Rank == 7) || (m.From.Rank == 1 && m.To.Rank == 0)) {
+			sc += 500
+		}
+		if isCap {
+			if materialWeights[moving.Type] <= materialWeights[captured.Type] {
+				sc += 200 + int16(materialWeights[captured.Type]*10-materialWeights[moving.Type])
+			} else {
+				if !isAttackedAfterMove(b, m.To, m.From, moving.Color) {
+					sc += 200 + int16(materialWeights[captured.Type]*10-materialWeights[moving.Type])
+				} else {
+					sc -= 100
+				}
+			}
+		} else {
+			undo := b.MakeMove(m.From, m.To)
+			isChk := b.IsInCheck(opponent)
+			b.UnmakeMove(undo)
+
+			sqIdx := m.To.Rank*8 + m.To.File
+			isPawnAttacked := moving.Type > board.Pawn && (b.PieceBitboard(opponent, board.Pawn)&board.PawnAttacksTo[opponent][sqIdx]) != 0
+			isUnsafe := moving.Type > board.Pawn && isAttackedAfterMove(b, m.To, m.From, moving.Color)
+
+			if isPawnAttacked {
+				sc -= 300
+			} else if isChk {
+				sc += 250
+			} else if isUnsafe {
+				sc -= 200
+			}
+		}
+		if moving.Type == board.Pawn {
+			if m.To.File >= 2 && m.To.File <= 5 && (m.To.Rank == 3 || m.To.Rank == 4) {
+				sc += 30
+			}
+		} else if moving.Type == board.Knight {
+			if m.To.File >= 2 && m.To.File <= 5 && m.To.Rank >= 2 && m.To.Rank <= 5 {
+				sc += 20
+			}
+		} else if moving.Type == board.Bishop {
+			if (m.From.Rank == 0 || m.From.Rank == 7) && m.To.Rank > 0 && m.To.Rank < 7 {
+				sc += 20
+			}
+		} else if moving.Type == board.King {
+			if m.From.File == 4 && (m.To.File == 6 || m.To.File == 2) {
+				sc += 350
+			} else {
+				sc -= 250
+			}
+		}
+		scores[i] = sc
+	}
+	for i := 1; i < len(moves); i++ {
+		m, sc := moves[i], scores[i]
+		j := i
+		for j > 0 && scores[j-1] < sc {
+			moves[j] = moves[j-1]
+			scores[j] = scores[j-1]
+			j--
+		}
+		moves[j] = m
+		scores[j] = sc
+	}
+}
+
 
 const mctsTableSize = 65536
 
@@ -452,6 +558,7 @@ var (
 	invSqrtTable   [mctsTableSize]float64
 	invVisitsTable [mctsTableSize]float64
 	sqrtLogTable   [mctsTableSize]float64
+	rankPriorTable [128]float32
 )
 
 func init() {
@@ -459,6 +566,9 @@ func init() {
 		invSqrtTable[i] = 1.0 / math.Sqrt(float64(i))
 		invVisitsTable[i] = 1.0 / float64(i)
 		sqrtLogTable[i] = math.Sqrt(math.Log(float64(i)))
+	}
+	for i := 0; i < 128; i++ {
+		rankPriorTable[i] = float32(1.0 / math.Pow(float64(i+1), 0.75))
 	}
 }
 
@@ -880,6 +990,7 @@ type mctsNodeV4 struct {
 	expanded     bool
 	pad          byte
 	whiteOutcome float32
+	prior        float32
 	wins         float64
 }
 
@@ -889,7 +1000,7 @@ func (n *mctsNodeV4) selectChild(c float64) *mctsNodeV4 {
 	var best *mctsNodeV4
 	for child := n.firstChild; child != nil; child = child.nextSibling {
 		invV, invSqrt := getInvTables(child.visits)
-		score := child.wins*invV + factor*invSqrt
+		score := child.wins*invV + factor*invSqrt*float64(child.prior)
 		if score > bestScore {
 			bestScore = score
 			best = child
@@ -898,20 +1009,36 @@ func (n *mctsNodeV4) selectChild(c float64) *mctsNodeV4 {
 	return best
 }
 
+const mctsV4ChunkSize = 8192
+
 type mctsArenaV4 struct {
-	nodes []mctsNodeV4
-	moves []game.Move
+	chunks    [][]mctsNodeV4
+	currChunk int
+	currIndex int
+	moves     []game.Move
+}
+
+func (a *mctsArenaV4) reset() {
+	a.currChunk = 0
+	a.currIndex = 0
+	a.moves = a.moves[:0]
 }
 
 func (a *mctsArenaV4) alloc() *mctsNodeV4 {
-	if len(a.nodes) < cap(a.nodes) {
-		a.nodes = a.nodes[:len(a.nodes)+1]
-		n := &a.nodes[len(a.nodes)-1]
-		*n = mctsNodeV4{}
-		return n
+	if a.currChunk >= len(a.chunks) {
+		a.chunks = append(a.chunks, make([]mctsNodeV4, mctsV4ChunkSize))
 	}
-	a.nodes = append(a.nodes, mctsNodeV4{})
-	return &a.nodes[len(a.nodes)-1]
+	if a.currIndex >= mctsV4ChunkSize {
+		a.currChunk++
+		a.currIndex = 0
+		if a.currChunk >= len(a.chunks) {
+			a.chunks = append(a.chunks, make([]mctsNodeV4, mctsV4ChunkSize))
+		}
+	}
+	n := &a.chunks[a.currChunk][a.currIndex]
+	a.currIndex++
+	*n = mctsNodeV4{}
+	return n
 }
 
 func partitionCapturesFast(moves []game.Move, enemyBB uint64) int16 {
@@ -939,8 +1066,8 @@ func partitionCapturesFast(moves []game.Move, enemyBB uint64) int16 {
 var mctsArenaV4Pool = sync.Pool{
 	New: func() any {
 		return &mctsArenaV4{
-			nodes: make([]mctsNodeV4, 0, 4096),
-			moves: make([]game.Move, 0, 16384),
+			chunks: [][]mctsNodeV4{make([]mctsNodeV4, mctsV4ChunkSize)},
+			moves:  make([]game.Move, 0, 131072),
 		}
 	},
 }
@@ -956,6 +1083,9 @@ func initialMaterialDiff(b *board.Board) int16 {
 }
 
 func runMCTSv4Worker(g *game.Game, cfg MCTSConfig, legalMoves []game.Move, seed uint64, maxSims int, arena *mctsArenaV4) *mctsNodeV4 {
+	if cfg.Exploration <= 0 {
+		cfg.Exploration = 1.41421356
+	}
 	prng := fastRand(seed)
 	if prng == 0 {
 		prng = 0x853c49e6748fea9b
@@ -970,7 +1100,7 @@ func runMCTSv4Worker(g *game.Game, cfg MCTSConfig, legalMoves []game.Move, seed 
 	root.movesStart = int32(startIdx)
 	root.movesCount = int16(len(legalMoves))
 	root.movesUntried = int16(len(legalMoves))
-	root.movesCaps = partitionCapturesFast(arena.moves[startIdx:], g.Board.ColorBitboard(root.turn.Other()))
+	orderMovesForMCTS(arena.moves[startIdx:], &g.Board)
 
 	var deadline time.Time
 	hasDeadline := cfg.TimeBudget > 0
@@ -984,7 +1114,7 @@ func runMCTSv4Worker(g *game.Game, cfg MCTSConfig, legalMoves []game.Move, seed 
 	var simGame game.Game
 	simGame.TrackRepetition = false
 	currBoard := g.Board
-	var undos [64]board.Undo
+	var undos [256]board.Undo
 
 	for sim := 0; ; sim++ {
 		if hasDeadline {
@@ -998,7 +1128,17 @@ func runMCTSv4Worker(g *game.Game, cfg MCTSConfig, legalMoves []game.Move, seed 
 		// 1. Selection
 		curr := root
 		undoDepth := 0
-		for !curr.isTerminal && curr.expanded && curr.movesUntried == 0 && curr.firstChild != nil {
+		for !curr.isTerminal && curr.expanded && curr.firstChild != nil {
+			if curr.movesUntried > 0 {
+				if curr == root {
+					break
+				}
+				expandedCount := curr.movesCount - curr.movesUntried
+				allowed := 1 + int16(math.Sqrt(math.Sqrt(float64(curr.visits))))
+				if expandedCount < allowed {
+					break
+				}
+			}
 			curr = curr.selectChild(cfg.Exploration)
 			m := curr.move
 			movingPiece, _ := currBoard.PieceAt(m.From)
@@ -1027,7 +1167,7 @@ func runMCTSv4Worker(g *game.Game, cfg MCTSConfig, legalMoves []game.Move, seed 
 				curr.movesStart = int32(mStart)
 				curr.movesCount = count
 				curr.movesUntried = count
-				curr.movesCaps = partitionCapturesFast(arena.moves[mStart:], currBoard.ColorBitboard(curr.turn.Other()))
+				orderMovesForMCTS(arena.moves[mStart:], &currBoard)
 				curr.expanded = true
 
 				if count == 0 {
@@ -1045,16 +1185,8 @@ func runMCTSv4Worker(g *game.Game, cfg MCTSConfig, legalMoves []game.Move, seed 
 			}
 
 			if !curr.isTerminal && curr.movesUntried > 0 {
-				lastIdx := int(curr.movesUntried - 1)
-				var pickIdx int
-				if curr.movesCaps > 0 {
-					pickIdx = lastIdx
-					curr.movesCaps--
-				} else {
-					pickIdx = prng.intn(int(curr.movesUntried))
-				}
+				pickIdx := int(curr.movesCount - curr.movesUntried)
 				m := arena.moves[int(curr.movesStart)+pickIdx]
-				arena.moves[int(curr.movesStart)+pickIdx] = arena.moves[int(curr.movesStart)+lastIdx]
 				curr.movesUntried--
 
 				parentTurn := curr.turn
@@ -1064,9 +1196,33 @@ func runMCTSv4Worker(g *game.Game, cfg MCTSConfig, legalMoves []game.Move, seed 
 				child.parent = curr
 				child.move = m
 				child.turn = parentTurn.Other()
-
 				movingPiece, _ := currBoard.PieceAt(m.From)
 				captured, capturedOk := currBoard.PieceAt(m.To)
+				if capturedOk {
+					if currBoard.IsInCheck(parentTurn) {
+						child.prior = 1.8
+					} else if materialWeights[movingPiece.Type] <= materialWeights[captured.Type] || !isAttackedAfterMove(&currBoard, m.To, m.From, parentTurn) {
+						child.prior = 1.5
+					} else {
+						child.prior = 0.1
+					}
+				} else if currBoard.IsInCheck(parentTurn) {
+					if movingPiece.Type == board.King {
+						child.prior = 0.05
+					} else {
+						child.prior = 1.0
+					}
+				} else if movingPiece.Type > board.Pawn && isAttackedAfterMove(&currBoard, m.To, m.From, parentTurn) {
+					child.prior = 0.1
+				} else if movingPiece.Type == board.King {
+					if m.From.File == 4 && (m.To.File == 6 || m.To.File == 2) {
+						child.prior = 1.6
+					} else {
+						child.prior = 0.05
+					}
+				} else {
+					child.prior = 1.0
+				}
 				undos[undoDepth] = currBoard.MakeMove(m.From, m.To)
 				undoDepth++
 
@@ -1100,7 +1256,10 @@ func runMCTSv4Worker(g *game.Game, cfg MCTSConfig, legalMoves []game.Move, seed 
 
 				child.materialDiff = matDiff
 
-				if capturedOk && captured.Type == board.King {
+				if curr == root && g != nil && g.TrackRepetition && g.CountIfPlayed(m.From, m.To) >= 2 {
+					child.isTerminal = true
+					child.whiteOutcome = 0.5
+				} else if capturedOk && captured.Type == board.King {
 					child.isTerminal = true
 					if child.turn == board.White {
 						child.whiteOutcome = 0.0
@@ -1121,6 +1280,8 @@ func runMCTSv4Worker(g *game.Game, cfg MCTSConfig, legalMoves []game.Move, seed 
 						} else {
 							child.whiteOutcome = 1.0
 						}
+					} else if child.prior >= 0.5 && child.prior < 1.4 {
+						child.prior = 1.4
 					}
 				}
 
@@ -1133,7 +1294,12 @@ func runMCTSv4Worker(g *game.Game, cfg MCTSConfig, legalMoves []game.Move, seed 
 		// 3. Evaluation
 		whiteScore := float64(curr.whiteOutcome)
 		if !curr.isTerminal {
-			whiteScore = tacticalMaterialPayoff(&currBoard, curr.move, curr.turn.Other())
+			if cfg.Eval != nil && (cfg.Eval.HalfKP != nil || cfg.Eval.Net != nil) {
+				score := PositionScoreEval(&currBoard, board.White, cfg.Eval)
+				whiteScore = 1.0 / (1.0 + math.Exp(-score/2.5))
+			} else {
+				whiteScore = tacticalMaterialPayoff(&currBoard, curr.move, curr.turn.Other())
+			}
 		}
 
 		// 4. Backpropagation
@@ -1158,16 +1324,43 @@ func runMCTSv4Worker(g *game.Game, cfg MCTSConfig, legalMoves []game.Move, seed 
 	return root
 }
 
-func pickBestRootMoveV4(root *mctsNodeV4, legalMoves []game.Move) (game.Move, bool) {
-	if root.firstChild == nil {
+func pickBestRootMoveV4(g *game.Game, root *mctsNodeV4, legalMoves []game.Move) (game.Move, bool) {
+	if root == nil || root.firstChild == nil {
 		return legalMoves[0], true
 	}
+	hasPositive := false
+	for child := root.firstChild; child != nil; child = child.nextSibling {
+		if child.visits >= 30 && child.wins >= 0.50*float64(child.visits) {
+			hasPositive = true
+			break
+		}
+	}
 	bestChild := root.firstChild
-	bestVisits := bestChild.visits
-	for child := root.firstChild.nextSibling; child != nil; child = child.nextSibling {
-		if child.visits > bestVisits {
+	bestScore := -1e9
+	for child := root.firstChild; child != nil; child = child.nextSibling {
+		score := float64(child.visits)
+		if child.visits > 0 {
+			rate := child.wins / float64(child.visits)
+			if hasPositive && rate < 0.50 {
+				score *= 0.1
+			}
+		}
+		if g != nil && g.TrackRepetition {
+			rep := g.CountIfPlayed(child.move.From, child.move.To)
+			rate := child.wins / float64(child.visits+1)
+			if rep >= 2 {
+				if rate >= 0.45 {
+					score -= 1e6
+				}
+			} else if rep >= 1 {
+				if rate >= 0.55 {
+					score *= 0.5
+				}
+			}
+		}
+		if score > bestScore || (score == bestScore && child.wins > bestChild.wins) {
 			bestChild = child
-			bestVisits = child.visits
+			bestScore = score
 		}
 	}
 	return bestChild.move, true
@@ -1191,31 +1384,6 @@ func MCTSv4(g *game.Game, cfg MCTSConfig) (game.Move, bool) {
 		baseSeed = uint64(time.Now().UnixNano())
 	}
 
-	if threads <= 1 {
-		arena := mctsArenaV4Pool.Get().(*mctsArenaV4)
-		arena.nodes = arena.nodes[:0]
-		arena.moves = arena.moves[:0]
-
-		startIdx := len(arena.moves)
-		arena.moves = g.AppendLegalMoves(arena.moves, g.Turn)
-		legalMoves := arena.moves[startIdx:]
-		if len(legalMoves) == 0 {
-			mctsArenaV4Pool.Put(arena)
-			return game.Move{}, false
-		}
-		if len(legalMoves) == 1 {
-			m := legalMoves[0]
-			mctsArenaV4Pool.Put(arena)
-			return m, true
-		}
-
-		root := runMCTSv4Worker(g, cfg, legalMoves, baseSeed, cfg.Simulations, arena)
-		m, ok := pickBestRootMoveV4(root, legalMoves)
-
-		mctsArenaV4Pool.Put(arena)
-		return m, ok
-	}
-
 	var rootMovesBuf [128]game.Move
 	legalMoves := g.AppendLegalMoves(rootMovesBuf[:0], g.Turn)
 	if len(legalMoves) == 0 {
@@ -1223,6 +1391,16 @@ func MCTSv4(g *game.Game, cfg MCTSConfig) (game.Move, bool) {
 	}
 	if len(legalMoves) == 1 {
 		return legalMoves[0], true
+	}
+
+	if threads <= 1 {
+		arena := mctsArenaV4Pool.Get().(*mctsArenaV4)
+		arena.reset()
+
+		root := runMCTSv4Worker(g, cfg, legalMoves, baseSeed, cfg.Simulations, arena)
+		m, ok := pickBestRootMoveV4(g, root, legalMoves)
+		mctsArenaV4Pool.Put(arena)
+		return m, ok
 	}
 
 	workerRoots := make([]*mctsNodeV4, threads)
@@ -1237,8 +1415,7 @@ func MCTSv4(g *game.Game, cfg MCTSConfig) (game.Move, bool) {
 
 	for i := 0; i < threads; i++ {
 		arena := mctsArenaV4Pool.Get().(*mctsArenaV4)
-		arena.nodes = arena.nodes[:0]
-		arena.moves = arena.moves[:0]
+		arena.reset()
 		workerArenas[i] = arena
 
 		go func(workerID int, a *mctsArenaV4) {
@@ -1249,11 +1426,18 @@ func MCTSv4(g *game.Game, cfg MCTSConfig) (game.Move, bool) {
 	}
 	wg.Wait()
 
-	visits := make(map[game.Move]int32, len(legalMoves))
+	var visitCounts [128]int32
+	var winSums [128]float64
 	for _, root := range workerRoots {
 		if root != nil {
 			for child := root.firstChild; child != nil; child = child.nextSibling {
-				visits[child.move] += child.visits
+				for idx, m := range legalMoves {
+					if m == child.move {
+						visitCounts[idx] += child.visits
+						winSums[idx] += child.wins
+						break
+					}
+				}
 			}
 		}
 	}
@@ -1263,10 +1447,27 @@ func MCTSv4(g *game.Game, cfg MCTSConfig) (game.Move, bool) {
 	}
 
 	bestMove := legalMoves[0]
-	var bestVisits int32 = -1
-	for _, m := range legalMoves {
-		if v := visits[m]; v > bestVisits {
-			bestVisits = v
+	var bestScore float64 = -1e9
+	var bestWin float64 = -1
+	for idx, m := range legalMoves {
+		v := float64(visitCounts[idx])
+		w := winSums[idx]
+		if g != nil && g.TrackRepetition {
+			rep := g.CountIfPlayed(m.From, m.To)
+			rate := w / (v + 1)
+			if rep >= 2 {
+				if rate >= 0.45 {
+					v -= 1e6
+				}
+			} else if rep >= 1 {
+				if rate >= 0.55 {
+					v *= 0.5
+				}
+			}
+		}
+		if v > bestScore || (v == bestScore && w > bestWin) {
+			bestScore = v
+			bestWin = w
 			bestMove = m
 		}
 	}

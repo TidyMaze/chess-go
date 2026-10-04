@@ -388,6 +388,78 @@ func (b *Board) IsAttackedBy(sq Sq, by Color) bool {
 		(lineAttacks(sqIdx, occ, l.diag)|lineAttacks(sqIdx, occ, l.anti))&bq != 0
 }
 
+// IsAttackedByNonKing reports whether square sq is attacked by any non-king piece of color by.
+func (b *Board) IsAttackedByNonKing(sq Sq, by Color) bool {
+	sqIdx := squareIndex(sq)
+	if PawnAttacksTo[by][sqIdx]&b.pieces[by][Pawn] != 0 {
+		return true
+	}
+	if KnightAttacks[sqIdx]&b.pieces[by][Knight] != 0 {
+		return true
+	}
+	occ := b.occupiedBB()
+	rq := b.pieces[by][Rook] | b.pieces[by][Queen]
+	bq := b.pieces[by][Bishop] | b.pieces[by][Queen]
+	l := &lineMasks[sqIdx&63]
+	return (lineAttacks(sqIdx, occ, l.file)|lineAttacks(sqIdx, occ, l.rank))&rq|
+		(lineAttacks(sqIdx, occ, l.diag)|lineAttacks(sqIdx, occ, l.anti))&bq != 0
+}
+
+// IsAttackedByExcluding reports whether square sq is attacked by any piece of color by,
+// ignoring any piece standing on exclude.
+func (b *Board) IsAttackedByExcluding(sq Sq, by Color, exclude Sq) bool {
+	sqIdx := squareIndex(sq)
+	exMask := ^(uint64(1) << squareIndex(exclude))
+
+	if PawnAttacksTo[by][sqIdx]&(b.pieces[by][Pawn]&exMask) != 0 {
+		return true
+	}
+
+	if KnightAttacks[sqIdx]&(b.pieces[by][Knight]&exMask) != 0 {
+		return true
+	}
+
+	if b.kings[by] != exclude && KingAttacks[sqIdx]&(1<<squareIndex(b.kings[by])) != 0 {
+		return true
+	}
+
+	occ := b.occupiedBB() & exMask
+	rq := (b.pieces[by][Rook] | b.pieces[by][Queen]) & exMask
+	bq := (b.pieces[by][Bishop] | b.pieces[by][Queen]) & exMask
+	l := &lineMasks[sqIdx&63]
+	return (lineAttacks(sqIdx, occ, l.file)|lineAttacks(sqIdx, occ, l.rank))&rq|
+		(lineAttacks(sqIdx, occ, l.diag)|lineAttacks(sqIdx, occ, l.anti))&bq != 0
+}
+
+// IsAttackedByLesserThan reports whether square sq is attacked by any piece of color by with type < pt.
+func (b *Board) IsAttackedByLesserThan(sq Sq, by Color, pt PieceType) bool {
+	if pt == King {
+		return b.IsAttackedBy(sq, by)
+	}
+	sqIdx := squareIndex(sq)
+	if pt > Pawn && PawnAttacksTo[by][sqIdx]&b.pieces[by][Pawn] != 0 {
+		return true
+	}
+	if pt >= Rook && KnightAttacks[sqIdx]&b.pieces[by][Knight] != 0 {
+		return true
+	}
+	if pt >= Rook {
+		occ := b.occupiedBB()
+		l := &lineMasks[sqIdx&63]
+		if (lineAttacks(sqIdx, occ, l.diag)|lineAttacks(sqIdx, occ, l.anti))&b.pieces[by][Bishop] != 0 {
+			return true
+		}
+	}
+	if pt > Rook {
+		occ := b.occupiedBB()
+		l := &lineMasks[sqIdx&63]
+		if (lineAttacks(sqIdx, occ, l.file)|lineAttacks(sqIdx, occ, l.rank))&b.pieces[by][Rook] != 0 {
+			return true
+		}
+	}
+	return false
+}
+
 // IsInCheck reports whether the king of color is in check.
 func (b *Board) IsInCheck(color Color) bool {
 	return b.IsAttackedBy(b.kings[color], color.Other())

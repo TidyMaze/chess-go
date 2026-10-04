@@ -362,6 +362,7 @@ func (p Player) pickScored(g *game.Game, reuse *TranspositionTable) (game.Move, 
 			Simulations: p.MCTSSims,
 			TimeBudget:  p.TimeBudget,
 			Threads:     p.Threads,
+			Eval:        evalForPlayer(p),
 		}
 		m, ok := MCTSv4(g, cfg)
 		return m, math.NaN(), ok
