@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"os"
 	"testing"
 
 	"chess/game"
@@ -35,12 +34,6 @@ func TestForcesStalemateWhenLosing(t *testing.T) {
 			want: "g3g6",
 		},
 	}
-
-	wd, _ := os.Getwd()
-	if err := os.Chdir(".."); err != nil {
-		t.Fatal(err)
-	}
-	defer os.Chdir(wd)
 
 	champ := ReadChampion("champion_bot.json")
 	p, err := champ.PlayerOrError()
@@ -80,12 +73,6 @@ func TestForcesPerpetualDrawWhenLosing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	wd, _ := os.Getwd()
-	if err := os.Chdir(".."); err != nil {
-		t.Fatal(err)
-	}
-	defer os.Chdir(wd)
 
 	champ := ReadChampion("champion_bot.json")
 	p, err := champ.PlayerOrError()

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 )
@@ -68,10 +69,24 @@ func DefaultChampion() Champion {
 	}
 }
 
+func resolvePath(path string) string {
+	if path == "" || filepath.IsAbs(path) {
+		return path
+	}
+	if _, err := os.Stat(path); err == nil {
+		return path
+	}
+	alt := filepath.Join("..", path)
+	if _, err := os.Stat(alt); err == nil {
+		return alt
+	}
+	return path
+}
+
 // ReadChampion reads the descriptor, falling back to the default rather
 // than failing: a missing or corrupt file must not stop a human playing.
 func ReadChampion(path string) Champion {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(resolvePath(path))
 	if err != nil {
 		return DefaultChampion()
 	}
@@ -134,7 +149,8 @@ func (c Champion) PlayerOrError() (Player, error) {
 	}
 	p.Tune = tune
 	if c.NetFile != "" {
-		n, err := LoadHalfKPNet(c.NetFile)
+		netPath := resolvePath(c.NetFile)
+		n, err := LoadHalfKPNet(netPath)
 		if err != nil {
 			return p, fmt.Errorf("network %s named by the champion did not load: %w", c.NetFile, err)
 		}
@@ -142,14 +158,16 @@ func (c Champion) PlayerOrError() (Player, error) {
 		p.HalfKPBlend = c.HandBlend
 	}
 	if c.Book != "" {
-		b, err := LoadBook(c.Book)
+		bookPath := resolvePath(c.Book)
+		b, err := LoadBook(bookPath)
 		if err != nil {
 			return p, fmt.Errorf("book %s named by the champion did not load: %w", c.Book, err)
 		}
 		p.Book = b
 	}
 	if c.Syzygy != "" {
-		tb, err := LoadTablebases(c.Syzygy)
+		tbPath := resolvePath(c.Syzygy)
+		tb, err := LoadTablebases(tbPath)
 		if err != nil {
 			return p, fmt.Errorf("tablebases %s named by the champion did not load: %w", c.Syzygy, err)
 		}
