@@ -440,7 +440,7 @@ func tacticalMaterialPayoff(b *board.Board, m game.Move, mover board.Color) floa
 		}
 	}
 
-	// Penalize hanging major/minor pieces of mover
+	// Penalize hanging major pieces of mover
 	qBB := b.PieceBitboard(mover, board.Queen)
 	for qBB != 0 {
 		sqIdx := bits.TrailingZeros64(qBB)
@@ -451,6 +451,20 @@ func tacticalMaterialPayoff(b *board.Board, m game.Move, mover board.Color) floa
 				diff -= 8.0
 			} else {
 				diff += 8.0
+			}
+			break
+		}
+	}
+	rBB := b.PieceBitboard(mover, board.Rook)
+	for rBB != 0 {
+		sqIdx := bits.TrailingZeros64(rBB)
+		rBB &= rBB - 1
+		sq := board.Sq{File: int8(sqIdx % 8), Rank: int8(sqIdx / 8)}
+		if b.IsAttackedBy(sq, opponent) && !b.IsAttackedBy(sq, mover) {
+			if mover == board.White {
+				diff -= 4.5
+			} else {
+				diff += 4.5
 			}
 			break
 		}
@@ -469,6 +483,84 @@ func isAttackedAfterMove(b *board.Board, to board.Sq, from board.Sq, color board
 		return b.IsAttackedByLesserThan(to, opp, piece.Type)
 	}
 	return b.IsAttackedBy(to, opp)
+}
+
+func givesDirectCheck(b *board.Board, m game.Move, moving board.Piece, opponent board.Color) bool {
+	kSq := b.KingSquare(opponent)
+	kIdx := uint8(kSq.Rank*8 + kSq.File)
+	toIdx := uint8(m.To.Rank*8 + m.To.File)
+	fromIdx := uint8(m.From.Rank*8 + m.From.File)
+
+	switch moving.Type {
+	case board.Knight:
+		return (board.KnightAttacks[toIdx] & (1 << kIdx)) != 0
+	case board.Pawn:
+		return (board.PawnAttacksTo[opponent][kIdx] & (1 << toIdx)) != 0
+	case board.Bishop:
+		occ := (b.ColorBitboard(board.White) | b.ColorBitboard(board.Black)) &^ (1 << fromIdx) | (1 << toIdx)
+		return (board.BishopAttacks(toIdx, occ) & (1 << kIdx)) != 0
+	case board.Rook:
+		occ := (b.ColorBitboard(board.White) | b.ColorBitboard(board.Black)) &^ (1 << fromIdx) | (1 << toIdx)
+		return (board.RookAttacks(toIdx, occ) & (1 << kIdx)) != 0
+	case board.Queen:
+		occ := (b.ColorBitboard(board.White) | b.ColorBitboard(board.Black)) &^ (1 << fromIdx) | (1 << toIdx)
+		return ((board.BishopAttacks(toIdx, occ) | board.RookAttacks(toIdx, occ)) & (1 << kIdx)) != 0
+	}
+	return false
+}
+
+func givesDiscoveredCheck(b *board.Board, from, to board.Sq, color board.Color) bool {
+	opp := color.Other()
+	kSq := b.KingSquare(opp)
+	df := int(from.File) - int(kSq.File)
+	dr := int(from.Rank) - int(kSq.Rank)
+
+	stepF, stepR := 0, 0
+	var t1, t2 board.PieceType
+
+	if df == 0 && dr != 0 {
+		stepF, stepR = 0, 1
+		if dr < 0 {
+			stepR = -1
+		}
+		t1, t2 = board.Rook, board.Queen
+	} else if dr == 0 && df != 0 {
+		stepF, stepR = 1, 0
+		if df < 0 {
+			stepF = -1
+		}
+		t1, t2 = board.Rook, board.Queen
+	} else if df == dr || df == -dr {
+		stepF = 1
+		if df < 0 {
+			stepF = -1
+		}
+		stepR = 1
+		if dr < 0 {
+			stepR = -1
+		}
+		t1, t2 = board.Bishop, board.Queen
+	} else {
+		return false
+	}
+
+	currF := int(kSq.File) + stepF
+	currR := int(kSq.Rank) + stepR
+	for currF != int(from.File) || currR != int(from.Rank) {
+		if _, occ := b.PieceAt(board.Sq{File: int8(currF), Rank: int8(currR)}); occ {
+			return false
+		}
+		currF += stepF
+		currR += stepR
+	}
+	return b.HitsSlider(from, stepF, stepR, color, t1, t2)
+}
+
+func givesCheck(b *board.Board, m game.Move, moving board.Piece, opponent board.Color) bool {
+	if givesDirectCheck(b, m, moving, opponent) {
+		return true
+	}
+	return givesDiscoveredCheck(b, m.From, m.To, moving.Color)
 }
 
 func orderMovesForMCTS(moves []game.Move, b *board.Board) {
@@ -490,35 +582,49 @@ func orderMovesForMCTS(moves []game.Move, b *board.Board) {
 		if moving.Type == board.Pawn && ((m.Promo == board.Queen) || (m.From.Rank == 6 && m.To.Rank == 7) || (m.From.Rank == 1 && m.To.Rank == 0)) {
 			sc += 500
 		}
+		chk := givesCheck(b, m, moving, opponent)
 		if isCap {
-			if materialWeights[moving.Type] <= materialWeights[captured.Type] {
+			isUnsafeCap := materialWeights[moving.Type] > materialWeights[captured.Type] && isAttackedAfterMove(b, m.To, m.From, moving.Color)
+			if captured.Type >= board.Rook || materialWeights[moving.Type] <= materialWeights[captured.Type] {
 				sc += 200 + int16(materialWeights[captured.Type]*10-materialWeights[moving.Type])
 			} else {
-				if !isAttackedAfterMove(b, m.To, m.From, moving.Color) {
+				if !isUnsafeCap {
 					sc += 200 + int16(materialWeights[captured.Type]*10-materialWeights[moving.Type])
 				} else {
 					sc -= 100
 				}
 			}
+			if chk {
+				if !isUnsafeCap {
+					sc += 300
+				} else {
+					sc -= 100
+				}
+			}
 		} else {
-			undo := b.MakeMove(m.From, m.To)
-			isChk := b.IsInCheck(opponent)
-			b.UnmakeMove(undo)
-
 			sqIdx := m.To.Rank*8 + m.To.File
 			isPawnAttacked := moving.Type > board.Pawn && (b.PieceBitboard(opponent, board.Pawn)&board.PawnAttacksTo[opponent][sqIdx]) != 0
 			isUnsafe := moving.Type > board.Pawn && isAttackedAfterMove(b, m.To, m.From, moving.Color)
 
 			if isPawnAttacked {
 				sc -= 300
-			} else if isChk {
-				sc += 250
 			} else if isUnsafe {
 				sc -= 200
 			}
+			if chk {
+				if !isPawnAttacked && !isUnsafe {
+					sc += 350
+				} else {
+					sc -= 150
+				}
+			}
 		}
 		if moving.Type == board.Pawn {
-			if m.To.File >= 2 && m.To.File <= 5 && (m.To.Rank == 3 || m.To.Rank == 4) {
+			if (moving.Color == board.White && m.To.Rank == 6) || (moving.Color == board.Black && m.To.Rank == 1) {
+				sc += 150
+			} else if (moving.Color == board.White && m.To.Rank == 5) || (moving.Color == board.Black && m.To.Rank == 2) {
+				sc += 60
+			} else if m.To.File >= 2 && m.To.File <= 5 && (m.To.Rank == 3 || m.To.Rank == 4) {
 				sc += 30
 			}
 		} else if moving.Type == board.Knight {
@@ -532,7 +638,7 @@ func orderMovesForMCTS(moves []game.Move, b *board.Board) {
 		} else if moving.Type == board.King {
 			if m.From.File == 4 && (m.To.File == 6 || m.To.File == 2) {
 				sc += 350
-			} else {
+			} else if !isCap && !b.IsInCheck(moving.Color) {
 				sc -= 250
 			}
 		}
@@ -1151,7 +1257,7 @@ func runMCTSv4Worker(g *game.Game, cfg MCTSConfig, legalMoves []game.Move, seed 
 					if m.Promo == board.Knight || m.Promo == board.Bishop || m.Promo == board.Rook {
 						promo = m.Promo
 					}
-					currBoard.Place(m.To, board.Piece{Color: movingPiece.Color, Type: promo})
+					currBoard.SetPiece(m.To, board.Piece{Color: movingPiece.Color, Type: promo})
 				}
 			}
 		}
@@ -1198,11 +1304,17 @@ func runMCTSv4Worker(g *game.Game, cfg MCTSConfig, legalMoves []game.Move, seed 
 				child.turn = parentTurn.Other()
 				movingPiece, _ := currBoard.PieceAt(m.From)
 				captured, capturedOk := currBoard.PieceAt(m.To)
+				chk := givesCheck(&currBoard, m, movingPiece, parentTurn.Other())
 				if capturedOk {
+					isUnsafeCap := materialWeights[movingPiece.Type] > materialWeights[captured.Type] && isAttackedAfterMove(&currBoard, m.To, m.From, parentTurn)
 					if currBoard.IsInCheck(parentTurn) {
 						child.prior = 1.8
-					} else if materialWeights[movingPiece.Type] <= materialWeights[captured.Type] || !isAttackedAfterMove(&currBoard, m.To, m.From, parentTurn) {
+					} else if chk && !isUnsafeCap {
+						child.prior = 1.6
+					} else if !isUnsafeCap && (captured.Type >= board.Rook || materialWeights[movingPiece.Type] <= materialWeights[captured.Type]) {
 						child.prior = 1.5
+					} else if !isUnsafeCap && captured.Type >= board.Knight {
+						child.prior = 1.2
 					} else {
 						child.prior = 0.1
 					}
@@ -1212,16 +1324,25 @@ func runMCTSv4Worker(g *game.Game, cfg MCTSConfig, legalMoves []game.Move, seed 
 					} else {
 						child.prior = 1.0
 					}
-				} else if movingPiece.Type > board.Pawn && isAttackedAfterMove(&currBoard, m.To, m.From, parentTurn) {
-					child.prior = 0.1
-				} else if movingPiece.Type == board.King {
-					if m.From.File == 4 && (m.To.File == 6 || m.To.File == 2) {
-						child.prior = 1.6
-					} else {
-						child.prior = 0.05
-					}
 				} else {
-					child.prior = 1.0
+					isUnsafe := movingPiece.Type > board.Pawn && isAttackedAfterMove(&currBoard, m.To, m.From, parentTurn)
+					if chk {
+						if !isUnsafe {
+							child.prior = 1.6
+						} else {
+							child.prior = 0.1
+						}
+					} else if isUnsafe {
+						child.prior = 0.1
+					} else if movingPiece.Type == board.King {
+						if m.From.File == 4 && (m.To.File == 6 || m.To.File == 2) {
+							child.prior = 1.6
+						} else {
+							child.prior = 0.05
+						}
+					} else {
+						child.prior = 1.0
+					}
 				}
 				undos[undoDepth] = currBoard.MakeMove(m.From, m.To)
 				undoDepth++
@@ -1244,7 +1365,7 @@ func runMCTSv4Worker(g *game.Game, cfg MCTSConfig, legalMoves []game.Move, seed 
 						if m.Promo == board.Knight || m.Promo == board.Bishop || m.Promo == board.Rook {
 							promo = m.Promo
 						}
-						currBoard.Place(m.To, board.Piece{Color: movingPiece.Color, Type: promo})
+						currBoard.SetPiece(m.To, board.Piece{Color: movingPiece.Color, Type: promo})
 						pw := int16(materialWeights[promo] - 1)
 						if parentTurn == board.White {
 							matDiff += pw
@@ -1328,37 +1449,80 @@ func pickBestRootMoveV4(g *game.Game, root *mctsNodeV4, legalMoves []game.Move) 
 	if root == nil || root.firstChild == nil {
 		return legalMoves[0], true
 	}
-	hasPositive := false
+	var maxVisits int32
 	for child := root.firstChild; child != nil; child = child.nextSibling {
-		if child.visits >= 30 && child.wins >= 0.50*float64(child.visits) {
-			hasPositive = true
-			break
+		if child.visits > maxVisits {
+			maxVisits = child.visits
 		}
 	}
+	threshold := maxVisits / 3
+	if threshold < 30 {
+		threshold = 30
+	}
+	if threshold > maxVisits {
+		threshold = maxVisits
+	}
+
 	bestChild := root.firstChild
 	bestScore := -1e9
 	for child := root.firstChild; child != nil; child = child.nextSibling {
-		score := float64(child.visits)
-		if child.visits > 0 {
-			rate := child.wins / float64(child.visits)
-			if hasPositive && rate < 0.50 {
-				score *= 0.1
+		if child.visits < threshold && child.visits < maxVisits {
+			continue
+		}
+		n := float64(child.visits)
+		if child.isTerminal && child.wins == float64(child.visits) && child.visits > 0 {
+			// Direct winning terminal (checkmate)
+			score := 1e7 + float64(child.visits)
+			if score > bestScore {
+				bestChild = child
+				bestScore = score
+			}
+			continue
+		}
+
+		p := (child.wins + 1.0) / (n + 2.0)
+		var worstOppRate float64
+		allowsMate := false
+		for rep := child.firstChild; rep != nil; rep = rep.nextSibling {
+			if rep.isTerminal && rep.wins == float64(rep.visits) && rep.visits > 0 {
+				allowsMate = true
+				break
+			}
+			if rep.visits >= 15 || rep.visits >= child.visits/8 {
+				oppRate := rep.wins / float64(rep.visits)
+				if oppRate > worstOppRate {
+					worstOppRate = oppRate
+				}
 			}
 		}
-		if g != nil && g.TrackRepetition {
-			rep := g.CountIfPlayed(child.move.From, child.move.To)
-			rate := child.wins / float64(child.visits+1)
-			if rep >= 2 {
-				if rate >= 0.45 {
-					score -= 1e6
+		var score float64
+		if allowsMate {
+			score = -1e7 - float64(child.visits)
+		} else {
+			if worstOppRate > 0.48 {
+				refutedP := 1.0 - worstOppRate
+				if refutedP < p {
+					p = refutedP
 				}
-			} else if rep >= 1 {
-				if rate >= 0.55 {
-					score *= 0.5
+			}
+
+			se := math.Sqrt(p * (1.0 - p) / (n + 2.0))
+			score = p - 1.5*se
+
+			if g != nil && g.TrackRepetition {
+				rep := g.CountIfPlayed(child.move.From, child.move.To)
+				if rep >= 2 {
+					if p >= 0.45 {
+						score -= 1e6
+					}
+				} else if rep >= 1 {
+					if p >= 0.55 {
+						score *= 0.5
+					}
 				}
 			}
 		}
-		if score > bestScore || (score == bestScore && child.wins > bestChild.wins) {
+		if score > bestScore || (score == bestScore && child.visits > bestChild.visits) {
 			bestChild = child
 			bestScore = score
 		}
@@ -1428,6 +1592,8 @@ func MCTSv4(g *game.Game, cfg MCTSConfig) (game.Move, bool) {
 
 	var visitCounts [128]int32
 	var winSums [128]float64
+	var maxVisits int32
+
 	for _, root := range workerRoots {
 		if root != nil {
 			for child := root.firstChild; child != nil; child = child.nextSibling {
@@ -1435,6 +1601,9 @@ func MCTSv4(g *game.Game, cfg MCTSConfig) (game.Move, bool) {
 					if m == child.move {
 						visitCounts[idx] += child.visits
 						winSums[idx] += child.wins
+						if visitCounts[idx] > maxVisits {
+							maxVisits = visitCounts[idx]
+						}
 						break
 					}
 				}
@@ -1446,12 +1615,26 @@ func MCTSv4(g *game.Game, cfg MCTSConfig) (game.Move, bool) {
 		mctsArenaV4Pool.Put(a)
 	}
 
+	hasPositive := false
+	for idx := range legalMoves {
+		if visitCounts[idx] >= 30 && winSums[idx] >= 0.50*float64(visitCounts[idx]) {
+			hasPositive = true
+			break
+		}
+	}
+
 	bestMove := legalMoves[0]
 	var bestScore float64 = -1e9
 	var bestWin float64 = -1
 	for idx, m := range legalMoves {
 		v := float64(visitCounts[idx])
 		w := winSums[idx]
+		if v > 0 {
+			rate := w / v
+			if hasPositive && rate < 0.50 {
+				v *= 0.1
+			}
+		}
 		if g != nil && g.TrackRepetition {
 			rep := g.CountIfPlayed(m.From, m.To)
 			rate := w / (v + 1)

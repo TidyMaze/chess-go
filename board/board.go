@@ -256,7 +256,7 @@ func (b *Board) setPiece(s Sq, p Piece) {
 	if p.Type == King {
 		b.kings[p.Color] = s
 	}
-	if wasEmpty {
+	if wasEmpty && b.occupiedCount < len(b.occupied) {
 		b.occupied[b.occupiedCount] = squareIndex(s)
 		b.occupiedCount++
 	}

@@ -221,3 +221,13 @@ func TestBoardFindPinnedPiece(t *testing.T) {
 		t.Fatalf("expected rook not to pin when checking for bishop")
 	}
 }
+
+func TestBoardSetPieceDoesNotPanicOnFullOccupied(t *testing.T) {
+	b := Initial() // has 32 pieces
+	// Replacing a piece on a square should not panic or exceed occupied buffer
+	b.SetPiece(Sq{0, 7}, Piece{White, Queen})
+	if p, ok := b.PieceAt(Sq{0, 7}); !ok || p != (Piece{White, Queen}) {
+		t.Fatalf("expected white queen at a8, got %+v ok=%v", p, ok)
+	}
+}
+
