@@ -1166,8 +1166,8 @@ func TestDebugGame16MateBlunder(t *testing.T) {
 		}
 		t.Logf("move: %s, visits: %d, wins: %.2f (rate: %.3f), prior: %.2f",
 			g.MoveUCI(child.move), child.visits, child.wins, winRate, child.prior)
-		if g.MoveUCI(child.move) == "f3c6" {
-			t.Logf("--- f3c6 replies ---")
+		if g.MoveUCI(child.move) == "f3c6" || g.MoveUCI(child.move) == "f3g4" {
+			t.Logf("--- %s replies ---", g.MoveUCI(child.move))
 			for rep := child.firstChild; rep != nil; rep = rep.nextSibling {
 				t.Logf("  black reply: %s, visits: %d, wins for Black: %.2f, prior: %.2f",
 					g.MoveUCI(rep.move), rep.visits, rep.wins, rep.prior)
@@ -1475,5 +1475,133 @@ func TestDebugGame13Ply32MateBlunder(t *testing.T) {
 
 
 
+func TestDebugGame22MateIn3(t *testing.T) {
+	g := mustFEN(t, "1nbqkbnr/1p1ppppp/r1p5/p7/4P3/1P5N/P1PP1PPP/RNBQKB1R w KQk - 0 1")
+	moves := []string{
+		"f1e2", "a6b6", "d2d4", "d7d5", "e4e5", "f7f6", "d1d3", "b6b4", "h3f4",
+	}
+	findMove := func(gm *game.Game, uci string) game.Move {
+		for _, mv := range gm.AllLegalMoves(gm.Turn) {
+			if gm.MoveUCI(mv) == uci {
+				return mv
+			}
+		}
+		return game.Move{}
+	}
+	for _, uci := range moves {
+		mv := findMove(g, uci)
+		if mv.From == mv.To {
+			t.Fatalf("could not find move %s", uci)
+		}
+		g.Apply(mv)
+	}
+	t.Logf("Turn: %d, FEN: %s", g.Turn, g.FEN())
+	p, err := ReadChampion("../champion_bot.json").PlayerOrError()
+	if err != nil {
+		t.Fatalf("champion: %v", err)
+	}
+	cfg := MCTSConfig{
+		TimeBudget: 10 * time.Millisecond,
+		Eval:       evalForPlayer(p),
+		Threads:    4,
+	}
+	m, ok := MCTSv4(g, cfg)
+	if !ok {
+		t.Fatal("no move")
+	}
+	t.Logf("MCTSv4 picked: %s", g.MoveUCI(m))
+	if g.MoveUCI(m) == "b8d7" {
+		t.Fatalf("MCTSv4 blundered mate in 3 with b8d7 allowing e2h5+")
+	}
+}
+
+func TestKQvKPawnEndgameZfmJyh0x(t *testing.T) {
+	g := mustFEN(t, "8/8/8/5k2/4p3/8/8/Q5K1 w - - 0 1")
+	p, err := ReadChampion("../champion_bot.json").PlayerOrError()
+	if err != nil {
+		t.Fatalf("champion: %v", err)
+	}
+	cfg := MCTSConfig{
+		TimeBudget: 50 * time.Millisecond,
+		Eval:       evalForPlayer(p),
+		Threads:    4,
+	}
+	arena := mctsArenaV4Pool.Get().(*mctsArenaV4)
+	arena.reset()
+	var rootMovesBuf [128]game.Move
+	legalMoves := g.AppendLegalMoves(rootMovesBuf[:0], g.Turn)
+	root := runMCTSv4Worker(g, cfg, legalMoves, 42, 0, arena)
+	for child := root.firstChild; child != nil; child = child.nextSibling {
+		winRate := 0.0
+		if child.visits > 0 {
+			winRate = child.wins / float64(child.visits)
+		}
+		t.Logf("move: %s, visits: %d, wins: %.2f (rate: %.3f), prior: %.2f",
+			g.MoveUCI(child.move), child.visits, child.wins, winRate, child.prior)
+	}
+	m, ok := MCTSv4(g, cfg)
+	if !ok {
+		t.Fatal("no move")
+	}
+	t.Logf("MCTSv4 picked: %s", g.MoveUCI(m))
+}
+
+func TestDebugGame12Move23SacrificeBlunder(t *testing.T) {
+	g := mustFEN(t, "r2qkbnr/pbpppppp/np6/7Q/8/3PP3/PPP2PPP/RNB1KBNR w KQkq - 3 2")
+	moves := []string{
+		"d3d4", "g7g6", "h5e5", "f7f6", "e5g3", "a6b4", "b1a3", "e7e6",
+		"c2c3", "b4d5", "e3e4", "d5e7", "a3b5", "e6e5", "d4e5", "b7e4",
+		"f2f3", "e7f5", "g3g4", "e4c6", "e5f6", "g8f6",
+	}
+	findMove := func(gm *game.Game, uci string) game.Move {
+		for _, mv := range gm.AllLegalMoves(gm.Turn) {
+			if gm.MoveUCI(mv) == uci {
+				return mv
+			}
+		}
+		return game.Move{}
+	}
+	for _, uci := range moves {
+		mv := findMove(g, uci)
+		g.Apply(mv)
+	}
+	p, err := ReadChampion("../champion_bot.json").PlayerOrError()
+	if err != nil {
+		t.Fatalf("champion: %v", err)
+	}
+	cfg := MCTSConfig{
+		TimeBudget: 10 * time.Millisecond,
+		Eval:       evalForPlayer(p),
+		Threads:    4,
+	}
+	m, ok := MCTSv4(g, cfg)
+	if !ok {
+		t.Fatal("no move")
+	}
+	t.Logf("MCTSv4 picked: %s", g.MoveUCI(m))
+	if g.MoveUCI(m) == "b5c7" {
+		t.Fatalf("MCTSv4 blundered knight with b5c7 allowing d8c7")
+	}
+}
+
+func TestBe2MoveMCTSv4(t *testing.T) {
+	g := mustFEN(t, "rnbqkbnr/pp1pp1p1/2p2p2/7p/P1P1P3/8/1P1PBPPP/RNBQK1NR b KQkq - 1 1")
+	p, err := ReadChampion("../champion_bot.json").PlayerOrError()
+	if err != nil {
+		t.Fatalf("champion: %v", err)
+	}
+	cfg := MCTSConfig{
+		TimeBudget: 10 * time.Millisecond,
+		Eval:       evalForPlayer(p),
+		Threads:    4,
+	}
+	m, ok := MCTSv4(g, cfg)
+	if !ok {
+		t.Fatal("no move")
+	}
+	if g.MoveUCI(m) == "b7b5" {
+		t.Fatalf("MCTSv4 blundered b7b5 allowing Bxh5#")
+	}
+}
 
 
